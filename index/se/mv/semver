@@ -1,0 +1,1 @@
+{"name":"semver","vers":"1.0.22","deps":[{"name":"serde","req":"^1.0.194","features":[],"optional":true,"default_features":false,"target":null,"kind":null,"package":null}],"cksum":"92d43fe69e652f3df9bdc2b85b2854a0825b86e4fb76bc44d945137d053639ca","features":{"default":["std"],"serde":["dep:serde"],"std":[]},"yanked":false}
