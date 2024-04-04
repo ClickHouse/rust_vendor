@@ -23,7 +23,7 @@ keywords = ["fuzzy", "match", "text", "search"]
 license = "MIT"
 repository = "https://github.com/lotabout/fuzzy-matcher"
 [dependencies.thread_local]
-version = "1.0.0"
+version = "1.1.4"
 [dev-dependencies.termion]
 version = "1.5.1"
 
