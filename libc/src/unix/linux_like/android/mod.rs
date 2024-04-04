@@ -496,6 +496,22 @@ s! {
         pub flag: *mut ::c_int,
         pub val: ::c_int,
     }
+
+    pub struct __c_anonymous_ifru_map {
+        pub mem_start: ::c_ulong,
+        pub mem_end: ::c_ulong,
+        pub base_addr: ::c_ushort,
+        pub irq: ::c_uchar,
+        pub dma: ::c_uchar,
+        pub port: ::c_uchar,
+    }
+
+    pub struct in6_ifreq {
+       pub ifr6_addr: ::in6_addr,
+       pub ifr6_prefixlen: u32,
+       pub ifr6_ifindex: ::c_int,
+   }
+
 }
 
 s_no_extra_traits! {
@@ -591,6 +607,50 @@ s_no_extra_traits! {
         __serial: ::c_uint,
         __value: [[::c_char; 4]; 23],
     }
+
+    #[cfg(libc_union)]
+    pub union __c_anonymous_ifr_ifru {
+        pub ifru_addr: ::sockaddr,
+        pub ifru_dstaddr: ::sockaddr,
+        pub ifru_broadaddr: ::sockaddr,
+        pub ifru_netmask: ::sockaddr,
+        pub ifru_hwaddr: ::sockaddr,
+        pub ifru_flags: ::c_short,
+        pub ifru_ifindex: ::c_int,
+        pub ifru_metric: ::c_int,
+        pub ifru_mtu: ::c_int,
+        pub ifru_map: __c_anonymous_ifru_map,
+        pub ifru_slave: [::c_char; ::IFNAMSIZ],
+        pub ifru_newname: [::c_char; ::IFNAMSIZ],
+        pub ifru_data: *mut ::c_char,
+    }
+
+    pub struct ifreq {
+        /// interface name, e.g. "en0"
+        pub ifr_name: [::c_char; ::IFNAMSIZ],
+        #[cfg(libc_union)]
+        pub ifr_ifru: __c_anonymous_ifr_ifru,
+        #[cfg(not(libc_union))]
+        pub ifr_ifru: ::sockaddr,
+    }
+
+    #[cfg(libc_union)]
+    pub union __c_anonymous_ifc_ifcu {
+        pub ifcu_buf: *mut ::c_char,
+        pub ifcu_req: *mut ::ifreq,
+    }
+
+    /*  Structure used in SIOCGIFCONF request.  Used to retrieve interface
+    configuration for machine (useful for programs which must know all
+    networks accessible).  */
+    pub struct ifconf {
+        pub ifc_len: ::c_int,       /* Size of buffer.  */
+        #[cfg(libc_union)]
+        pub ifc_ifcu: __c_anonymous_ifc_ifcu,
+        #[cfg(not(libc_union))]
+        pub ifc_ifcu: *mut ::ifreq,
+    }
+
 }
 
 cfg_if! {
@@ -935,6 +995,53 @@ cfg_if! {
                 self.absmin.hash(state);
                 self.absfuzz.hash(state);
                 self.absflat.hash(state);
+            }
+        }
+
+        #[cfg(libc_union)]
+        impl ::fmt::Debug for __c_anonymous_ifr_ifru {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ifr_ifru")
+                    .field("ifru_addr", unsafe { &self.ifru_addr })
+                    .field("ifru_dstaddr", unsafe { &self.ifru_dstaddr })
+                    .field("ifru_broadaddr", unsafe { &self.ifru_broadaddr })
+                    .field("ifru_netmask", unsafe { &self.ifru_netmask })
+                    .field("ifru_hwaddr", unsafe { &self.ifru_hwaddr })
+                    .field("ifru_flags", unsafe { &self.ifru_flags })
+                    .field("ifru_ifindex", unsafe { &self.ifru_ifindex })
+                    .field("ifru_metric", unsafe { &self.ifru_metric })
+                    .field("ifru_mtu", unsafe { &self.ifru_mtu })
+                    .field("ifru_map", unsafe { &self.ifru_map })
+                    .field("ifru_slave", unsafe { &self.ifru_slave })
+                    .field("ifru_newname", unsafe { &self.ifru_newname })
+                    .field("ifru_data", unsafe { &self.ifru_data })
+                    .finish()
+            }
+        }
+        impl ::fmt::Debug for ifreq {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ifreq")
+                    .field("ifr_name", &self.ifr_name)
+                    .field("ifr_ifru", &self.ifr_ifru)
+                    .finish()
+            }
+        }
+
+        #[cfg(libc_union)]
+        impl ::fmt::Debug for __c_anonymous_ifc_ifcu {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ifr_ifru")
+                    .field("ifcu_buf", unsafe { &self.ifcu_buf })
+                    .field("ifcu_req", unsafe { &self.ifcu_req })
+                    .finish()
+            }
+        }
+        impl ::fmt::Debug for ifconf {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ifconf")
+                    .field("ifc_len", &self.ifc_len)
+                    .field("ifc_ifcu", &self.ifc_ifcu)
+                    .finish()
             }
         }
 
@@ -2168,6 +2275,8 @@ pub const O_TMPFILE: ::c_int = 0o20000000 | O_DIRECTORY;
 pub const MFD_CLOEXEC: ::c_uint = 0x0001;
 pub const MFD_ALLOW_SEALING: ::c_uint = 0x0002;
 pub const MFD_HUGETLB: ::c_uint = 0x0004;
+pub const MFD_NOEXEC_SEAL: ::c_uint = 0x0008;
+pub const MFD_EXEC: ::c_uint = 0x0010;
 pub const MFD_HUGE_64KB: ::c_uint = 0x40000000;
 pub const MFD_HUGE_512KB: ::c_uint = 0x4c000000;
 pub const MFD_HUGE_1MB: ::c_uint = 0x50000000;
@@ -2715,6 +2824,7 @@ pub const NFEA_DONT_REFRESH: ::c_ushort = 2;
 
 pub const SIOCADDRT: ::c_ulong = 0x0000890B;
 pub const SIOCDELRT: ::c_ulong = 0x0000890C;
+pub const SIOCRTMSG: ::c_ulong = 0x0000890D;
 pub const SIOCGIFNAME: ::c_ulong = 0x00008910;
 pub const SIOCSIFLINK: ::c_ulong = 0x00008911;
 pub const SIOCGIFCONF: ::c_ulong = 0x00008912;
@@ -2734,6 +2844,7 @@ pub const SIOCGIFMEM: ::c_ulong = 0x0000891F;
 pub const SIOCSIFMEM: ::c_ulong = 0x00008920;
 pub const SIOCGIFMTU: ::c_ulong = 0x00008921;
 pub const SIOCSIFMTU: ::c_ulong = 0x00008922;
+pub const SIOCSIFNAME: ::c_ulong = 0x00008923;
 pub const SIOCSIFHWADDR: ::c_ulong = 0x00008924;
 pub const SIOCGIFENCAP: ::c_ulong = 0x00008925;
 pub const SIOCSIFENCAP: ::c_ulong = 0x00008926;
@@ -2742,6 +2853,24 @@ pub const SIOCGIFSLAVE: ::c_ulong = 0x00008929;
 pub const SIOCSIFSLAVE: ::c_ulong = 0x00008930;
 pub const SIOCADDMULTI: ::c_ulong = 0x00008931;
 pub const SIOCDELMULTI: ::c_ulong = 0x00008932;
+pub const SIOCGIFINDEX: ::c_ulong = 0x00008933;
+pub const SIOGIFINDEX: ::c_ulong = SIOCGIFINDEX;
+pub const SIOCSIFPFLAGS: ::c_ulong = 0x00008934;
+pub const SIOCGIFPFLAGS: ::c_ulong = 0x00008935;
+pub const SIOCDIFADDR: ::c_ulong = 0x00008936;
+pub const SIOCSIFHWBROADCAST: ::c_ulong = 0x00008937;
+pub const SIOCGIFCOUNT: ::c_ulong = 0x00008938;
+pub const SIOCGIFBR: ::c_ulong = 0x00008940;
+pub const SIOCSIFBR: ::c_ulong = 0x00008941;
+pub const SIOCGIFTXQLEN: ::c_ulong = 0x00008942;
+pub const SIOCSIFTXQLEN: ::c_ulong = 0x00008943;
+pub const SIOCETHTOOL: ::c_ulong = 0x00008946;
+pub const SIOCGMIIPHY: ::c_ulong = 0x00008947;
+pub const SIOCGMIIREG: ::c_ulong = 0x00008948;
+pub const SIOCSMIIREG: ::c_ulong = 0x00008949;
+pub const SIOCWANDEV: ::c_ulong = 0x0000894A;
+pub const SIOCOUTQNSD: ::c_ulong = 0x0000894B;
+pub const SIOCGSKNS: ::c_ulong = 0x0000894C;
 pub const SIOCDARP: ::c_ulong = 0x00008953;
 pub const SIOCGARP: ::c_ulong = 0x00008954;
 pub const SIOCSARP: ::c_ulong = 0x00008955;
@@ -2750,6 +2879,24 @@ pub const SIOCGRARP: ::c_ulong = 0x00008961;
 pub const SIOCSRARP: ::c_ulong = 0x00008962;
 pub const SIOCGIFMAP: ::c_ulong = 0x00008970;
 pub const SIOCSIFMAP: ::c_ulong = 0x00008971;
+pub const SIOCADDDLCI: ::c_ulong = 0x00008980;
+pub const SIOCDELDLCI: ::c_ulong = 0x00008981;
+pub const SIOCGIFVLAN: ::c_ulong = 0x00008982;
+pub const SIOCSIFVLAN: ::c_ulong = 0x00008983;
+pub const SIOCBONDENSLAVE: ::c_ulong = 0x00008990;
+pub const SIOCBONDRELEASE: ::c_ulong = 0x00008991;
+pub const SIOCBONDSETHWADDR: ::c_ulong = 0x00008992;
+pub const SIOCBONDSLAVEINFOQUERY: ::c_ulong = 0x00008993;
+pub const SIOCBONDINFOQUERY: ::c_ulong = 0x00008994;
+pub const SIOCBONDCHANGEACTIVE: ::c_ulong = 0x00008995;
+pub const SIOCBRADDBR: ::c_ulong = 0x000089a0;
+pub const SIOCBRDELBR: ::c_ulong = 0x000089a1;
+pub const SIOCBRADDIF: ::c_ulong = 0x000089a2;
+pub const SIOCBRDELIF: ::c_ulong = 0x000089a3;
+pub const SIOCSHWTSTAMP: ::c_ulong = 0x000089b0;
+pub const SIOCGHWTSTAMP: ::c_ulong = 0x000089b1;
+pub const SIOCDEVPRIVATE: ::c_ulong = 0x000089F0;
+pub const SIOCPROTOPRIVATE: ::c_ulong = 0x000089E0;
 
 // linux/module.h
 pub const MODULE_INIT_IGNORE_MODVERSIONS: ::c_uint = 0x0001;
@@ -3322,6 +3469,37 @@ pub const NET_NETFILTER: ::c_int = 19;
 pub const NET_DCCP: ::c_int = 20;
 pub const HUGETLB_FLAG_ENCODE_SHIFT: ::c_int = 26;
 pub const MAP_HUGE_SHIFT: ::c_int = HUGETLB_FLAG_ENCODE_SHIFT;
+
+// include/linux/sched.h
+pub const PF_VCPU: ::c_int = 0x00000001;
+pub const PF_IDLE: ::c_int = 0x00000002;
+pub const PF_EXITING: ::c_int = 0x00000004;
+pub const PF_POSTCOREDUMP: ::c_int = 0x00000008;
+pub const PF_IO_WORKER: ::c_int = 0x00000010;
+pub const PF_WQ_WORKER: ::c_int = 0x00000020;
+pub const PF_FORKNOEXEC: ::c_int = 0x00000040;
+pub const PF_MCE_PROCESS: ::c_int = 0x00000080;
+pub const PF_SUPERPRIV: ::c_int = 0x00000100;
+pub const PF_DUMPCORE: ::c_int = 0x00000200;
+pub const PF_SIGNALED: ::c_int = 0x00000400;
+pub const PF_MEMALLOC: ::c_int = 0x00000800;
+pub const PF_NPROC_EXCEEDED: ::c_int = 0x00001000;
+pub const PF_USED_MATH: ::c_int = 0x00002000;
+pub const PF_USER_WORKER: ::c_int = 0x00004000;
+pub const PF_NOFREEZE: ::c_int = 0x00008000;
+
+pub const PF_KSWAPD: ::c_int = 0x00020000;
+pub const PF_MEMALLOC_NOFS: ::c_int = 0x00040000;
+pub const PF_MEMALLOC_NOIO: ::c_int = 0x00080000;
+pub const PF_LOCAL_THROTTLE: ::c_int = 0x00100000;
+pub const PF_KTHREAD: ::c_int = 0x00200000;
+pub const PF_RANDOMIZE: ::c_int = 0x00400000;
+
+pub const PF_NO_SETAFFINITY: ::c_int = 0x04000000;
+pub const PF_MCE_EARLY: ::c_int = 0x08000000;
+pub const PF_MEMALLOC_PIN: ::c_int = 0x10000000;
+
+pub const PF_SUSPEND_TASK: ::c_int = 0x80000000;
 
 // Most `*_SUPER_MAGIC` constants are defined at the `linux_like` level; the
 // following are only available on newer Linux versions than the versions

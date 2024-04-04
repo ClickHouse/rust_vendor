@@ -5,6 +5,7 @@ use quickcheck::{quickcheck, TestResult};
 use std::fmt::Debug;
 
 struct Unspecialized<I>(I);
+
 impl<I> Iterator for Unspecialized<I>
 where
     I: Iterator,
@@ -17,10 +18,20 @@ where
     }
 }
 
-fn test_specializations<IterItem, Iter>(it: &Iter)
+impl<I> DoubleEndedIterator for Unspecialized<I>
 where
-    IterItem: Eq + Debug + Clone,
-    Iter: Iterator<Item = IterItem> + Clone,
+    I: DoubleEndedIterator,
+{
+    #[inline(always)]
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back()
+    }
+}
+
+fn test_specializations<I>(it: &I)
+where
+    I::Item: Eq + Debug + Clone,
+    I: Iterator + Clone,
 {
     macro_rules! check_specialized {
         ($src:expr, |$it:pat| $closure:expr) => {
@@ -41,7 +52,7 @@ where
     check_specialized!(it, |i| i.collect::<Vec<_>>());
     check_specialized!(it, |i| {
         let mut parameters_from_fold = vec![];
-        let fold_result = i.fold(vec![], |mut acc, v: IterItem| {
+        let fold_result = i.fold(vec![], |mut acc, v: I::Item| {
             parameters_from_fold.push((acc.clone(), v.clone()));
             acc.push(v);
             acc
@@ -72,6 +83,44 @@ where
             assert!(len <= max);
         }
         it_sh.next();
+    }
+}
+
+fn test_double_ended_specializations<I>(it: &I)
+where
+    I::Item: Eq + Debug + Clone,
+    I: DoubleEndedIterator + Clone,
+{
+    macro_rules! check_specialized {
+        ($src:expr, |$it:pat| $closure:expr) => {
+            // Many iterators special-case the first elements, so we test specializations for iterators that have already been advanced.
+            let mut src = $src.clone();
+            for step in 0..8 {
+                let $it = src.clone();
+                let v1 = $closure;
+                let $it = Unspecialized(src.clone());
+                let v2 = $closure;
+                assert_eq!(v1, v2);
+                if step % 2 == 0 {
+                    src.next();
+                } else {
+                    src.next_back();
+                }
+            }
+        }
+    }
+    check_specialized!(it, |i| {
+        let mut parameters_from_rfold = vec![];
+        let rfold_result = i.rfold(vec![], |mut acc, v: I::Item| {
+            parameters_from_rfold.push((acc.clone(), v.clone()));
+            acc.push(v);
+            acc
+        });
+        (parameters_from_rfold, rfold_result)
+    });
+    let size = it.clone().count();
+    for n in 0..size + 2 {
+        check_specialized!(it, |mut i| i.nth_back(n));
     }
 }
 
@@ -144,19 +193,27 @@ quickcheck! {
     }
 
     fn duplicates(v: Vec<u8>) -> () {
-        test_specializations(&v.iter().duplicates());
+        let it = v.iter().duplicates();
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn duplicates_by(v: Vec<u8>) -> () {
-        test_specializations(&v.iter().duplicates_by(|x| *x % 10));
+        let it = v.iter().duplicates_by(|x| *x % 10);
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn unique(v: Vec<u8>) -> () {
-        test_specializations(&v.iter().unique());
+        let it = v.iter().unique();
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn unique_by(v: Vec<u8>) -> () {
-        test_specializations(&v.iter().unique_by(|x| *x % 50));
+        let it = v.iter().unique_by(|x| *x % 50);
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn take_while_inclusive(v: Vec<u8>) -> () {
@@ -169,7 +226,9 @@ quickcheck! {
 
     fn pad_using(v: Vec<u8>) -> () {
         use std::convert::TryFrom;
-        test_specializations(&v.iter().copied().pad_using(10, |i| u8::try_from(5 * i).unwrap_or(u8::MAX)));
+        let it = v.iter().copied().pad_using(10, |i| u8::try_from(5 * i).unwrap_or(u8::MAX));
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn with_position(v: Vec<u8>) -> () {
@@ -177,11 +236,15 @@ quickcheck! {
     }
 
     fn positions(v: Vec<u8>) -> () {
-        test_specializations(&v.iter().positions(|x| x % 5 == 0));
+        let it = v.iter().positions(|x| x % 5 == 0);
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn update(v: Vec<u8>) -> () {
-        test_specializations(&v.iter().copied().update(|x| *x = x.wrapping_mul(7)));
+        let it = v.iter().copied().update(|x| *x = x.wrapping_mul(7));
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn tuple_combinations(v: Vec<u8>) -> TestResult {
@@ -235,7 +298,9 @@ quickcheck! {
     }
 
     fn zip_longest(a: Vec<u8>, b: Vec<u8>) -> () {
-        test_specializations(&a.into_iter().zip_longest(b))
+        let it = a.into_iter().zip_longest(b);
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn zip_eq(a: Vec<u8>) -> () {
@@ -243,8 +308,9 @@ quickcheck! {
     }
 
     fn multizip(a: Vec<u8>) -> () {
-        let its = (a.iter(), a.iter().rev(), a.iter().take(50));
-        test_specializations(&itertools::multizip(its));
+        let it = itertools::multizip((a.iter(), a.iter().rev(), a.iter().take(50)));
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn izip(a: Vec<u8>, b: Vec<u8>) -> () {
@@ -257,6 +323,23 @@ quickcheck! {
         }
         test_specializations(&itertools::iproduct!(a, b.iter(), c));
         TestResult::passed()
+    }
+
+    fn repeat_n(element: i8, n: u8) -> () {
+        let it = itertools::repeat_n(element, n as usize);
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
+    }
+
+    fn exactly_one_error(v: Vec<u8>) -> TestResult {
+        // Use `at_most_one` would be similar.
+        match v.iter().exactly_one() {
+            Ok(_) => TestResult::discard(),
+            Err(it) => {
+                test_specializations(&it);
+                TestResult::passed()
+            }
+        }
     }
 }
 
@@ -351,11 +434,15 @@ quickcheck! {
 
 quickcheck! {
     fn map_into(v: Vec<u8>) -> () {
-        test_specializations(&v.into_iter().map_into::<u32>());
+        let it = v.into_iter().map_into::<u32>();
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn map_ok(v: Vec<Result<u8, char>>) -> () {
-        test_specializations(&v.into_iter().map_ok(|u| u.checked_add(1)));
+        let it = v.into_iter().map_ok(|u| u.checked_add(1));
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 
     fn filter_ok(v: Vec<Result<u8, char>>) -> () {
@@ -368,7 +455,9 @@ quickcheck! {
 
     // `Option<u8>` because `Vec<u8>` would be very slow!! And we can't give `[u8; 3]`.
     fn flatten_ok(v: Vec<Result<Option<u8>, char>>) -> () {
-        test_specializations(&v.into_iter().flatten_ok());
+        let it = v.into_iter().flatten_ok();
+        test_specializations(&it);
+        test_double_ended_specializations(&it);
     }
 }
 

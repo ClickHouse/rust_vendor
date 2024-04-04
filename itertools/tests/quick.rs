@@ -38,7 +38,7 @@ impl HintKind for Exact {
 
 impl qc::Arbitrary for Exact {
     fn arbitrary<G: qc::Gen>(_: &mut G) -> Self {
-        Exact {}
+        Self {}
     }
 }
 
@@ -69,7 +69,7 @@ impl qc::Arbitrary for Inexact {
         // Compensate for quickcheck using extreme values too rarely
         let ue_choices = &[0, ue_value, usize::max_value()];
         let oe_choices = &[0, oe_value, usize::max_value()];
-        Inexact {
+        Self {
             underestimate: *ue_choices.choose(g).unwrap(),
             overestimate: *oe_choices.choose(g).unwrap(),
         }
@@ -79,7 +79,7 @@ impl qc::Arbitrary for Inexact {
         let underestimate_value = self.underestimate;
         let overestimate_value = self.overestimate;
         Box::new(underestimate_value.shrink().flat_map(move |ue_value| {
-            overestimate_value.shrink().map(move |oe_value| Inexact {
+            overestimate_value.shrink().map(move |oe_value| Self {
                 underestimate: ue_value,
                 overestimate: oe_value,
             })
@@ -108,7 +108,7 @@ where
     HK: HintKind,
 {
     fn new(it: Range<T>, hint_kind: HK) -> Self {
-        Iter {
+        Self {
             iterator: it,
             fuse_flag: 0,
             hint_kind,
@@ -166,16 +166,16 @@ where
     HK: HintKind,
 {
     fn arbitrary<G: qc::Gen>(g: &mut G) -> Self {
-        Iter::new(T::arbitrary(g)..T::arbitrary(g), HK::arbitrary(g))
+        Self::new(T::arbitrary(g)..T::arbitrary(g), HK::arbitrary(g))
     }
 
-    fn shrink(&self) -> Box<dyn Iterator<Item = Iter<T, HK>>> {
+    fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
         let r = self.iterator.clone();
         let hint_kind = self.hint_kind;
         Box::new(r.start.shrink().flat_map(move |a| {
             r.end
                 .shrink()
-                .map(move |b| Iter::new(a.clone()..b, hint_kind))
+                .map(move |b| Self::new(a.clone()..b, hint_kind))
         }))
     }
 }
@@ -231,7 +231,7 @@ where
         let iter_count = g.gen_range(0, MAX_ITER_COUNT + 1);
         let hint_kind = qc::Arbitrary::arbitrary(g);
 
-        ShiftRange {
+        Self {
             range_start,
             range_end,
             start_step,
@@ -604,6 +604,12 @@ quickcheck! {
         let b = &b[..len];
         itertools::equal(zip_eq(a, b), zip(a, b))
     }
+    fn equal_positions(a: Vec<i32>) -> bool {
+        let with_pos = a.iter().positions(|v| v % 2 == 0);
+        let without = a.iter().enumerate().filter(|(_, v)| *v % 2 == 0).map(|(i, _)| i);
+        itertools::equal(with_pos.clone(), without.clone())
+            && itertools::equal(with_pos.rev(), without.rev())
+    }
     fn size_zip_longest(a: Iter<i16, Exact>, b: Iter<i16, Exact>) -> bool {
         let filt = a.clone().dedup();
         let filt2 = b.clone().dedup();
@@ -773,11 +779,11 @@ quickcheck! {
 
     fn peek_nth_mut_replace(a: Vec<u16>, b: Vec<u16>) -> () {
         let mut it = peek_nth(a.iter());
-        for i in 0..a.len().min(b.len()) {
-            *it.peek_nth_mut(i).unwrap() = &b[i];
+        for (i, m) in b.iter().enumerate().take(a.len().min(b.len())) {
+            *it.peek_nth_mut(i).unwrap() = m;
         }
-        for i in 0..a.len() {
-            assert_eq!(it.next().unwrap(), b.get(i).unwrap_or(&a[i]));
+        for (i, m) in a.iter().enumerate() {
+             assert_eq!(it.next().unwrap(), b.get(i).unwrap_or(m));
         }
         assert_eq!(it.next(), None);
         assert_eq!(it.next(), None);
@@ -869,9 +875,8 @@ quickcheck! {
 quickcheck! {
     fn size_put_back(a: Vec<u8>, x: Option<u8>) -> bool {
         let mut it = put_back(a.into_iter());
-        match x {
-            Some(t) => it.put_back(t),
-            None => {}
+        if let Some(t) = x {
+            it.put_back(t)
         }
         correct_size_hint(it)
     }
@@ -993,7 +998,7 @@ quickcheck! {
                 }
             }
         }
-        cmb.next() == None
+        cmb.next().is_none()
     }
 }
 
@@ -1302,14 +1307,14 @@ quickcheck! {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Val(u32, u32);
 
-impl PartialOrd<Val> for Val {
-    fn partial_cmp(&self, other: &Val) -> Option<Ordering> {
-        self.0.partial_cmp(&other.0)
+impl PartialOrd<Self> for Val {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
 impl Ord for Val {
-    fn cmp(&self, other: &Val) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.0.cmp(&other.0)
     }
 }
@@ -1317,10 +1322,10 @@ impl Ord for Val {
 impl qc::Arbitrary for Val {
     fn arbitrary<G: qc::Gen>(g: &mut G) -> Self {
         let (x, y) = <(u32, u32)>::arbitrary(g);
-        Val(x, y)
+        Self(x, y)
     }
     fn shrink(&self) -> Box<dyn Iterator<Item = Self>> {
-        Box::new((self.0, self.1).shrink().map(|(x, y)| Val(x, y)))
+        Box::new((self.0, self.1).shrink().map(|(x, y)| Self(x, y)))
     }
 }
 
@@ -1407,7 +1412,7 @@ quickcheck! {
     fn at_most_one_i32(a: Vec<i32>) -> TestResult {
         let ret = a.iter().cloned().at_most_one();
         match a.len() {
-            0 => TestResult::from_bool(ret.unwrap() == None),
+            0 => TestResult::from_bool(ret.unwrap().is_none()),
             1 => TestResult::from_bool(ret.unwrap() == Some(a[0])),
             _ => TestResult::from_bool(ret.unwrap_err().eq(a.iter().cloned())),
         }

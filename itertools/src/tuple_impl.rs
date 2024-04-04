@@ -3,7 +3,6 @@
 use std::iter::Cycle;
 use std::iter::Fuse;
 use std::iter::FusedIterator;
-use std::marker::PhantomData;
 
 use crate::size_hint;
 
@@ -35,7 +34,7 @@ where
     T: HomogeneousTuple,
 {
     fn new(buf: T::Buffer) -> Self {
-        TupleBuffer { cur: 0, buf }
+        Self { cur: 0, buf }
     }
 }
 
@@ -63,7 +62,7 @@ where
             buffer
                 .iter()
                 .position(|x| x.is_none())
-                .unwrap_or_else(|| buffer.len())
+                .unwrap_or(buffer.len())
         };
         (len, Some(len))
     }
@@ -245,14 +244,13 @@ where
 /// information.
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 #[derive(Debug, Clone)]
-pub struct CircularTupleWindows<I, T: Clone>
+pub struct CircularTupleWindows<I, T>
 where
     I: Iterator<Item = T::Item> + Clone,
     T: TupleCollect + Clone,
 {
     iter: TupleWindows<Cycle<I>, T>,
     len: usize,
-    phantom_data: PhantomData<T>,
 }
 
 pub fn circular_tuple_windows<I, T>(iter: I) -> CircularTupleWindows<I, T>
@@ -264,11 +262,7 @@ where
     let len = iter.len();
     let iter = tuple_windows(iter.cycle());
 
-    CircularTupleWindows {
-        iter,
-        len,
-        phantom_data: PhantomData {},
-    }
+    CircularTupleWindows { iter, len }
 }
 
 impl<I, T> Iterator for CircularTupleWindows<I, T>

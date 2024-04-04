@@ -1,5 +1,10 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+#[cfg(not(feature = "web_spin_lock"))]
 use std::sync::Mutex;
+
+#[cfg(feature = "web_spin_lock")]
+use wasm_sync::Mutex;
+
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::iter::plumbing::{bridge_unindexed, Folder, UnindexedConsumer, UnindexedProducer};
 use crate::iter::ParallelIterator;
@@ -104,24 +109,11 @@ impl<Iter: Iterator + Send> UnindexedProducer for &IterParallelProducer<'_, Iter
     type Item = Iter::Item;
 
     fn split(self) -> (Self, Option<Self>) {
-        let mut count = self.split_count.load(Ordering::SeqCst);
-
-        loop {
-            // Check if the iterator is exhausted
-            if let Some(new_count) = count.checked_sub(1) {
-                match self.split_count.compare_exchange_weak(
-                    count,
-                    new_count,
-                    Ordering::SeqCst,
-                    Ordering::SeqCst,
-                ) {
-                    Ok(_) => return (self, Some(self)),
-                    Err(last_count) => count = last_count,
-                }
-            } else {
-                return (self, None);
-            }
-        }
+        // Check if the iterator is exhausted
+        let update = self
+            .split_count
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |c| c.checked_sub(1));
+        (self, update.is_ok().then_some(self))
     }
 
     fn fold_with<F>(self, mut folder: F) -> F

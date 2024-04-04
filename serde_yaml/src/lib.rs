@@ -6,8 +6,8 @@
 //!
 //! <br>
 //!
-//! This crate is a Rust library for using the [Serde] serialization framework
-//! with data in [YAML] file format.
+//! Rust library for using the [Serde] serialization framework with data in
+//! [YAML] file format. _(This project is no longer maintained.)_
 //!
 //! [Serde]: https://github.com/serde-rs/serde
 //! [YAML]: https://yaml.org/
@@ -115,7 +115,7 @@
 //! }
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/serde_yaml/0.9.32")]
+#![doc(html_root_url = "https://docs.rs/serde_yaml/0.9.34+deprecated")]
 #![deny(missing_docs, unsafe_op_in_unsafe_fn)]
 // Suppressed clippy_pedantic lints
 #![allow(

@@ -43,7 +43,6 @@
 //! ## Rust Version
 //!
 //! This version of itertools requires Rust 1.43.1 or later.
-#![doc(html_root_url = "https://docs.rs/itertools/0.11/")]
 
 #[cfg(not(feature = "use_std"))]
 extern crate core as std;
@@ -1009,7 +1008,7 @@ pub trait Itertools: Iterator {
         J: IntoIterator<Item = Self::Item>,
         F: FnMut(&Self::Item, &Self::Item) -> bool,
     {
-        merge_join::merge_by_new(self, other.into_iter(), is_first)
+        merge_join::merge_by_new(self, other, is_first)
     }
 
     /// Create an iterator that merges items from both this and the specified
@@ -1592,6 +1591,11 @@ pub trait Itertools: Iterator {
     /// let it: TupleCombinations<Range<u32>, (u32, u32, u32)> = (1..5).tuple_combinations();
     /// itertools::assert_equal(it, vec![(1, 2, 3), (1, 2, 4), (1, 3, 4), (2, 3, 4)]);
     /// ```
+    ///
+    /// # Guarantees
+    ///
+    /// If the adapted iterator is deterministic,
+    /// this iterator adapter yields items in a reliable order.
     fn tuple_combinations<T>(self) -> TupleCombinations<Self, T>
     where
         Self: Sized + Clone,
@@ -1630,6 +1634,11 @@ pub trait Itertools: Iterator {
     ///     vec![2, 2],
     /// ]);
     /// ```
+    ///
+    /// # Guarantees
+    ///
+    /// If the adapted iterator is deterministic,
+    /// this iterator adapter yields items in a reliable order.
     #[cfg(feature = "use_alloc")]
     fn combinations(self, k: usize) -> Combinations<Self>
     where
@@ -1807,7 +1816,7 @@ pub trait Itertools: Iterator {
     /// Return an iterator adaptor that yields the indices of all elements
     /// satisfying a predicate, counted from the start of the iterator.
     ///
-    /// Equivalent to `iter.enumerate().filter(|(_, v)| predicate(v)).map(|(i, _)| i)`.
+    /// Equivalent to `iter.enumerate().filter(|(_, v)| predicate(*v)).map(|(i, _)| i)`.
     ///
     /// ```
     /// use itertools::Itertools;
@@ -1911,12 +1920,7 @@ pub trait Itertools: Iterator {
     where
         P: FnMut(&Self::Item) -> bool,
     {
-        for (index, elt) in self.enumerate() {
-            if pred(&elt) {
-                return Some((index, elt));
-            }
-        }
-        None
+        self.enumerate().find(|(_, elt)| pred(elt))
     }
     /// Find the value of the first element satisfying a predicate or return the last element, if any.
     ///
@@ -2048,6 +2052,7 @@ pub trait Itertools: Iterator {
     /// let data : Option<usize> = None;
     /// assert_eq!(data.into_iter().all_equal_value(), Err(None));
     /// ```
+    #[allow(clippy::type_complexity)]
     fn all_equal_value(&mut self) -> Result<Self::Item, Option<(Self::Item, Self::Item)>>
     where
         Self: Sized,
@@ -2129,8 +2134,7 @@ pub trait Itertools: Iterator {
     /// ```
     fn dropping_back(mut self, n: usize) -> Self
     where
-        Self: Sized,
-        Self: DoubleEndedIterator,
+        Self: Sized + DoubleEndedIterator,
     {
         if n > 0 {
             (&mut self).rev().nth(n - 1);
@@ -3967,7 +3971,7 @@ pub trait Itertools: Iterator {
     }
 }
 
-impl<T: ?Sized> Itertools for T where T: Iterator {}
+impl<T> Itertools for T where T: Iterator + ?Sized {}
 
 /// Return `true` if both iterables produce equal sequences
 /// (elements pairwise equal and sequences of the same length),
@@ -4014,7 +4018,7 @@ where
             (None, None) => return,
             (a, b) => {
                 let equal = match (&a, &b) {
-                    (&Some(ref a), &Some(ref b)) => a == b,
+                    (Some(a), Some(b)) => a == b,
                     _ => false,
                 };
                 assert!(
@@ -4055,18 +4059,11 @@ where
 {
     let mut split_index = 0;
     let mut iter = iter.into_iter();
-    'main: while let Some(front) = iter.next() {
+    while let Some(front) = iter.next() {
         if !pred(front) {
-            loop {
-                match iter.next_back() {
-                    Some(back) => {
-                        if pred(back) {
-                            std::mem::swap(front, back);
-                            break;
-                        }
-                    }
-                    None => break 'main,
-                }
+            match iter.rfind(|back| pred(back)) {
+                Some(back) => std::mem::swap(front, back),
+                None => break,
             }
         }
         split_index += 1;
@@ -4089,15 +4086,15 @@ impl<T> FoldWhile<T> {
     /// Return the value in the continue or done.
     pub fn into_inner(self) -> T {
         match self {
-            FoldWhile::Continue(x) | FoldWhile::Done(x) => x,
+            Self::Continue(x) | Self::Done(x) => x,
         }
     }
 
     /// Return true if `self` is `Done`, false if it is `Continue`.
     pub fn is_done(&self) -> bool {
         match *self {
-            FoldWhile::Continue(_) => false,
-            FoldWhile::Done(_) => true,
+            Self::Continue(_) => false,
+            Self::Done(_) => true,
         }
     }
 }

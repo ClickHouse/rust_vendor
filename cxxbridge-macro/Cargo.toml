@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.60"
 name = "cxxbridge-macro"
-version = "1.0.111"
+version = "1.0.120"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 exclude = [
     "build.rs",
@@ -47,10 +47,10 @@ version = "0.7"
 optional = true
 
 [dependencies.proc-macro2]
-version = "1.0.63"
+version = "1.0.74"
 
 [dependencies.quote]
-version = "1.0.29"
+version = "1.0.35"
 
 [dependencies.serde]
 version = "1.0.166"
@@ -65,7 +65,7 @@ version = "1.0.100"
 optional = true
 
 [dependencies.syn]
-version = "2.0.23"
+version = "2.0.46"
 features = ["full"]
 
 [dev-dependencies.cxx]

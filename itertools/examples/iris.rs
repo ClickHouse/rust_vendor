@@ -9,7 +9,7 @@ use std::iter::repeat;
 use std::num::ParseFloatError;
 use std::str::FromStr;
 
-static DATA: &'static str = include_str!("iris.data");
+static DATA: &str = include_str!("iris.data");
 
 #[derive(Clone, Debug)]
 struct Iris {
@@ -25,7 +25,7 @@ enum ParseError {
 
 impl From<ParseFloatError> for ParseError {
     fn from(err: ParseFloatError) -> Self {
-        ParseError::Numeric(err)
+        Self::Numeric(err)
     }
 }
 
@@ -34,11 +34,11 @@ impl FromStr for Iris {
     type Err = ParseError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut iris = Iris {
+        let mut iris = Self {
             name: "".into(),
             data: [0.; 4],
         };
-        let mut parts = s.split(",").map(str::trim);
+        let mut parts = s.split(',').map(str::trim);
 
         // using Iterator::by_ref()
         for (index, part) in parts.by_ref().take(4).enumerate() {

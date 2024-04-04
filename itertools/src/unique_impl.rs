@@ -61,13 +61,8 @@ where
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(v) = self.iter.next() {
-            let key = (self.f)(&v);
-            if self.used.insert(key, ()).is_none() {
-                return Some(v);
-            }
-        }
-        None
+        let Self { iter, used, f } = self;
+        iter.find(|v| used.insert(f(v), ()).is_none())
     }
 
     #[inline]
@@ -89,13 +84,8 @@ where
     F: FnMut(&I::Item) -> V,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        while let Some(v) = self.iter.next_back() {
-            let key = (self.f)(&v);
-            if self.used.insert(key, ()).is_none() {
-                return Some(v);
-            }
-        }
-        None
+        let Self { iter, used, f } = self;
+        iter.rfind(|v| used.insert(f(v), ()).is_none())
     }
 }
 
@@ -115,14 +105,15 @@ where
     type Item = I::Item;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(v) = self.iter.iter.next() {
-            if let Entry::Vacant(entry) = self.iter.used.entry(v) {
+        let UniqueBy { iter, used, .. } = &mut self.iter;
+        iter.find_map(|v| {
+            if let Entry::Vacant(entry) = used.entry(v) {
                 let elt = entry.key().clone();
                 entry.insert(());
                 return Some(elt);
             }
-        }
-        None
+            None
+        })
     }
 
     #[inline]
@@ -142,14 +133,15 @@ where
     I::Item: Eq + Hash + Clone,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        while let Some(v) = self.iter.iter.next_back() {
-            if let Entry::Vacant(entry) = self.iter.used.entry(v) {
+        let UniqueBy { iter, used, .. } = &mut self.iter;
+        iter.rev().find_map(|v| {
+            if let Entry::Vacant(entry) = used.entry(v) {
                 let elt = entry.key().clone();
                 entry.insert(());
                 return Some(elt);
             }
-        }
-        None
+            None
+        })
     }
 }
 

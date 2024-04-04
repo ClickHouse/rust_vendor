@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.61.0"
 name = "chrono"
-version = "0.4.34"
+version = "0.4.37"
 exclude = ["/ci/*"]
 description = "Date and time library for Rust"
 homepage = "https://github.com/chronotope/chrono"
@@ -151,4 +151,4 @@ version = "0.52"
 optional = true
 
 [target."cfg(windows)".dev-dependencies.windows-bindgen]
-version = "0.52"
+version = "0.55"

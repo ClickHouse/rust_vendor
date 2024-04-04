@@ -118,11 +118,14 @@ pub fn from_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     toks.into()
 }
 
-/// Converts enum variants to `&'static str`.
+/// Converts enum variants to `&'a str`, where `'a` is the lifetime of the input enum reference.
 ///
 /// Implements `AsRef<str>` on your enum using the same rules as
 /// `Display` for determining what string is returned. The difference is that `as_ref()` returns
 /// a `&str` instead of a `String` so you don't allocate any additional memory with each call.
+///
+/// If you require a `&'static str`, you can use
+/// [`strum::IntoStaticStr`](crate::IntoStaticStr) instead.
 ///
 /// ```
 /// // You need to bring the AsRef trait into scope to use it
@@ -152,6 +155,18 @@ pub fn from_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///     Color::Blue(10).as_ref(),
 ///     Color::Green { range: 42 }.as_ref()
 /// );
+///
+/// // With prefix on all variants
+/// #[derive(AsRefStr, Debug)]
+/// #[strum(prefix = "/")]
+/// enum ColorWithPrefix {
+///     #[strum(serialize = "redred")]
+///     Red,
+///     Green,
+/// }
+///
+/// assert_eq!("/redred", ColorWithPrefix::Red.as_ref());
+/// assert_eq!("/Green", ColorWithPrefix::Green.as_ref());
 /// ```
 #[proc_macro_derive(AsRefStr, attributes(strum))]
 pub fn as_ref_str(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
@@ -163,7 +178,7 @@ pub fn as_ref_str(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     toks.into()
 }
 
-/// Implements `Strum::VariantNames` which adds an associated constant `VARIANTS` which is an array of discriminant names.
+/// Implements `Strum::VariantNames` which adds an associated constant `VARIANTS` which is a `'static` slice of discriminant names.
 ///
 /// Adds an `impl` block for the `enum` that adds a static `VARIANTS` array of `&'static str` that are the discriminant names.
 /// This will respect the `serialize_all` attribute on the `enum` (like `#[strum(serialize_all = "snake_case")]`.
@@ -209,7 +224,7 @@ pub fn variant_names_deprecated(input: proc_macro::TokenStream) -> proc_macro::T
     toks.into()
 }
 
-/// Adds a static array with all of the Enum's variants.
+/// Adds a `'static` slice with all of the Enum's variants.
 ///
 /// Implements `strum::VariantArray` which adds an associated constant `VARIANTS`.
 /// This constant contains an array with all the variants of the enumerator.
@@ -554,6 +569,7 @@ pub fn enum_try_as(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// complex_map[Color::Green] = complex_map[Color::Red];
 /// assert_eq!(complex_map, ColorTable::new(0, 3, 0, 3));
 /// ```
+#[doc(hidden)]
 #[proc_macro_derive(EnumTable, attributes(strum))]
 pub fn enum_table(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = syn::parse_macro_input!(input as DeriveInput);

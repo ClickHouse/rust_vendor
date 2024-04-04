@@ -16,8 +16,8 @@
 //! C's `strftime` format. The available options can be found [here](./strftime/index.html).
 //!
 //! # Example
-#![cfg_attr(not(feature = "std"), doc = "```ignore")]
-#![cfg_attr(feature = "std", doc = "```rust")]
+//! ```
+//! # #[cfg(feature = "alloc")] {
 //! use chrono::{NaiveDateTime, TimeZone, Utc};
 //!
 //! let date_time = Utc.with_ymd_and_hms(2020, 11, 10, 0, 1, 32).unwrap();
@@ -27,10 +27,11 @@
 //!
 //! let parsed = NaiveDateTime::parse_from_str(&formatted, "%Y-%m-%d %H:%M:%S")?.and_utc();
 //! assert_eq!(parsed, date_time);
+//! # }
 //! # Ok::<(), chrono::ParseError>(())
 //! ```
 
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(all(feature = "alloc", not(feature = "std"), not(test)))]
 use alloc::boxed::Box;
 use core::fmt;
 use core::str::FromStr;
@@ -97,6 +98,7 @@ pub enum Pad {
 /// It also trims the preceding whitespace if any.
 /// It cannot parse the negative number, so some date and time cannot be formatted then
 /// parsed with the same formatting items.
+#[non_exhaustive]
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Numeric {
     /// Full Gregorian year (FW=4, PW=∞).
@@ -168,6 +170,7 @@ impl fmt::Debug for InternalNumeric {
 ///
 /// They have their own rules of formatting and parsing.
 /// Otherwise noted, they print in the specified cases but parse case-insensitively.
+#[non_exhaustive]
 #[derive(Clone, PartialEq, Eq, Debug, Hash)]
 pub enum Fixed {
     /// Abbreviated month names.

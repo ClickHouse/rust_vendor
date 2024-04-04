@@ -94,13 +94,14 @@ const POINTER_WIDTH: u8 = 32;
 const POINTER_WIDTH: u8 = 64;
 
 /// The total number of buckets stored in each thread local.
-const BUCKETS: usize = (POINTER_WIDTH + 1) as usize;
+/// All buckets combined can hold up to `usize::MAX - 1` entries.
+const BUCKETS: usize = (POINTER_WIDTH - 1) as usize;
 
 /// Thread-local variable wrapper
 ///
 /// See the [module-level documentation](index.html) for more.
 pub struct ThreadLocal<T: Send> {
-    /// The buckets in the thread local. The nth bucket contains `2^(n-1)`
+    /// The buckets in the thread local. The nth bucket contains `2^n`
     /// elements. Each bucket is lazily allocated.
     buckets: [AtomicPtr<Entry<T>>; BUCKETS],
 
@@ -135,16 +136,11 @@ impl<T: Send> Default for ThreadLocal<T> {
 
 impl<T: Send> Drop for ThreadLocal<T> {
     fn drop(&mut self) {
-        let mut bucket_size = 1;
-
         // Free each non-null bucket
         for (i, bucket) in self.buckets.iter_mut().enumerate() {
             let bucket_ptr = *bucket.get_mut();
 
-            let this_bucket_size = bucket_size;
-            if i != 0 {
-                bucket_size <<= 1;
-            }
+            let this_bucket_size = 1 << i;
 
             if bucket_ptr.is_null() {
                 continue;
@@ -157,30 +153,26 @@ impl<T: Send> Drop for ThreadLocal<T> {
 
 impl<T: Send> ThreadLocal<T> {
     /// Creates a new empty `ThreadLocal`.
-    pub fn new() -> ThreadLocal<T> {
-        Self::with_capacity(2)
+    pub const fn new() -> ThreadLocal<T> {
+        let buckets = [ptr::null_mut::<Entry<T>>(); BUCKETS];
+        Self {
+            buckets: unsafe { mem::transmute(buckets) },
+            values: AtomicUsize::new(0),
+        }
     }
 
     /// Creates a new `ThreadLocal` with an initial capacity. If less than the capacity threads
     /// access the thread local it will never reallocate. The capacity may be rounded up to the
     /// nearest power of two.
     pub fn with_capacity(capacity: usize) -> ThreadLocal<T> {
-        let allocated_buckets = capacity
-            .checked_sub(1)
-            .map(|c| usize::from(POINTER_WIDTH) - (c.leading_zeros() as usize) + 1)
-            .unwrap_or(0);
+        let allocated_buckets = usize::from(POINTER_WIDTH) - (capacity.leading_zeros() as usize);
 
         let mut buckets = [ptr::null_mut(); BUCKETS];
-        let mut bucket_size = 1;
         for (i, bucket) in buckets[..allocated_buckets].iter_mut().enumerate() {
-            *bucket = allocate_bucket::<T>(bucket_size);
-
-            if i != 0 {
-                bucket_size <<= 1;
-            }
+            *bucket = allocate_bucket::<T>(1 << i);
         }
 
-        ThreadLocal {
+        Self {
             // Safety: AtomicPtr has the same representation as a pointer and arrays have the same
             // representation as a sequence of their inner type.
             buckets: unsafe { mem::transmute(buckets) },
@@ -217,7 +209,7 @@ impl<T: Send> ThreadLocal<T> {
             return Ok(val);
         }
 
-        Ok(self.insert(create()?))
+        Ok(self.insert(thread, create()?))
     }
 
     fn get_inner(&self, thread: Thread) -> Option<&T> {
@@ -228,8 +220,7 @@ impl<T: Send> ThreadLocal<T> {
         }
         unsafe {
             let entry = &*bucket_ptr.add(thread.index);
-            // Read without atomic operations as only this thread can set the value.
-            if (&entry.present as *const _ as *const bool).read() {
+            if entry.present.load(Ordering::Relaxed) {
                 Some(&*(&*entry.value.get()).as_ptr())
             } else {
                 None
@@ -238,8 +229,7 @@ impl<T: Send> ThreadLocal<T> {
     }
 
     #[cold]
-    fn insert(&self, data: T) -> &T {
-        let thread = thread_id::get();
+    fn insert(&self, thread: Thread, data: T) -> &T {
         let bucket_atomic_ptr = unsafe { self.buckets.get_unchecked(thread.bucket) };
         let bucket_ptr: *const _ = bucket_atomic_ptr.load(Ordering::Acquire);
 
@@ -428,9 +418,7 @@ impl RawIter {
 
     #[inline]
     fn next_bucket(&mut self) {
-        if self.bucket != 0 {
-            self.bucket_size <<= 1;
-        }
+        self.bucket_size <<= 1;
         self.bucket += 1;
         self.index = 0;
     }
@@ -535,7 +523,8 @@ unsafe fn deallocate_bucket<T>(bucket: *mut Entry<T>, size: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::ThreadLocal;
+    use super::*;
+
     use std::cell::RefCell;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering::Relaxed;
@@ -621,6 +610,28 @@ mod tests {
     }
 
     #[test]
+    fn miri_iter_soundness_check() {
+        let tls = Arc::new(ThreadLocal::new());
+        let _local = tls.get_or(|| Box::new(1));
+
+        let tls2 = tls.clone();
+        let join_1 = thread::spawn(move || {
+            let _tls = tls2.get_or(|| Box::new(2));
+            let iter = tls2.iter();
+            for item in iter {
+                println!("{:?}", item);
+            }
+        });
+
+        let iter = tls.iter();
+        for item in iter {
+            println!("{:?}", item);
+        }
+
+        join_1.join().ok();
+    }
+
+    #[test]
     fn test_drop() {
         let local = ThreadLocal::new();
         struct Dropped(Arc<AtomicUsize>);
@@ -633,6 +644,32 @@ mod tests {
         let dropped = Arc::new(AtomicUsize::new(0));
         local.get_or(|| Dropped(dropped.clone()));
         assert_eq!(dropped.load(Relaxed), 0);
+        drop(local);
+        assert_eq!(dropped.load(Relaxed), 1);
+    }
+
+    #[test]
+    fn test_earlyreturn_buckets() {
+        struct Dropped(Arc<AtomicUsize>);
+        impl Drop for Dropped {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Relaxed);
+            }
+        }
+        let dropped = Arc::new(AtomicUsize::new(0));
+
+        // We use a high `id` here to guarantee that a lazily allocated bucket somewhere in the middle is used.
+        // Neither iteration nor `Drop` must early-return on `null` buckets that are used for lower `buckets`.
+        let thread = Thread::new(1234);
+        assert!(thread.bucket > 1);
+
+        let mut local = ThreadLocal::new();
+        local.insert(thread, Dropped(dropped.clone()));
+
+        let item = local.iter().next().unwrap();
+        assert_eq!(item.0.load(Relaxed), 0);
+        let item = local.iter_mut().next().unwrap();
+        assert_eq!(item.0.load(Relaxed), 0);
         drop(local);
         assert_eq!(dropped.load(Relaxed), 1);
     }

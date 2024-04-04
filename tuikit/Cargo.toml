@@ -27,14 +27,12 @@ keywords = [
 license = "MIT"
 repository = "https://github.com/lotabout/tuikit"
 
-[dependencies.bitflags]
-version = "1.0.4"
-
-[dependencies.lazy_static]
-version = "1.2.0"
-
-[dependencies.log]
-version = "0.4"
+[dependencies]
+bitflags = "1.0.4"
+lazy_static = "1.2.0"
+log = "0.4"
+term = "0.7"
+unicode-width = "0.1.5"
 
 [dependencies.nix]
 version = "0.24.1"
@@ -46,11 +44,5 @@ features = [
 ]
 default-features = false
 
-[dependencies.term]
-version = "0.7"
-
-[dependencies.unicode-width]
-version = "0.1.5"
-
-[dev-dependencies.env_logger]
-version = "0.6.1"
+[dev-dependencies]
+env_logger = "0.6.1"

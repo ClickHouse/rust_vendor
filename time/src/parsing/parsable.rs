@@ -2,7 +2,8 @@
 
 use core::ops::Deref;
 
-use crate::date_time::{maybe_offset_from_offset, MaybeOffset};
+use num_conv::prelude::*;
+
 use crate::error::TryFromParsed;
 use crate::format_description::well_known::iso8601::EncodedConfig;
 use crate::format_description::well_known::{Iso8601, Rfc2822, Rfc3339};
@@ -11,10 +12,11 @@ use crate::format_description::FormatItem;
 use crate::format_description::OwnedFormatItem;
 use crate::internal_macros::bug;
 use crate::parsing::{Parsed, ParsedItem};
-use crate::{error, Date, DateTime, Month, Time, UtcOffset, Weekday};
+use crate::{error, Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 
 /// A type that can be parsed.
 #[cfg_attr(__time_03_docs, doc(notable_trait))]
+#[doc(alias = "Parseable")]
 pub trait Parsable: sealed::Sealed {}
 impl Parsable for FormatItem<'_> {}
 impl Parsable for [FormatItem<'_>] {}
@@ -32,6 +34,7 @@ impl<T: Deref> Parsable for T where T::Target: Parsable {}
 mod sealed {
     #[allow(clippy::wildcard_imports)]
     use super::*;
+    use crate::{OffsetDateTime, PrimitiveDateTime};
 
     /// Parse the item using a format description and an input.
     pub trait Sealed {
@@ -74,11 +77,16 @@ mod sealed {
             Ok(self.parse(input)?.try_into()?)
         }
 
-        /// Parse a [`DateTime`] from the format description.
-        fn parse_date_time<O: MaybeOffset>(
+        /// Parse a [`PrimitiveDateTime`] from the format description.
+        fn parse_primitive_date_time(
             &self,
             input: &[u8],
-        ) -> Result<DateTime<O>, error::Parse> {
+        ) -> Result<PrimitiveDateTime, error::Parse> {
+            Ok(self.parse(input)?.try_into()?)
+        }
+
+        /// Parse a [`OffsetDateTime`] from the format description.
+        fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
             Ok(self.parse(input)?.try_into()?)
         }
     }
@@ -202,7 +210,9 @@ impl sealed::Sealed for Rfc2822 {
             Some(item) => {
                 let input = item
                     .flat_map(|year| if year >= 1900 { Some(year) } else { None })
-                    .and_then(|item| item.consume_value(|value| parsed.set_year(value as _)))
+                    .and_then(|item| {
+                        item.consume_value(|value| parsed.set_year(value.cast_signed()))
+                    })
                     .ok_or(InvalidComponent("year"))?;
                 fws(input).ok_or(InvalidLiteral)?.into_inner()
             }
@@ -210,7 +220,7 @@ impl sealed::Sealed for Rfc2822 {
                 let input = exactly_n_digits::<2, u32>(input)
                     .and_then(|item| {
                         item.map(|year| if year < 50 { year + 2000 } else { year + 1900 })
-                            .map(|year| year as _)
+                            .map(|year| year.cast_signed())
                             .consume_value(|value| parsed.set_year(value))
                     })
                     .ok_or(InvalidComponent("year"))?;
@@ -283,9 +293,9 @@ impl sealed::Sealed for Rfc2822 {
             .and_then(|item| {
                 item.map(|offset_hour| {
                     if offset_sign == b'-' {
-                        -(offset_hour as i8)
+                        -offset_hour.cast_signed()
                     } else {
-                        offset_hour as _
+                        offset_hour.cast_signed()
                     }
                 })
                 .consume_value(|value| parsed.set_offset_hour(value))
@@ -293,14 +303,14 @@ impl sealed::Sealed for Rfc2822 {
             .ok_or(InvalidComponent("offset hour"))?;
         let input = exactly_n_digits::<2, u8>(input)
             .and_then(|item| {
-                item.consume_value(|value| parsed.set_offset_minute_signed(value as _))
+                item.consume_value(|value| parsed.set_offset_minute_signed(value.cast_signed()))
             })
             .ok_or(InvalidComponent("offset minute"))?;
 
         Ok(input)
     }
 
-    fn parse_date_time<O: MaybeOffset>(&self, input: &[u8]) -> Result<DateTime<O>, error::Parse> {
+    fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
         use crate::error::ParseFromDescription::{InvalidComponent, InvalidLiteral};
         use crate::parsing::combinator::rfc::rfc2822::{cfws, fws};
         use crate::parsing::combinator::{
@@ -420,16 +430,16 @@ impl sealed::Sealed for Rfc2822 {
                 .map(|item| {
                     item.map(|offset_hour| {
                         if offset_sign == b'-' {
-                            -(offset_hour as i8)
+                            -offset_hour.cast_signed()
                         } else {
-                            offset_hour as _
+                            offset_hour.cast_signed()
                         }
                     })
                 })
                 .ok_or(InvalidComponent("offset hour"))?;
             let ParsedItem(input, offset_minute) =
                 exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset minute"))?;
-            (input, offset_hour, offset_minute as i8)
+            (input, offset_hour, offset_minute.cast_signed())
         };
 
         if !input.is_empty() {
@@ -439,9 +449,7 @@ impl sealed::Sealed for Rfc2822 {
         }
 
         let mut nanosecond = 0;
-        let leap_second_input = if !O::HAS_LOGICAL_OFFSET {
-            false
-        } else if second == 60 {
+        let leap_second_input = if second == 60 {
             second = 59;
             nanosecond = 999_999_999;
             true
@@ -450,14 +458,10 @@ impl sealed::Sealed for Rfc2822 {
         };
 
         let dt = (|| {
-            let date = Date::from_calendar_date(year as _, month, day)?;
+            let date = Date::from_calendar_date(year.cast_signed(), month, day)?;
             let time = Time::from_hms_nano(hour, minute, second, nanosecond)?;
             let offset = UtcOffset::from_hms(offset_hour, offset_minute, 0)?;
-            Ok(DateTime {
-                date,
-                time,
-                offset: maybe_offset_from_offset::<O>(offset),
-            })
+            Ok(OffsetDateTime::new_in_offset(date, time, offset))
         })()
         .map_err(TryFromParsed::ComponentRange)?;
 
@@ -492,7 +496,7 @@ impl sealed::Sealed for Rfc3339 {
         let colon = ascii_char::<b':'>;
 
         let input = exactly_n_digits::<4, u32>(input)
-            .and_then(|item| item.consume_value(|value| parsed.set_year(value as _)))
+            .and_then(|item| item.consume_value(|value| parsed.set_year(value.cast_signed())))
             .ok_or(InvalidComponent("year"))?;
         let input = dash(input).ok_or(InvalidLiteral)?.into_inner();
         let input = exactly_n_digits::<2, _>(input)
@@ -520,11 +524,11 @@ impl sealed::Sealed for Rfc3339 {
         let input = if let Some(ParsedItem(input, ())) = ascii_char::<b'.'>(input) {
             let ParsedItem(mut input, mut value) = any_digit(input)
                 .ok_or(InvalidComponent("subsecond"))?
-                .map(|v| (v - b'0') as u32 * 100_000_000);
+                .map(|v| (v - b'0').extend::<u32>() * 100_000_000);
 
             let mut multiplier = 10_000_000;
             while let Some(ParsedItem(new_input, digit)) = any_digit(input) {
-                value += (digit - b'0') as u32 * multiplier;
+                value += (digit - b'0').extend::<u32>() * multiplier;
                 input = new_input;
                 multiplier /= 10;
             }
@@ -556,14 +560,15 @@ impl sealed::Sealed for Rfc3339 {
         let ParsedItem(input, offset_sign) = sign(input).ok_or(InvalidComponent("offset hour"))?;
         let input = exactly_n_digits::<2, u8>(input)
             .and_then(|item| {
-                item.map(|offset_hour| {
-                    if offset_sign == b'-' {
-                        -(offset_hour as i8)
-                    } else {
-                        offset_hour as _
-                    }
-                })
-                .consume_value(|value| parsed.set_offset_hour(value))
+                item.filter(|&offset_hour| offset_hour <= 23)?
+                    .map(|offset_hour| {
+                        if offset_sign == b'-' {
+                            -offset_hour.cast_signed()
+                        } else {
+                            offset_hour.cast_signed()
+                        }
+                    })
+                    .consume_value(|value| parsed.set_offset_hour(value))
             })
             .ok_or(InvalidComponent("offset hour"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
@@ -571,9 +576,9 @@ impl sealed::Sealed for Rfc3339 {
             .and_then(|item| {
                 item.map(|offset_minute| {
                     if offset_sign == b'-' {
-                        -(offset_minute as i8)
+                        -offset_minute.cast_signed()
                     } else {
-                        offset_minute as _
+                        offset_minute.cast_signed()
                     }
                 })
                 .consume_value(|value| parsed.set_offset_minute_signed(value))
@@ -583,7 +588,7 @@ impl sealed::Sealed for Rfc3339 {
         Ok(input)
     }
 
-    fn parse_date_time<O: MaybeOffset>(&self, input: &[u8]) -> Result<DateTime<O>, error::Parse> {
+    fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
         use crate::error::ParseFromDescription::{InvalidComponent, InvalidLiteral};
         use crate::parsing::combinator::{
             any_digit, ascii_char, ascii_char_ignore_case, exactly_n_digits, sign,
@@ -615,11 +620,11 @@ impl sealed::Sealed for Rfc3339 {
             if let Some(ParsedItem(input, ())) = ascii_char::<b'.'>(input) {
                 let ParsedItem(mut input, mut value) = any_digit(input)
                     .ok_or(InvalidComponent("subsecond"))?
-                    .map(|v| (v - b'0') as u32 * 100_000_000);
+                    .map(|v| (v - b'0').extend::<u32>() * 100_000_000);
 
                 let mut multiplier = 10_000_000;
                 while let Some(ParsedItem(new_input, digit)) = any_digit(input) {
-                    value += (digit - b'0') as u32 * multiplier;
+                    value += (digit - b'0').extend::<u32>() * multiplier;
                     input = new_input;
                     multiplier /= 10;
                 }
@@ -634,21 +639,22 @@ impl sealed::Sealed for Rfc3339 {
             } else {
                 let ParsedItem(input, offset_sign) =
                     sign(input).ok_or(InvalidComponent("offset hour"))?;
-                let ParsedItem(input, offset_hour) =
-                    exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset hour"))?;
+                let ParsedItem(input, offset_hour) = exactly_n_digits::<2, u8>(input)
+                    .and_then(|parsed| parsed.filter(|&offset_hour| offset_hour <= 23))
+                    .ok_or(InvalidComponent("offset hour"))?;
                 let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
                 let ParsedItem(input, offset_minute) =
                     exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset minute"))?;
                 UtcOffset::from_hms(
                     if offset_sign == b'-' {
-                        -(offset_hour as i8)
+                        -offset_hour.cast_signed()
                     } else {
-                        offset_hour as _
+                        offset_hour.cast_signed()
                     },
                     if offset_sign == b'-' {
-                        -(offset_minute as i8)
+                        -offset_minute.cast_signed()
                     } else {
-                        offset_minute as _
+                        offset_minute.cast_signed()
                     },
                     0,
                 )
@@ -684,12 +690,11 @@ impl sealed::Sealed for Rfc3339 {
         };
 
         let date = Month::from_number(month)
-            .and_then(|month| Date::from_calendar_date(year as _, month, day))
+            .and_then(|month| Date::from_calendar_date(year.cast_signed(), month, day))
             .map_err(TryFromParsed::ComponentRange)?;
         let time = Time::from_hms_nano(hour, minute, second, nanosecond)
             .map_err(TryFromParsed::ComponentRange)?;
-        let offset = maybe_offset_from_offset::<O>(offset);
-        let dt = DateTime { date, time, offset };
+        let dt = OffsetDateTime::new_in_offset(date, time, offset);
 
         if leap_second_input && !dt.is_valid_leap_second_stand_in() {
             return Err(error::Parse::TryFromParsed(TryFromParsed::ComponentRange(

@@ -13,7 +13,10 @@
 //! But this also means that different computers or computers using different versions of ahash may observe different
 //! hash values for the same input.
 #![cfg_attr(
-    all(feature = "std", any(feature = "compile-time-rng", feature = "runtime-rng", feature = "no-rng")),
+    all(
+        feature = "std",
+        any(feature = "compile-time-rng", feature = "runtime-rng", feature = "no-rng")
+    ),
     doc = r##"
 # Basic Usage
 AHash provides an implementation of the [Hasher] trait.
@@ -74,7 +77,7 @@ use ahash::AHashMap;
 let mut map: AHashMap<i32, i32> = AHashMap::new();
 map.insert(12, 34);
 ```
-This avoids the need to type "RandomState". (For convience `From`, `Into`, and `Deref` are provided).
+This avoids the need to type "RandomState". (For convenience `From`, `Into`, and `Deref` are provided).
 
 # Aliases
 
@@ -95,8 +98,7 @@ Note the import of [HashMapExt]. This is needed for the constructor.
 #![allow(clippy::pedantic, clippy::cast_lossless, clippy::unreadable_literal)]
 #![cfg_attr(all(not(test), not(feature = "std")), no_std)]
 #![cfg_attr(feature = "specialize", feature(min_specialization))]
-#![cfg_attr(feature = "specialize", feature(build_hasher_simple_hash_one))]
-#![cfg_attr(feature = "stdsimd", feature(stdsimd))]
+#![cfg_attr(feature = "nightly-arm-aes", feature(stdarch_arm_neon_intrinsics))]
 
 #[macro_use]
 mod convert;
@@ -106,11 +108,9 @@ mod fallback_hash;
 cfg_if::cfg_if! {
     if #[cfg(any(
             all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "aes", not(miri)),
-            all(any(target_arch = "arm", target_arch = "aarch64"),
-                any(target_feature = "aes", target_feature = "crypto"),
-                not(miri),
-                feature = "stdsimd")
-            ))] {
+            all(feature = "nightly-arm-aes", target_arch = "aarch64", target_feature = "aes", not(miri)),
+            all(feature = "nightly-arm-aes", target_arch = "arm", target_feature = "aes", not(miri)),
+        ))] {
         mod aes_hash;
         pub use crate::aes_hash::AHasher;
     } else {
@@ -319,7 +319,6 @@ mod test {
     use crate::specialize::CallHasher;
     use crate::*;
     use std::collections::HashMap;
-    use std::hash::Hash;
 
     #[test]
     fn test_ahash_alias_map_construction() {

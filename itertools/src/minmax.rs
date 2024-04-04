@@ -1,7 +1,7 @@
 /// `MinMaxResult` is an enum returned by `minmax`.
 ///
 /// See [`.minmax()`](crate::Itertools::minmax) for more detail.
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum MinMaxResult<T> {
     /// Empty iterator
     NoElements,
@@ -37,9 +37,9 @@ impl<T: Clone> MinMaxResult<T> {
     /// ```
     pub fn into_option(self) -> Option<(T, T)> {
         match self {
-            MinMaxResult::NoElements => None,
-            MinMaxResult::OneElement(x) => Some((x.clone(), x)),
-            MinMaxResult::MinMax(x, y) => Some((x, y)),
+            Self::NoElements => None,
+            Self::OneElement(x) => Some((x.clone(), x)),
+            Self::MinMax(x, y) => Some((x, y)),
         }
     }
 }

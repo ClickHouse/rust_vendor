@@ -11,8 +11,9 @@
 
 [package]
 edition = "2021"
+rust-version = "1.59"
 name = "thread_local"
-version = "1.1.7"
+version = "1.1.8"
 authors = ["Amanieu d'Antras <amanieu@gmail.com>"]
 description = "Per-object thread-local storage"
 documentation = "https://docs.rs/thread_local/"
@@ -36,10 +37,7 @@ version = "1.0.0"
 version = "1.5.2"
 
 [dev-dependencies.criterion]
-version = "0.4.0"
+version = "0.5.1"
 
 [features]
 nightly = []
-
-[badges.travis-ci]
-repository = "Amanieu/thread_local-rs"

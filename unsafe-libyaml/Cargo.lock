@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "unsafe-libyaml"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "pretty_assertions",
 ]

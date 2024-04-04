@@ -1,6 +1,7 @@
 use crate::PutBack;
 #[cfg(feature = "use_alloc")]
 use crate::PutBackN;
+use crate::RepeatN;
 use std::iter::Peekable;
 
 /// An iterator that allows peeking at an element before deciding to accept it.
@@ -91,22 +92,35 @@ where
     }
 }
 
+impl<T: Clone> PeekingNext for RepeatN<T> {
+    fn peeking_next<F>(&mut self, accept: F) -> Option<Self::Item>
+    where
+        F: FnOnce(&Self::Item) -> bool,
+    {
+        let r = self.elt.as_ref()?;
+        if !accept(r) {
+            return None;
+        }
+        self.next()
+    }
+}
+
 /// An iterator adaptor that takes items while a closure returns `true`.
 ///
 /// See [`.peeking_take_while()`](crate::Itertools::peeking_take_while)
 /// for more information.
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
-pub struct PeekingTakeWhile<'a, I: 'a, F>
+pub struct PeekingTakeWhile<'a, I, F>
 where
-    I: Iterator,
+    I: Iterator + 'a,
 {
     iter: &'a mut I,
     f: F,
 }
 
-impl<'a, I: 'a, F> std::fmt::Debug for PeekingTakeWhile<'a, I, F>
+impl<'a, I, F> std::fmt::Debug for PeekingTakeWhile<'a, I, F>
 where
-    I: Iterator + std::fmt::Debug,
+    I: Iterator + std::fmt::Debug + 'a,
 {
     debug_fmt_fields!(PeekingTakeWhile, iter);
 }

@@ -13,9 +13,13 @@
 edition = "2018"
 rust-version = "1.60.0"
 name = "zerocopy-derive"
-version = "0.7.31"
+version = "0.7.32"
 authors = ["Joshua Liebow-Feeser <joshlf@google.com>"]
-exclude = [".*"]
+exclude = [
+    ".*",
+    "tests/enum_from_bytes.rs",
+    "tests/ui-nightly/enum_from_bytes_u16_too_few.rs.disabled",
+]
 description = "Custom derive for traits from the zerocopy crate"
 license = "BSD-2-Clause OR Apache-2.0 OR MIT"
 repository = "https://github.com/google/zerocopy"

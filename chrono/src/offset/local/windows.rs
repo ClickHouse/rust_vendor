@@ -9,14 +9,13 @@
 // except according to those terms.
 
 use std::cmp::Ordering;
-use std::convert::TryFrom;
 use std::mem::MaybeUninit;
 use std::ptr;
 
 use super::win_bindings::{GetTimeZoneInformationForYear, SYSTEMTIME, TIME_ZONE_INFORMATION};
 
 use crate::offset::local::{lookup_with_dst_transitions, Transition};
-use crate::{Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
+use crate::{Datelike, FixedOffset, MappedLocalTime, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 
 // We don't use `SystemTimeToTzSpecificLocalTime` because it doesn't support the same range of dates
 // as Chrono. Also it really isn't that difficult to work out the correct offset from the provided
@@ -25,13 +24,13 @@ use crate::{Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveT
 // This method uses `overflowing_sub_offset` because it is no problem if the transition time in UTC
 // falls a couple of hours inside the buffer space around the `NaiveDateTime` range (although it is
 // very theoretical to have a transition at midnight around `NaiveDate::(MIN|MAX)`.
-pub(super) fn offset_from_utc_datetime(utc: &NaiveDateTime) -> LocalResult<FixedOffset> {
+pub(super) fn offset_from_utc_datetime(utc: &NaiveDateTime) -> MappedLocalTime<FixedOffset> {
     // Using a `TzInfo` based on the year of an UTC datetime is technically wrong, we should be
     // using the rules for the year of the corresponding local time. But this matches what
     // `SystemTimeToTzSpecificLocalTime` is documented to do.
     let tz_info = match TzInfo::for_year(utc.year()) {
         Some(tz_info) => tz_info,
-        None => return LocalResult::None,
+        None => return MappedLocalTime::None,
     };
     let offset = match (tz_info.std_transition, tz_info.dst_transition) {
         (Some(std_transition), Some(dst_transition)) => {
@@ -65,16 +64,16 @@ pub(super) fn offset_from_utc_datetime(utc: &NaiveDateTime) -> LocalResult<Fixed
         }
         (None, None) => tz_info.std_offset,
     };
-    LocalResult::Single(offset)
+    MappedLocalTime::Single(offset)
 }
 
 // We don't use `TzSpecificLocalTimeToSystemTime` because it doesn't let us choose how to handle
 // ambiguous cases (during a DST transition). Instead we get the timezone information for the
 // current year and compute it ourselves, like we do on Unix.
-pub(super) fn offset_from_local_datetime(local: &NaiveDateTime) -> LocalResult<FixedOffset> {
+pub(super) fn offset_from_local_datetime(local: &NaiveDateTime) -> MappedLocalTime<FixedOffset> {
     let tz_info = match TzInfo::for_year(local.year()) {
         Some(tz_info) => tz_info,
-        None => return LocalResult::None,
+        None => return MappedLocalTime::None,
     };
     // Create a sorted slice of transitions and use `lookup_with_dst_transitions`.
     match (tz_info.std_transition, tz_info.dst_transition) {
@@ -88,7 +87,7 @@ pub(super) fn offset_from_local_datetime(local: &NaiveDateTime) -> LocalResult<F
                 Ordering::Greater => [dst_transition, std_transition],
                 Ordering::Equal => {
                     // This doesn't make sense. Let's just return the standard offset.
-                    return LocalResult::Single(tz_info.std_offset);
+                    return MappedLocalTime::Single(tz_info.std_offset);
                 }
             };
             lookup_with_dst_transitions(&transitions, *local)
@@ -103,7 +102,7 @@ pub(super) fn offset_from_local_datetime(local: &NaiveDateTime) -> LocalResult<F
                 [Transition::new(dst_transition, tz_info.std_offset, tz_info.dst_offset)];
             lookup_with_dst_transitions(&transitions, *local)
         }
-        (None, None) => return LocalResult::Single(tz_info.std_offset),
+        (None, None) => MappedLocalTime::Single(tz_info.std_offset),
     }
 }
 
@@ -141,42 +140,74 @@ impl TzInfo {
             }
             tz_info.assume_init()
         };
+        let std_offset = (tz_info.Bias)
+            .checked_add(tz_info.StandardBias)
+            .and_then(|o| o.checked_mul(60))
+            .and_then(FixedOffset::west_opt)?;
+        let dst_offset = (tz_info.Bias)
+            .checked_add(tz_info.DaylightBias)
+            .and_then(|o| o.checked_mul(60))
+            .and_then(FixedOffset::west_opt)?;
         Some(TzInfo {
-            std_offset: FixedOffset::west_opt((tz_info.Bias + tz_info.StandardBias) * 60)?,
-            dst_offset: FixedOffset::west_opt((tz_info.Bias + tz_info.DaylightBias) * 60)?,
-            std_transition: system_time_from_naive_date_time(tz_info.StandardDate, year),
-            dst_transition: system_time_from_naive_date_time(tz_info.DaylightDate, year),
+            std_offset,
+            dst_offset,
+            std_transition: naive_date_time_from_system_time(tz_info.StandardDate, year).ok()?,
+            dst_transition: naive_date_time_from_system_time(tz_info.DaylightDate, year).ok()?,
         })
     }
 }
 
-fn system_time_from_naive_date_time(st: SYSTEMTIME, year: i32) -> Option<NaiveDateTime> {
+/// Resolve a `SYSTEMTIME` object to an `Option<NaiveDateTime>`.
+///
+/// A `SYSTEMTIME` within a `TIME_ZONE_INFORMATION` struct can be zero to indicate there is no
+/// transition.
+/// If it has year, month and day values it is a concrete date.
+/// If the year is missing the `SYSTEMTIME` is a rule, which this method resolves for the provided
+/// year. A rule has a month, weekday, and nth weekday of the month as components.
+///
+/// Returns `Err` if any of the values is invalid, which should never happen.
+fn naive_date_time_from_system_time(
+    st: SYSTEMTIME,
+    year: i32,
+) -> Result<Option<NaiveDateTime>, ()> {
     if st.wYear == 0 && st.wMonth == 0 {
-        return None; // No DST transitions for this year in this timezone.
+        return Ok(None);
     }
     let time = NaiveTime::from_hms_milli_opt(
         st.wHour as u32,
         st.wMinute as u32,
         st.wSecond as u32,
         st.wMilliseconds as u32,
-    )?;
-    // In Chrono's Weekday, Monday is 0 whereas in SYSTEMTIME Monday is 1 and Sunday is 0.
-    // Therefore we move back one day after converting the u16 value to a Weekday.
-    let day_of_week = Weekday::try_from(u8::try_from(st.wDayOfWeek).ok()?).ok()?.pred();
+    )
+    .ok_or(())?;
+
     if st.wYear != 0 {
-        return NaiveDate::from_ymd_opt(st.wYear as i32, st.wMonth as u32, st.wDay as u32)
-            .map(|d| d.and_time(time));
+        // We have a concrete date.
+        let date =
+            NaiveDate::from_ymd_opt(st.wYear as i32, st.wMonth as u32, st.wDay as u32).ok_or(())?;
+        return Ok(Some(date.and_time(time)));
     }
-    let date = if let Some(date) =
-        NaiveDate::from_weekday_of_month_opt(year, st.wMonth as u32, day_of_week, st.wDay as u8)
-    {
-        date
-    } else if st.wDay == 5 {
-        NaiveDate::from_weekday_of_month_opt(year, st.wMonth as u32, day_of_week, 4)?
-    } else {
-        return None;
+
+    // Resolve a rule with month, weekday, and nth weekday of the month to a date in the current
+    // year.
+    let weekday = match st.wDayOfWeek {
+        0 => Weekday::Sun,
+        1 => Weekday::Mon,
+        2 => Weekday::Tue,
+        3 => Weekday::Wed,
+        4 => Weekday::Thu,
+        5 => Weekday::Fri,
+        6 => Weekday::Sat,
+        _ => return Err(()),
     };
-    Some(date.and_time(time))
+    let nth_day = match st.wDay {
+        1..=5 => st.wDay as u8,
+        _ => return Err(()),
+    };
+    let date = NaiveDate::from_weekday_of_month_opt(year, st.wMonth as u32, weekday, nth_day)
+        .or_else(|| NaiveDate::from_weekday_of_month_opt(year, st.wMonth as u32, weekday, 4))
+        .ok_or(())?; // `st.wMonth` must be invalid
+    Ok(Some(date.and_time(time)))
 }
 
 #[cfg(test)]
@@ -184,7 +215,7 @@ mod tests {
     use crate::offset::local::win_bindings::{
         SystemTimeToFileTime, TzSpecificLocalTimeToSystemTime, FILETIME, SYSTEMTIME,
     };
-    use crate::{DateTime, Duration, FixedOffset, Local, NaiveDate, NaiveDateTime};
+    use crate::{DateTime, FixedOffset, Local, NaiveDate, NaiveDateTime, TimeDelta};
     use crate::{Datelike, TimeZone, Timelike};
     use std::mem::MaybeUninit;
     use std::ptr;
@@ -242,7 +273,7 @@ mod tests {
                 SystemTimeToFileTime(st, init.as_mut_ptr());
             }
             // SystemTimeToFileTime must have succeeded at this point, so we can assume the value is
-            // initalized.
+            // initialized.
             let filetime = unsafe { init.assume_init() };
             let bit_shift =
                 ((filetime.dwHighDateTime as u64) << 32) | (filetime.dwLowDateTime as u64);
@@ -256,7 +287,7 @@ mod tests {
             if let Some(our_result) = Local.from_local_datetime(&date).earliest() {
                 assert_eq!(from_local_time(&date), our_result);
             }
-            date += Duration::hours(1);
+            date += TimeDelta::try_hours(1).unwrap();
         }
     }
 }

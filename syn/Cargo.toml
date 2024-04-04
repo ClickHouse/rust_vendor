@@ -11,9 +11,9 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.60"
 name = "syn"
-version = "2.0.52"
+version = "2.0.58"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
 include = [
     "/benches/**",
@@ -105,7 +105,7 @@ version = "1"
 version = "1"
 
 [dev-dependencies.reqwest]
-version = "0.11"
+version = "0.12"
 features = ["blocking"]
 
 [dev-dependencies.rustversion]
@@ -137,10 +137,10 @@ extra-traits = []
 fold = []
 full = []
 parsing = []
-printing = ["quote"]
+printing = ["dep:quote"]
 proc-macro = [
     "proc-macro2/proc-macro",
-    "quote/proc-macro",
+    "quote?/proc-macro",
 ]
 test = ["syn-test-suite/all-features"]
 visit = []

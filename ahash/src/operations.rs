@@ -1,4 +1,5 @@
 use crate::convert::*;
+#[allow(unused)]
 use zerocopy::transmute;
 
 ///This constant comes from Kunth's prng (Empirically it works better than those from splitmix32).
@@ -110,11 +111,9 @@ pub(crate) fn aesenc(value: u128, xor: u128) -> u128 {
     }
 }
 
-#[cfg(all(
-    any(target_arch = "arm", target_arch = "aarch64"),
-    any(target_feature = "aes", target_feature = "crypto"),
-    not(miri),
-    feature = "stdsimd"
+#[cfg(any(
+    all(feature = "nightly-arm-aes", target_arch = "aarch64", target_feature = "aes", not(miri)),
+    all(feature = "nightly-arm-aes", target_arch = "arm", target_feature = "aes", not(miri)),
 ))]
 #[allow(unused)]
 #[inline(always)]
@@ -142,11 +141,9 @@ pub(crate) fn aesdec(value: u128, xor: u128) -> u128 {
     }
 }
 
-#[cfg(all(
-    any(target_arch = "arm", target_arch = "aarch64"),
-    any(target_feature = "aes", target_feature = "crypto"),
-    not(miri),
-    feature = "stdsimd"
+#[cfg(any(
+    all(feature = "nightly-arm-aes", target_arch = "aarch64", target_feature = "aes", not(miri)),
+    all(feature = "nightly-arm-aes", target_arch = "arm", target_feature = "aes", not(miri)),
 ))]
 #[allow(unused)]
 #[inline(always)]
@@ -187,7 +184,6 @@ pub(crate) fn add_in_length(enc: &mut u128, len: u64) {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::convert::Convert;
 
     // This is code to search for the shuffle constant
     //

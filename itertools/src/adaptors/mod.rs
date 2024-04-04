@@ -16,7 +16,7 @@ pub use self::multi_product::*;
 
 use crate::size_hint::{self, SizeHint};
 use std::fmt;
-use std::iter::{FromIterator, Fuse, FusedIterator};
+use std::iter::{Enumerate, FromIterator, Fuse, FusedIterator};
 use std::marker::PhantomData;
 
 /// An iterator adaptor that alternates elements from two iterators until both
@@ -28,9 +28,9 @@ use std::marker::PhantomData;
 #[derive(Clone, Debug)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct Interleave<I, J> {
-    a: Fuse<I>,
-    b: Fuse<J>,
-    flag: bool,
+    i: Fuse<I>,
+    j: Fuse<J>,
+    next_coming_from_j: bool,
 }
 
 /// Create an iterator that interleaves elements in `i` and `j`.
@@ -45,9 +45,9 @@ where
     J: IntoIterator<Item = I::Item>,
 {
     Interleave {
-        a: i.into_iter().fuse(),
-        b: j.into_iter().fuse(),
-        flag: false,
+        i: i.into_iter().fuse(),
+        j: j.into_iter().fuse(),
+        next_coming_from_j: false,
     }
 }
 
@@ -59,22 +59,50 @@ where
     type Item = I::Item;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        self.flag = !self.flag;
-        if self.flag {
-            match self.a.next() {
-                None => self.b.next(),
+        self.next_coming_from_j = !self.next_coming_from_j;
+        if self.next_coming_from_j {
+            match self.i.next() {
+                None => self.j.next(),
                 r => r,
             }
         } else {
-            match self.b.next() {
-                None => self.a.next(),
+            match self.j.next() {
+                None => self.i.next(),
                 r => r,
             }
         }
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
-        size_hint::add(self.a.size_hint(), self.b.size_hint())
+        size_hint::add(self.i.size_hint(), self.j.size_hint())
+    }
+
+    fn fold<B, F>(self, mut init: B, mut f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let Self {
+            mut i,
+            mut j,
+            next_coming_from_j,
+        } = self;
+        if next_coming_from_j {
+            match j.next() {
+                Some(y) => init = f(init, y),
+                None => return i.fold(init, f),
+            }
+        }
+        let res = i.try_fold(init, |mut acc, x| {
+            acc = f(acc, x);
+            match j.next() {
+                Some(y) => Ok(f(acc, y)),
+                None => Err(acc),
+            }
+        });
+        match res {
+            Ok(acc) => j.fold(acc, f),
+            Err(acc) => i.fold(acc, f),
+        }
     }
 }
 
@@ -99,21 +127,21 @@ where
     I: Iterator,
     J: Iterator<Item = I::Item>,
 {
-    it0: I,
-    it1: J,
-    phase: bool, // false ==> it0, true ==> it1
+    i: I,
+    j: J,
+    next_coming_from_j: bool,
 }
 
 /// Create a new `InterleaveShortest` iterator.
-pub fn interleave_shortest<I, J>(a: I, b: J) -> InterleaveShortest<I, J>
+pub fn interleave_shortest<I, J>(i: I, j: J) -> InterleaveShortest<I, J>
 where
     I: Iterator,
     J: Iterator<Item = I::Item>,
 {
     InterleaveShortest {
-        it0: a,
-        it1: b,
-        phase: false,
+        i,
+        j,
+        next_coming_from_j: false,
     }
 }
 
@@ -126,13 +154,13 @@ where
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        let e = if self.phase {
-            self.it1.next()
+        let e = if self.next_coming_from_j {
+            self.j.next()
         } else {
-            self.it0.next()
+            self.i.next()
         };
         if e.is_some() {
-            self.phase = !self.phase;
+            self.next_coming_from_j = !self.next_coming_from_j;
         }
         e
     }
@@ -140,12 +168,12 @@ where
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
         let (curr_hint, next_hint) = {
-            let it0_hint = self.it0.size_hint();
-            let it1_hint = self.it1.size_hint();
-            if self.phase {
-                (it1_hint, it0_hint)
+            let i_hint = self.i.size_hint();
+            let j_hint = self.j.size_hint();
+            if self.next_coming_from_j {
+                (j_hint, i_hint)
             } else {
-                (it0_hint, it1_hint)
+                (i_hint, j_hint)
             }
         };
         let (curr_lower, curr_upper) = curr_hint;
@@ -170,6 +198,34 @@ where
             }
         };
         (lower, upper)
+    }
+
+    fn fold<B, F>(self, mut init: B, mut f: F) -> B
+    where
+        F: FnMut(B, Self::Item) -> B,
+    {
+        let Self {
+            mut i,
+            mut j,
+            next_coming_from_j,
+        } = self;
+        if next_coming_from_j {
+            match j.next() {
+                Some(y) => init = f(init, y),
+                None => return init,
+            }
+        }
+        let res = i.try_fold(init, |mut acc, x| {
+            acc = f(acc, x);
+            match j.next() {
+                Some(y) => Ok(f(acc, y)),
+                None => Err(acc),
+            }
+        });
+        match res {
+            Ok(val) => val,
+            Err(val) => val,
+        }
     }
 }
 
@@ -218,7 +274,7 @@ where
     /// Split the `PutBack` into its parts.
     #[inline]
     pub fn into_parts(self) -> (Option<I::Item>, I) {
-        let PutBack { top, iter } = self;
+        let Self { top, iter } = self;
         (top, iter)
     }
 
@@ -607,11 +663,11 @@ where
             Some(item) => Ok(f(acc, item)),
             None => Err(acc),
         });
-        let res = match res {
+
+        match res {
             Ok(val) => val,
             Err(val) => val,
-        };
-        res
+        }
     }
 }
 
@@ -689,7 +745,7 @@ pub struct Tuple1Combination<I> {
 
 impl<I> From<I> for Tuple1Combination<I> {
     fn from(iter: I) -> Self {
-        Tuple1Combination { iter }
+        Self { iter }
     }
 }
 
@@ -901,17 +957,11 @@ where
     type Item = Result<T, E>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.iter.next() {
-                Some(Ok(v)) => {
-                    if (self.f)(&v) {
-                        return Some(Ok(v));
-                    }
-                }
-                Some(Err(e)) => return Some(Err(e)),
-                None => return None,
-            }
-        }
+        let f = &mut self.f;
+        self.iter.find(|res| match res {
+            Ok(t) => f(t),
+            _ => true,
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -988,17 +1038,11 @@ where
     type Item = Result<U, E>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            match self.iter.next() {
-                Some(Ok(v)) => {
-                    if let Some(v) = (self.f)(v) {
-                        return Some(Ok(v));
-                    }
-                }
-                Some(Err(e)) => return Some(Err(e)),
-                None => return None,
-            }
-        }
+        let f = &mut self.f;
+        self.iter.find_map(|res| match res {
+            Ok(t) => f(t).map(Ok),
+            Err(e) => Some(Err(e)),
+        })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1039,16 +1083,15 @@ where
 #[derive(Clone)]
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct Positions<I, F> {
-    iter: I,
+    iter: Enumerate<I>,
     f: F,
-    count: usize,
 }
 
 impl<I, F> fmt::Debug for Positions<I, F>
 where
     I: fmt::Debug,
 {
-    debug_fmt_fields!(Positions, iter, count);
+    debug_fmt_fields!(Positions, iter);
 }
 
 /// Create a new `Positions` iterator.
@@ -1057,7 +1100,8 @@ where
     I: Iterator,
     F: FnMut(I::Item) -> bool,
 {
-    Positions { iter, f, count: 0 }
+    let iter = iter.enumerate();
+    Positions { iter, f }
 }
 
 impl<I, F> Iterator for Positions<I, F>
@@ -1068,18 +1112,27 @@ where
     type Item = usize;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(v) = self.iter.next() {
-            let i = self.count;
-            self.count = i + 1;
-            if (self.f)(v) {
-                return Some(i);
-            }
-        }
-        None
+        let f = &mut self.f;
+        // TODO: once MSRV >= 1.62, use `then_some`.
+        self.iter
+            .find_map(|(count, val)| if f(val) { Some(count) } else { None })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
         (0, self.iter.size_hint().1)
+    }
+
+    fn fold<B, G>(self, init: B, mut func: G) -> B
+    where
+        G: FnMut(B, Self::Item) -> B,
+    {
+        let mut f = self.f;
+        self.iter.fold(init, |mut acc, (count, val)| {
+            if f(val) {
+                acc = func(acc, count);
+            }
+            acc
+        })
     }
 }
 
@@ -1089,12 +1142,25 @@ where
     F: FnMut(I::Item) -> bool,
 {
     fn next_back(&mut self) -> Option<Self::Item> {
-        while let Some(v) = self.iter.next_back() {
-            if (self.f)(v) {
-                return Some(self.count + self.iter.len());
+        let f = &mut self.f;
+        // TODO: once MSRV >= 1.62, use `then_some`.
+        self.iter
+            .by_ref()
+            .rev()
+            .find_map(|(count, val)| if f(val) { Some(count) } else { None })
+    }
+
+    fn rfold<B, G>(self, init: B, mut func: G) -> B
+    where
+        G: FnMut(B, Self::Item) -> B,
+    {
+        let mut f = self.f;
+        self.iter.rfold(init, |mut acc, (count, val)| {
+            if f(val) {
+                acc = func(acc, count);
             }
-        }
-        None
+            acc
+        })
     }
 }
 

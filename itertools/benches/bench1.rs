@@ -1,4 +1,4 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use itertools::free::cloned;
 use itertools::iproduct;
 use itertools::Itertools;
@@ -475,6 +475,8 @@ fn merge_default(c: &mut Criterion) {
     let mut data1 = vec![0; 1024];
     let mut data2 = vec![0; 800];
     let mut x = 0;
+
+    #[allow(clippy::explicit_counter_loop, clippy::unused_enumerate_index)]
     for (_, elt) in data1.iter_mut().enumerate() {
         *elt = x;
         x += 1;
@@ -501,6 +503,8 @@ fn merge_by_cmp(c: &mut Criterion) {
     let mut data1 = vec![0; 1024];
     let mut data2 = vec![0; 800];
     let mut x = 0;
+
+    #[allow(clippy::explicit_counter_loop, clippy::unused_enumerate_index)]
     for (_, elt) in data1.iter_mut().enumerate() {
         *elt = x;
         x += 1;
@@ -527,6 +531,8 @@ fn merge_by_lt(c: &mut Criterion) {
     let mut data1 = vec![0; 1024];
     let mut data2 = vec![0; 800];
     let mut x = 0;
+
+    #[allow(clippy::explicit_counter_loop, clippy::unused_enumerate_index)]
     for (_, elt) in data1.iter_mut().enumerate() {
         *elt = x;
         x += 1;
@@ -553,6 +559,8 @@ fn kmerge_default(c: &mut Criterion) {
     let mut data1 = vec![0; 1024];
     let mut data2 = vec![0; 800];
     let mut x = 0;
+
+    #[allow(clippy::explicit_counter_loop, clippy::unused_enumerate_index)]
     for (_, elt) in data1.iter_mut().enumerate() {
         *elt = x;
         x += 1;
@@ -592,7 +600,7 @@ fn kmerge_tenway(c: &mut Criterion) {
 
     let mut chunks = Vec::new();
     let mut rest = &mut data[..];
-    while rest.len() > 0 {
+    while !rest.is_empty() {
         let chunk_len = 1 + rng(&mut state) % 512;
         let chunk_len = cmp::min(rest.len(), chunk_len as usize);
         let (fst, tail) = { rest }.split_at_mut(chunk_len);
@@ -645,6 +653,22 @@ fn step_range_10(c: &mut Criterion) {
 
     c.bench_function("step range 10", move |b| {
         b.iter(|| fast_integer_sum(v.clone().step_by(10)))
+    });
+}
+
+fn vec_iter_mut_partition(c: &mut Criterion) {
+    let data = std::iter::repeat(-1024i32..1024)
+        .take(256)
+        .flatten()
+        .collect_vec();
+    c.bench_function("vec iter mut partition", move |b| {
+        b.iter_batched(
+            || data.clone(),
+            |mut data| {
+                black_box(itertools::partition(black_box(&mut data), |n| *n >= 0));
+            },
+            BatchSize::LargeInput,
+        )
     });
 }
 
@@ -803,6 +827,7 @@ criterion_group!(
     step_vec_10,
     step_range_2,
     step_range_10,
+    vec_iter_mut_partition,
     cartesian_product_iterator,
     multi_cartesian_product_iterator,
     cartesian_product_nested_for,

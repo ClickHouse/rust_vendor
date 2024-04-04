@@ -3,7 +3,7 @@
 
 //! Date and time formatting routines.
 
-#[cfg(all(not(feature = "std"), feature = "alloc"))]
+#[cfg(all(feature = "alloc", not(feature = "std"), not(test)))]
 use alloc::string::{String, ToString};
 #[cfg(feature = "alloc")]
 use core::borrow::Borrow;
@@ -20,8 +20,6 @@ use crate::{NaiveDate, NaiveTime, Weekday};
 
 #[cfg(feature = "alloc")]
 use super::locales;
-#[cfg(all(feature = "unstable-locales", feature = "alloc"))]
-use super::Locale;
 #[cfg(any(feature = "alloc", feature = "serde", feature = "rustc-serialize"))]
 use super::{Colons, OffsetFormat, OffsetPrecision, Pad};
 #[cfg(feature = "alloc")]
@@ -231,10 +229,10 @@ fn format_inner(
                 Timestamp => (
                     1,
                     match (date, time, off) {
-                        (Some(d), Some(t), None) => Some(d.and_time(*t).timestamp()),
-                        (Some(d), Some(t), Some(&(_, off))) => {
-                            Some(d.and_time(*t).timestamp() - i64::from(off.local_minus_utc()))
-                        }
+                        (Some(d), Some(t), None) => Some(d.and_time(*t).and_utc().timestamp()),
+                        (Some(d), Some(t), Some(&(_, off))) => Some(
+                            d.and_time(*t).and_utc().timestamp() - i64::from(off.local_minus_utc()),
+                        ),
                         (_, _, _) => None,
                     },
                 ),

@@ -1,3 +1,12 @@
+# Version 0.9.18
+
+- Remove dependency on `cfg-if`. (#1072)
+- Remove dependency on `autocfg`. (#1071)
+
+# Version 0.9.17
+
+- Remove dependency on `memoffset`. (#1058)
+
 # Version 0.9.16
 
 - Bump the minimum supported Rust version to 1.61. (#1037)

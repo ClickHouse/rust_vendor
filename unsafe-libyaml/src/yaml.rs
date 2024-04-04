@@ -851,7 +851,7 @@ pub struct yaml_parser_t {
     pub problem: *const libc::c_char,
     #[cfg(not(doc))]
     pub(crate) problem: *const libc::c_char,
-    /// The byte about which the problem occured.
+    /// The byte about which the problem occurred.
     #[cfg(doc)]
     pub problem_offset: size_t,
     #[cfg(not(doc))]
@@ -916,6 +916,8 @@ pub struct yaml_parser_t {
     pub(crate) simple_key_allowed: bool,
     /// The stack of simple keys.
     pub(crate) simple_keys: yaml_stack_t<yaml_simple_key_t>,
+    /// At least this many leading elements of simple_keys have possible=0.
+    pub(crate) not_simple_keys: libc::c_int,
     /// The parser states stack.
     pub(crate) states: yaml_stack_t<yaml_parser_state_t>,
     /// The current parser state.
@@ -937,7 +939,7 @@ pub struct yaml_parser_t_prefix {
     pub error: yaml_error_type_t,
     /// Error description.
     pub problem: *const libc::c_char,
-    /// The byte about which the problem occured.
+    /// The byte about which the problem occurred.
     pub problem_offset: size_t,
     /// The problematic value (-1 is none).
     pub problem_value: libc::c_int,
@@ -1198,7 +1200,7 @@ pub(crate) struct unnamed_yaml_emitter_t_scalar_data {
     pub length: size_t,
     /// Does the scalar contain line breaks?
     pub multiline: bool,
-    /// Can the scalar be expessed in the flow plain style?
+    /// Can the scalar be expressed in the flow plain style?
     pub flow_plain_allowed: bool,
     /// Can the scalar be expressed in the block plain style?
     pub block_plain_allowed: bool,

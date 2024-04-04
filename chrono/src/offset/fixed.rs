@@ -9,7 +9,7 @@ use core::str::FromStr;
 #[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 use rkyv::{Archive, Deserialize, Serialize};
 
-use super::{LocalResult, Offset, TimeZone};
+use super::{MappedLocalTime, Offset, TimeZone};
 use crate::format::{scan, ParseError, OUT_OF_RANGE};
 use crate::naive::{NaiveDate, NaiveDateTime};
 
@@ -49,15 +49,14 @@ impl FixedOffset {
     ///
     /// # Example
     ///
-    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    #[cfg_attr(feature = "std", doc = "```")]
+    /// ```
+    /// # #[cfg(feature = "alloc")] {
     /// use chrono::{FixedOffset, TimeZone};
     /// let hour = 3600;
-    /// let datetime = FixedOffset::east_opt(5 * hour)
-    ///     .unwrap()
-    ///     .with_ymd_and_hms(2016, 11, 08, 0, 0, 0)
-    ///     .unwrap();
+    /// let datetime =
+    ///     FixedOffset::east_opt(5 * hour).unwrap().with_ymd_and_hms(2016, 11, 08, 0, 0, 0).unwrap();
     /// assert_eq!(&datetime.to_rfc3339(), "2016-11-08T00:00:00+05:00")
+    /// # }
     /// ```
     #[must_use]
     pub const fn east_opt(secs: i32) -> Option<FixedOffset> {
@@ -85,15 +84,14 @@ impl FixedOffset {
     ///
     /// # Example
     ///
-    #[cfg_attr(not(feature = "std"), doc = "```ignore")]
-    #[cfg_attr(feature = "std", doc = "```")]
+    /// ```
+    /// # #[cfg(feature = "alloc")] {
     /// use chrono::{FixedOffset, TimeZone};
     /// let hour = 3600;
-    /// let datetime = FixedOffset::west_opt(5 * hour)
-    ///     .unwrap()
-    ///     .with_ymd_and_hms(2016, 11, 08, 0, 0, 0)
-    ///     .unwrap();
+    /// let datetime =
+    ///     FixedOffset::west_opt(5 * hour).unwrap().with_ymd_and_hms(2016, 11, 08, 0, 0, 0).unwrap();
     /// assert_eq!(&datetime.to_rfc3339(), "2016-11-08T00:00:00-05:00")
+    /// # }
     /// ```
     #[must_use]
     pub const fn west_opt(secs: i32) -> Option<FixedOffset> {
@@ -133,11 +131,11 @@ impl TimeZone for FixedOffset {
         *offset
     }
 
-    fn offset_from_local_date(&self, _local: &NaiveDate) -> LocalResult<FixedOffset> {
-        LocalResult::Single(*self)
+    fn offset_from_local_date(&self, _local: &NaiveDate) -> MappedLocalTime<FixedOffset> {
+        MappedLocalTime::Single(*self)
     }
-    fn offset_from_local_datetime(&self, _local: &NaiveDateTime) -> LocalResult<FixedOffset> {
-        LocalResult::Single(*self)
+    fn offset_from_local_datetime(&self, _local: &NaiveDateTime) -> MappedLocalTime<FixedOffset> {
+        MappedLocalTime::Single(*self)
     }
 
     fn offset_from_utc_date(&self, _utc: &NaiveDate) -> FixedOffset {
