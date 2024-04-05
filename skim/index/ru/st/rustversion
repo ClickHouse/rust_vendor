@@ -1,0 +1,1 @@
+{"name":"rustversion","vers":"1.0.14","deps":[{"name":"trybuild","req":"^1.0.49","features":["diff"],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"7ffc183a10b4478d04cbbbfc96d0873219d962dd5accaff2ffbd4ceb7df837f4","features":{},"yanked":false}

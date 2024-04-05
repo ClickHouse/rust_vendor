@@ -1,0 +1,1 @@
+{"name":"itoa","vers":"1.0.11","deps":[{"name":"no-panic","req":"^0.1","features":[],"optional":true,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"49f1f14873335454500d59611f1cf4a4b0f786f9ac11f4312a78e4cf2566695b","features":{"no-panic":["dep:no-panic"]},"yanked":false}
