@@ -1,4 +1,6 @@
 #[allow(dead_code)]
+#[allow(unused_imports)]
+#[allow(clippy::all)]
 #[path = "../libm/src/math/mod.rs"]
 mod libm;
 
@@ -15,17 +17,7 @@ macro_rules! no_mangle {
     }
 }
 
-#[cfg(any(
-    all(
-        target_family = "wasm",
-        target_os = "unknown",
-        not(target_env = "wasi")
-    ),
-    target_os = "xous",
-    target_os = "uefi",
-    all(target_arch = "xtensa", target_os = "none"),
-    all(target_vendor = "fortanix", target_env = "sgx")
-))]
+#[cfg(not(windows))]
 no_mangle! {
     fn acos(x: f64) -> f64;
     fn asin(x: f64) -> f64;
@@ -41,10 +33,6 @@ no_mangle! {
     fn log10f(x: f32) -> f32;
     fn log(x: f64) -> f64;
     fn logf(x: f32) -> f32;
-    fn fmin(x: f64, y: f64) -> f64;
-    fn fminf(x: f32, y: f32) -> f32;
-    fn fmax(x: f64, y: f64) -> f64;
-    fn fmaxf(x: f32, y: f32) -> f32;
     fn round(x: f64) -> f64;
     fn roundf(x: f32) -> f32;
     fn rint(x: f64) -> f64;
@@ -52,8 +40,6 @@ no_mangle! {
     fn sin(x: f64) -> f64;
     fn pow(x: f64, y: f64) -> f64;
     fn powf(x: f32, y: f32) -> f32;
-    fn fmod(x: f64, y: f64) -> f64;
-    fn fmodf(x: f32, y: f32) -> f32;
     fn acosf(n: f32) -> f32;
     fn atan2f(a: f32, b: f32) -> f32;
     fn atanf(n: f32) -> f32;
@@ -85,20 +71,28 @@ no_mangle! {
     fn cbrtf(n: f32) -> f32;
     fn hypotf(x: f32, y: f32) -> f32;
     fn tanf(n: f32) -> f32;
+
+    fn sqrtf(x: f32) -> f32;
+    fn sqrt(x: f64) -> f64;
+
+    fn ceil(x: f64) -> f64;
+    fn ceilf(x: f32) -> f32;
+    fn floor(x: f64) -> f64;
+    fn floorf(x: f32) -> f32;
+    fn trunc(x: f64) -> f64;
+    fn truncf(x: f32) -> f32;
+
+    fn fmin(x: f64, y: f64) -> f64;
+    fn fminf(x: f32, y: f32) -> f32;
+    fn fmax(x: f64, y: f64) -> f64;
+    fn fmaxf(x: f32, y: f32) -> f32;
+    // `f64 % f64`
+    fn fmod(x: f64, y: f64) -> f64;
+    // `f32 % f32`
+    fn fmodf(x: f32, y: f32) -> f32;
 }
 
-#[cfg(any(
-    all(
-        target_family = "wasm",
-        target_os = "unknown",
-        not(target_env = "wasi")
-    ),
-    target_os = "xous",
-    target_os = "uefi",
-    all(target_arch = "xtensa", target_os = "none"),
-    all(target_vendor = "fortanix", target_env = "sgx"),
-    target_os = "windows"
-))]
+// allow for windows (and other targets)
 intrinsics! {
     pub extern "C" fn lgamma_r(x: f64, s: &mut i32) -> f64 {
         let r = self::libm::lgamma_r(x);
@@ -111,47 +105,4 @@ intrinsics! {
         *s = r.1;
         r.0
     }
-}
-
-#[cfg(any(
-    target_os = "xous",
-    target_os = "uefi",
-    all(target_arch = "xtensa", target_os = "none"),
-))]
-no_mangle! {
-    fn sqrtf(x: f32) -> f32;
-    fn sqrt(x: f64) -> f64;
-}
-
-#[cfg(any(
-    all(target_vendor = "fortanix", target_env = "sgx"),
-    all(target_arch = "xtensa", target_os = "none"),
-    target_os = "xous",
-    target_os = "uefi"
-))]
-no_mangle! {
-    fn ceil(x: f64) -> f64;
-    fn ceilf(x: f32) -> f32;
-    fn floor(x: f64) -> f64;
-    fn floorf(x: f32) -> f32;
-    fn trunc(x: f64) -> f64;
-    fn truncf(x: f32) -> f32;
-}
-
-// only for the thumb*-none-eabi*, riscv32*-none-elf, x86_64-unknown-none and mips*-unknown-none targets that lack the floating point instruction set
-#[cfg(any(
-    all(target_arch = "arm", target_os = "none"),
-    all(target_arch = "riscv32", not(target_feature = "f"), target_os = "none"),
-    all(target_arch = "x86_64", target_os = "none"),
-    all(target_arch = "mips", target_os = "none"),
-))]
-no_mangle! {
-    fn fmin(x: f64, y: f64) -> f64;
-    fn fminf(x: f32, y: f32) -> f32;
-    fn fmax(x: f64, y: f64) -> f64;
-    fn fmaxf(x: f32, y: f32) -> f32;
-    // `f64 % f64`
-    fn fmod(x: f64, y: f64) -> f64;
-    // `f32 % f32`
-    fn fmodf(x: f32, y: f32) -> f32;
 }

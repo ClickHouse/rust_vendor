@@ -240,7 +240,7 @@ impl From<MZFlush> for TDEFLFlush {
 }
 
 impl TDEFLFlush {
-    pub fn new(flush: i32) -> Result<Self, MZError> {
+    pub const fn new(flush: i32) -> Result<Self, MZError> {
         match flush {
             0 => Ok(TDEFLFlush::None),
             2 => Ok(TDEFLFlush::Sync),
@@ -320,7 +320,7 @@ mod zlib {
         flg + (FCHECK_DIVISOR - rem as u8)
     }
 
-    fn zlib_level_from_flags(flags: u32) -> u8 {
+    const fn zlib_level_from_flags(flags: u32) -> u8 {
         use super::NUM_PROBES;
 
         let num_probes = flags & (super::MAX_PROBES_MASK as u32);
@@ -454,7 +454,7 @@ impl CompressorOxide {
     }
 
     /// Returns whether the compressor is wrapping the data in a zlib format or not.
-    pub fn data_format(&self) -> DataFormat {
+    pub const fn data_format(&self) -> DataFormat {
         if (self.params.flags & TDEFL_WRITE_ZLIB_HEADER) != 0 {
             DataFormat::Zlib
         } else {
@@ -678,9 +678,12 @@ struct OutputBufferOxide<'a> {
 
 impl<'a> OutputBufferOxide<'a> {
     fn put_bits(&mut self, bits: u32, len: u32) {
+        // TODO: Removing this assertion worsens performance
+        // Need to figure out why
         assert!(bits <= ((1u32 << len) - 1u32));
         self.bit_buffer |= bits << self.bits_in;
         self.bits_in += len;
+
         while self.bits_in >= 8 {
             self.inner[self.inner_pos] = self.bit_buffer as u8;
             self.inner_pos += 1;
@@ -1242,6 +1245,8 @@ impl DictOxide {
         let pos = pos & LZ_DICT_SIZE_MASK;
         let end = pos + 4;
         // Somehow this assertion makes things faster.
+        // TODO: as of may 2024 this does not seem to make any difference
+        // so consider removing.
         assert!(end < LZ_DICT_FULL_SIZE);
 
         let bytes: [u8; 4] = self.b.dict[pos..end].try_into().unwrap();
@@ -1252,6 +1257,10 @@ impl DictOxide {
     /// type T.
     #[inline]
     fn read_unaligned_u64(&self, pos: usize) -> u64 {
+        // Help evade bounds/panic code check by masking the position value
+        // This provides a small speedup at the cost of an instruction or two instead of
+        // having to use unsafe.
+        let pos = pos & LZ_DICT_SIZE_MASK;
         let bytes: [u8; 8] = self.b.dict[pos..pos + 8].try_into().unwrap();
         u64::from_le_bytes(bytes)
     }
@@ -1458,7 +1467,6 @@ struct LZOxide {
     pub flag_position: usize,
 
     // The total number of bytes in the current block.
-    // (Could maybe use usize, but it's not possible to exceed a block size of )
     pub total_bytes: u32,
     pub num_flags_left: u32,
 }
@@ -1475,7 +1483,9 @@ impl LZOxide {
     }
 
     fn write_code(&mut self, val: u8) {
-        self.codes[self.code_position] = val;
+        // Perf - go via u16 to help evade bounds check
+        // TODO: see if we can use u16 for flag_position in general.
+        self.codes[usize::from(self.code_position as u16)] = val;
         self.code_position += 1;
     }
 
@@ -1489,7 +1499,9 @@ impl LZOxide {
     }
 
     fn get_flag(&mut self) -> &mut u8 {
-        &mut self.codes[self.flag_position]
+        // Perf - go via u16 to help evade bounds check
+        // TODO: see if we can use u16 for flag_position in general.
+        &mut self.codes[usize::from(self.flag_position as u16)]
     }
 
     fn plant_flag(&mut self) {
@@ -1747,9 +1759,9 @@ fn record_literal(h: &mut HuffmanOxide, lz: &mut LZOxide, lit: u8) {
 }
 
 fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, mut match_len: u32, mut match_dist: u32) {
-    assert!(match_len >= MIN_MATCH_LEN.into());
-    assert!(match_dist >= 1);
-    assert!(match_dist as usize <= LZ_DICT_SIZE);
+    debug_assert!(match_len >= MIN_MATCH_LEN.into());
+    debug_assert!(match_dist >= 1);
+    debug_assert!(match_dist as usize <= LZ_DICT_SIZE);
 
     lz.total_bytes += match_len;
     match_dist -= 1;
@@ -1768,7 +1780,8 @@ fn record_match(h: &mut HuffmanOxide, lz: &mut LZOxide, mut match_len: u32, mut 
         LARGE_DIST_SYM[((match_dist >> 8) & 127) as usize]
     } as usize;
     h.count[1][symbol] += 1;
-    h.count[0][LEN_SYM[match_len as usize] as usize] += 1;
+    // Perf - go via u8 to help optimize out bounds check.
+    h.count[0][LEN_SYM[usize::from(match_len as u8)] as usize] += 1;
 }
 
 fn compress_normal(d: &mut CompressorOxide, callback: &mut CallbackOxide) -> bool {
@@ -2392,8 +2405,8 @@ mod test {
 
     #[test]
     fn u16_from_slice() {
-        let mut slice = [208, 7];
-        assert_eq!(read_u16_le(&mut slice, 0), 2000);
+        let slice = [208, 7];
+        assert_eq!(read_u16_le(&slice, 0), 2000);
     }
 
     #[test]

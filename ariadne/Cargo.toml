@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "ariadne"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Joshua Barretto <joshua.s.barretto@gmail.com>"]
 exclude = [
     "/misc",
@@ -44,7 +44,7 @@ optional = true
 version = "0.1.9"
 
 [dependencies.yansi]
-version = "0.5"
+version = "1.0"
 
 [dev-dependencies.insta]
 version = "1.31.0"

@@ -86,10 +86,10 @@
 //! a different thread.
 
 // Proc-macro2 types in rustdoc of other crates get linked to here.
-#![doc(html_root_url = "https://docs.rs/proc-macro2/1.0.79")]
+#![doc(html_root_url = "https://docs.rs/proc-macro2/1.0.92")]
 #![cfg_attr(any(proc_macro_span, super_unstable), feature(proc_macro_span))]
 #![cfg_attr(super_unstable, feature(proc_macro_def_site))]
-#![cfg_attr(doc_cfg, feature(doc_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![allow(
     clippy::cast_lossless,
@@ -102,9 +102,11 @@
     clippy::let_underscore_untyped,
     clippy::manual_assert,
     clippy::manual_range_contains,
+    clippy::missing_panics_doc,
     clippy::missing_safety_doc,
     clippy::must_use_candidate,
     clippy::needless_doctest_main,
+    clippy::needless_lifetimes,
     clippy::new_without_default,
     clippy::return_self_not_must_use,
     clippy::shadow_unrelated,
@@ -170,11 +172,12 @@ use core::ops::Range;
 use core::ops::RangeBounds;
 use core::str::FromStr;
 use std::error::Error;
+use std::ffi::CStr;
 #[cfg(procmacro2_semver_exempt)]
 use std::path::PathBuf;
 
 #[cfg(span_locations)]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "span-locations")))]
 pub use crate::location::LineColumn;
 
 /// An abstract stream of tokens, or more concretely a sequence of token trees.
@@ -206,7 +209,7 @@ impl TokenStream {
 
     fn _new_fallback(inner: fallback::TokenStream) -> Self {
         TokenStream {
-            inner: inner.into(),
+            inner: imp::TokenStream::from(inner),
             _marker: MARKER,
         }
     }
@@ -242,27 +245,29 @@ impl FromStr for TokenStream {
     type Err = LexError;
 
     fn from_str(src: &str) -> Result<TokenStream, LexError> {
-        let e = src.parse().map_err(|e| LexError {
-            inner: e,
-            _marker: MARKER,
-        })?;
-        Ok(TokenStream::_new(e))
+        match imp::TokenStream::from_str_checked(src) {
+            Ok(tokens) => Ok(TokenStream::_new(tokens)),
+            Err(lex) => Err(LexError {
+                inner: lex,
+                _marker: MARKER,
+            }),
+        }
     }
 }
 
 #[cfg(feature = "proc-macro")]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "proc-macro")))]
 impl From<proc_macro::TokenStream> for TokenStream {
     fn from(inner: proc_macro::TokenStream) -> Self {
-        TokenStream::_new(inner.into())
+        TokenStream::_new(imp::TokenStream::from(inner))
     }
 }
 
 #[cfg(feature = "proc-macro")]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "proc-macro")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "proc-macro")))]
 impl From<TokenStream> for proc_macro::TokenStream {
     fn from(inner: TokenStream) -> Self {
-        inner.inner.into()
+        proc_macro::TokenStream::from(inner.inner)
     }
 }
 
@@ -338,7 +343,7 @@ impl Error for LexError {}
 ///
 /// This type is semver exempt and not exposed by default.
 #[cfg(all(procmacro2_semver_exempt, any(not(wrap_proc_macro), super_unstable)))]
-#[cfg_attr(doc_cfg, doc(cfg(procmacro2_semver_exempt)))]
+#[cfg_attr(docsrs, doc(cfg(procmacro2_semver_exempt)))]
 #[derive(Clone, PartialEq, Eq)]
 pub struct SourceFile {
     inner: imp::SourceFile,
@@ -402,7 +407,7 @@ impl Span {
 
     fn _new_fallback(inner: fallback::Span) -> Self {
         Span {
-            inner: inner.into(),
+            inner: imp::Span::from(inner),
             _marker: MARKER,
         }
     }
@@ -427,7 +432,7 @@ impl Span {
     ///
     /// This method is semver exempt and not exposed by default.
     #[cfg(procmacro2_semver_exempt)]
-    #[cfg_attr(doc_cfg, doc(cfg(procmacro2_semver_exempt)))]
+    #[cfg_attr(docsrs, doc(cfg(procmacro2_semver_exempt)))]
     pub fn def_site() -> Self {
         Span::_new(imp::Span::def_site())
     }
@@ -470,7 +475,7 @@ impl Span {
     ///
     /// This method is semver exempt and not exposed by default.
     #[cfg(all(procmacro2_semver_exempt, any(not(wrap_proc_macro), super_unstable)))]
-    #[cfg_attr(doc_cfg, doc(cfg(procmacro2_semver_exempt)))]
+    #[cfg_attr(docsrs, doc(cfg(procmacro2_semver_exempt)))]
     pub fn source_file(&self) -> SourceFile {
         SourceFile::_new(self.inner.source_file())
     }
@@ -485,7 +490,7 @@ impl Span {
     /// procedural macro, such as main.rs or build.rs, the byte range is always
     /// accurate regardless of toolchain.
     #[cfg(span_locations)]
-    #[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "span-locations")))]
     pub fn byte_range(&self) -> Range<usize> {
         self.inner.byte_range()
     }
@@ -500,7 +505,7 @@ impl Span {
     /// outside of a procedural macro, such as main.rs or build.rs, the
     /// line/column are always meaningful regardless of toolchain.
     #[cfg(span_locations)]
-    #[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "span-locations")))]
     pub fn start(&self) -> LineColumn {
         self.inner.start()
     }
@@ -515,7 +520,7 @@ impl Span {
     /// outside of a procedural macro, such as main.rs or build.rs, the
     /// line/column are always meaningful regardless of toolchain.
     #[cfg(span_locations)]
-    #[cfg_attr(doc_cfg, doc(cfg(feature = "span-locations")))]
+    #[cfg_attr(docsrs, doc(cfg(feature = "span-locations")))]
     pub fn end(&self) -> LineColumn {
         self.inner.end()
     }
@@ -537,7 +542,7 @@ impl Span {
     ///
     /// This method is semver exempt and not exposed by default.
     #[cfg(procmacro2_semver_exempt)]
-    #[cfg_attr(doc_cfg, doc(cfg(procmacro2_semver_exempt)))]
+    #[cfg_attr(docsrs, doc(cfg(procmacro2_semver_exempt)))]
     pub fn eq(&self, other: &Span) -> bool {
         self.inner.eq(&other.inner)
     }
@@ -677,13 +682,25 @@ pub enum Delimiter {
     Brace,
     /// `[ ... ]`
     Bracket,
-    /// `Ø ... Ø`
+    /// `∅ ... ∅`
     ///
-    /// An implicit delimiter, that may, for example, appear around tokens
+    /// An invisible delimiter, that may, for example, appear around tokens
     /// coming from a "macro variable" `$var`. It is important to preserve
     /// operator priorities in cases like `$var * 3` where `$var` is `1 + 2`.
-    /// Implicit delimiters may not survive roundtrip of a token stream through
+    /// Invisible delimiters may not survive roundtrip of a token stream through
     /// a string.
+    ///
+    /// <div class="warning">
+    ///
+    /// Note: rustc currently can ignore the grouping of tokens delimited by `None` in the output
+    /// of a proc_macro. Only `None`-delimited groups created by a macro_rules macro in the input
+    /// of a proc_macro macro are preserved, and only in very specific circumstances.
+    /// Any `None`-delimited groups (re)created by a proc_macro will therefore not preserve
+    /// operator priorities as indicated above. The other `Delimiter` variants should be used
+    /// instead in this context. This is a rustc bug. For details, see
+    /// [rust-lang/rust#67062](https://github.com/rust-lang/rust/issues/67062).
+    ///
+    /// </div>
     None,
 }
 
@@ -694,7 +711,7 @@ impl Group {
 
     fn _new_fallback(inner: fallback::Group) -> Self {
         Group {
-            inner: inner.into(),
+            inner: imp::Group::from(inner),
         }
     }
 
@@ -820,10 +837,16 @@ impl Punct {
     /// The returned `Punct` will have the default span of `Span::call_site()`
     /// which can be further configured with the `set_span` method below.
     pub fn new(ch: char, spacing: Spacing) -> Self {
-        Punct {
-            ch,
-            spacing,
-            span: Span::call_site(),
+        if let '!' | '#' | '$' | '%' | '&' | '\'' | '*' | '+' | ',' | '-' | '.' | '/' | ':' | ';'
+        | '<' | '=' | '>' | '?' | '@' | '^' | '|' | '~' = ch
+        {
+            Punct {
+                ch,
+                spacing,
+                span: Span::call_site(),
+            }
+        } else {
+            panic!("unsupported proc macro punctuation character {:?}", ch);
         }
     }
 
@@ -944,6 +967,13 @@ impl Ident {
     fn _new(inner: imp::Ident) -> Self {
         Ident {
             inner,
+            _marker: MARKER,
+        }
+    }
+
+    fn _new_fallback(inner: fallback::Ident) -> Self {
+        Ident {
+            inner: imp::Ident::from(inner),
             _marker: MARKER,
         }
     }
@@ -1117,7 +1147,7 @@ impl Literal {
 
     fn _new_fallback(inner: fallback::Literal) -> Self {
         Literal {
-            inner: inner.into(),
+            inner: imp::Literal::from(inner),
             _marker: MARKER,
         }
     }
@@ -1234,9 +1264,19 @@ impl Literal {
         Literal::_new(imp::Literal::character(ch))
     }
 
+    /// Byte character literal.
+    pub fn byte_character(byte: u8) -> Literal {
+        Literal::_new(imp::Literal::byte_character(byte))
+    }
+
     /// Byte string literal.
-    pub fn byte_string(s: &[u8]) -> Literal {
-        Literal::_new(imp::Literal::byte_string(s))
+    pub fn byte_string(bytes: &[u8]) -> Literal {
+        Literal::_new(imp::Literal::byte_string(bytes))
+    }
+
+    /// C string literal.
+    pub fn c_string(string: &CStr) -> Literal {
+        Literal::_new(imp::Literal::c_string(string))
     }
 
     /// Returns the span encompassing this literal.
@@ -1276,10 +1316,13 @@ impl FromStr for Literal {
     type Err = LexError;
 
     fn from_str(repr: &str) -> Result<Self, LexError> {
-        repr.parse().map(Literal::_new).map_err(|inner| LexError {
-            inner,
-            _marker: MARKER,
-        })
+        match imp::Literal::from_str_checked(repr) {
+            Ok(lit) => Ok(Literal::_new(lit)),
+            Err(lex) => Err(LexError {
+                inner: lex,
+                _marker: MARKER,
+            }),
+        }
     }
 }
 

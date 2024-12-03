@@ -7,7 +7,7 @@ use num_conv::prelude::*;
 use crate::error::TryFromParsed;
 use crate::format_description::well_known::iso8601::EncodedConfig;
 use crate::format_description::well_known::{Iso8601, Rfc2822, Rfc3339};
-use crate::format_description::FormatItem;
+use crate::format_description::BorrowedFormatItem;
 #[cfg(feature = "alloc")]
 use crate::format_description::OwnedFormatItem;
 use crate::internal_macros::bug;
@@ -15,11 +15,11 @@ use crate::parsing::{Parsed, ParsedItem};
 use crate::{error, Date, Month, OffsetDateTime, Time, UtcOffset, Weekday};
 
 /// A type that can be parsed.
-#[cfg_attr(__time_03_docs, doc(notable_trait))]
+#[cfg_attr(docsrs, doc(notable_trait))]
 #[doc(alias = "Parseable")]
 pub trait Parsable: sealed::Sealed {}
-impl Parsable for FormatItem<'_> {}
-impl Parsable for [FormatItem<'_>] {}
+impl Parsable for BorrowedFormatItem<'_> {}
+impl Parsable for [BorrowedFormatItem<'_>] {}
 #[cfg(feature = "alloc")]
 impl Parsable for OwnedFormatItem {}
 #[cfg(feature = "alloc")]
@@ -34,7 +34,7 @@ impl<T: Deref> Parsable for T where T::Target: Parsable {}
 mod sealed {
     #[allow(clippy::wildcard_imports)]
     use super::*;
-    use crate::{OffsetDateTime, PrimitiveDateTime};
+    use crate::PrimitiveDateTime;
 
     /// Parse the item using a format description and an input.
     pub trait Sealed {
@@ -93,7 +93,7 @@ mod sealed {
 }
 
 // region: custom formats
-impl sealed::Sealed for FormatItem<'_> {
+impl sealed::Sealed for BorrowedFormatItem<'_> {
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
@@ -103,7 +103,7 @@ impl sealed::Sealed for FormatItem<'_> {
     }
 }
 
-impl sealed::Sealed for [FormatItem<'_>] {
+impl sealed::Sealed for [BorrowedFormatItem<'_>] {
     fn parse_into<'a>(
         &self,
         input: &'a [u8],
@@ -165,8 +165,8 @@ impl sealed::Sealed for Rfc2822 {
         let colon = ascii_char::<b':'>;
         let comma = ascii_char::<b','>;
 
-        let input = opt(fws)(input).into_inner();
-        let input = first_match(
+        let input = opt(cfws)(input).into_inner();
+        let weekday = first_match(
             [
                 (b"Mon".as_slice(), Weekday::Monday),
                 (b"Tue".as_slice(), Weekday::Tuesday),
@@ -177,11 +177,16 @@ impl sealed::Sealed for Rfc2822 {
                 (b"Sun".as_slice(), Weekday::Sunday),
             ],
             false,
-        )(input)
-        .and_then(|item| item.consume_value(|value| parsed.set_weekday(value)))
-        .ok_or(InvalidComponent("weekday"))?;
-        let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+        )(input);
+        let input = if let Some(item) = weekday {
+            let input = item
+                .consume_value(|value| parsed.set_weekday(value))
+                .ok_or(InvalidComponent("weekday"))?;
+            let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
+            opt(cfws)(input).into_inner()
+        } else {
+            input
+        };
         let input = n_to_m_digits::<1, 2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_day(value)))
             .ok_or(InvalidComponent("day"))?;
@@ -269,10 +274,9 @@ impl sealed::Sealed for Rfc2822 {
             false,
         )(input)
         .or_else(|| match input {
-            [
-                b'a'..=b'i' | b'k'..=b'z' | b'A'..=b'I' | b'K'..=b'Z',
-                rest @ ..,
-            ] => Some(ParsedItem(rest, 0)),
+            [b'a'..=b'i' | b'k'..=b'z' | b'A'..=b'I' | b'K'..=b'Z', rest @ ..] => {
+                Some(ParsedItem(rest, 0))
+            }
             _ => None,
         });
         if let Some(zone_literal) = zone_literal {
@@ -307,6 +311,8 @@ impl sealed::Sealed for Rfc2822 {
             })
             .ok_or(InvalidComponent("offset minute"))?;
 
+        let input = opt(cfws)(input).into_inner();
+
         Ok(input)
     }
 
@@ -320,10 +326,10 @@ impl sealed::Sealed for Rfc2822 {
         let colon = ascii_char::<b':'>;
         let comma = ascii_char::<b','>;
 
-        let input = opt(fws)(input).into_inner();
+        let input = opt(cfws)(input).into_inner();
         // This parses the weekday, but we don't actually use the value anywhere. Because of this,
         // just return `()` to avoid unnecessary generated code.
-        let ParsedItem(input, ()) = first_match(
+        let weekday = first_match(
             [
                 (b"Mon".as_slice(), ()),
                 (b"Tue".as_slice(), ()),
@@ -334,10 +340,14 @@ impl sealed::Sealed for Rfc2822 {
                 (b"Sun".as_slice(), ()),
             ],
             false,
-        )(input)
-        .ok_or(InvalidComponent("weekday"))?;
-        let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
-        let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
+        )(input);
+        let input = if let Some(item) = weekday {
+            let input = item.into_inner();
+            let input = comma(input).ok_or(InvalidLiteral)?.into_inner();
+            opt(cfws)(input).into_inner()
+        } else {
+            input
+        };
         let ParsedItem(input, day) =
             n_to_m_digits::<1, 2, _>(input).ok_or(InvalidComponent("day"))?;
         let input = cfws(input).ok_or(InvalidLiteral)?.into_inner();
@@ -413,10 +423,9 @@ impl sealed::Sealed for Rfc2822 {
             false,
         )(input)
         .or_else(|| match input {
-            [
-                b'a'..=b'i' | b'k'..=b'z' | b'A'..=b'I' | b'K'..=b'Z',
-                rest @ ..,
-            ] => Some(ParsedItem(rest, 0)),
+            [b'a'..=b'i' | b'k'..=b'z' | b'A'..=b'I' | b'K'..=b'Z', rest @ ..] => {
+                Some(ParsedItem(rest, 0))
+            }
             _ => None,
         });
 
@@ -441,6 +450,8 @@ impl sealed::Sealed for Rfc2822 {
                 exactly_n_digits::<2, u8>(input).ok_or(InvalidComponent("offset minute"))?;
             (input, offset_hour, offset_minute.cast_signed())
         };
+
+        let input = opt(cfws)(input).into_inner();
 
         if !input.is_empty() {
             return Err(error::Parse::ParseFromDescription(
@@ -507,9 +518,16 @@ impl sealed::Sealed for Rfc3339 {
         let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_day(value)))
             .ok_or(InvalidComponent("day"))?;
-        let input = ascii_char_ignore_case::<b'T'>(input)
-            .ok_or(InvalidLiteral)?
-            .into_inner();
+
+        // RFC3339 allows any separator, not just `T`, not just `space`.
+        // cf. Section 5.6: Internet Date/Time Format:
+        //   NOTE: ISO 8601 defines date and time separated by "T".
+        //   Applications using this syntax may choose, for the sake of
+        //   readability, to specify a full-date and full-time separated by
+        //   (say) a space character.
+        // Specifically, rusqlite uses space separators.
+        let input = input.get(1..).ok_or(InvalidComponent("separator"))?;
+
         let input = exactly_n_digits::<2, _>(input)
             .and_then(|item| item.consume_value(|value| parsed.set_hour_24(value)))
             .ok_or(InvalidComponent("hour"))?;
@@ -605,9 +623,16 @@ impl sealed::Sealed for Rfc3339 {
         let input = dash(input).ok_or(InvalidLiteral)?.into_inner();
         let ParsedItem(input, day) =
             exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("day"))?;
-        let input = ascii_char_ignore_case::<b'T'>(input)
-            .ok_or(InvalidLiteral)?
-            .into_inner();
+
+        // RFC3339 allows any separator, not just `T`, not just `space`.
+        // cf. Section 5.6: Internet Date/Time Format:
+        //   NOTE: ISO 8601 defines date and time separated by "T".
+        //   Applications using this syntax may choose, for the sake of
+        //   readability, to specify a full-date and full-time separated by
+        //   (say) a space character.
+        // Specifically, rusqlite uses space separators.
+        let input = input.get(1..).ok_or(InvalidComponent("separator"))?;
+
         let ParsedItem(input, hour) =
             exactly_n_digits::<2, _>(input).ok_or(InvalidComponent("hour"))?;
         let input = colon(input).ok_or(InvalidLiteral)?.into_inner();
@@ -725,6 +750,8 @@ impl<const CONFIG: EncodedConfig> sealed::Sealed for Iso8601<CONFIG> {
         let mut time_is_present = false;
         let mut offset_is_present = false;
         let mut first_error = None;
+
+        parsed.leap_second_allowed = true;
 
         match Self::parse_date(parsed, &mut extended_kind)(input) {
             Ok(new_input) => {

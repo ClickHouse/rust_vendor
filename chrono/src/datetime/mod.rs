@@ -34,9 +34,6 @@ use crate::{Datelike, Months, TimeDelta, Timelike, Weekday};
 #[cfg(any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"))]
 use rkyv::{Archive, Deserialize, Serialize};
 
-#[cfg(feature = "rustc-serialize")]
-pub(super) mod rustc_serialize;
-
 /// documented at re-export site
 #[cfg(feature = "serde")]
 pub(super) mod serde;
@@ -49,7 +46,7 @@ mod tests;
 /// There are some constructors implemented here (the `from_*` methods), but
 /// the general-purpose constructors are all via the methods on the
 /// [`TimeZone`](./offset/trait.TimeZone.html) implementations.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 #[cfg_attr(
     any(feature = "rkyv", feature = "rkyv-16", feature = "rkyv-32", feature = "rkyv-64"),
     derive(Archive, Deserialize, Serialize),
@@ -1411,6 +1408,15 @@ impl<Tz: TimeZone> Timelike for DateTime<Tz> {
     }
 }
 
+// We don't store a field with the `Tz` type, so it doesn't need to influence whether `DateTime` can
+// be `Copy`. Implement it manually if the two types we do have are `Copy`.
+impl<Tz: TimeZone> Copy for DateTime<Tz>
+where
+    <Tz as TimeZone>::Offset: Copy,
+    NaiveDateTime: Copy,
+{
+}
+
 impl<Tz: TimeZone, Tz2: TimeZone> PartialEq<DateTime<Tz2>> for DateTime<Tz> {
     fn eq(&self, other: &DateTime<Tz2>) -> bool {
         self.datetime == other.datetime
@@ -1936,136 +1942,3 @@ where
 ///                                                                  --------
 ///                                                                  719163
 const UNIX_EPOCH_DAY: i64 = 719_163;
-
-#[cfg(all(test, any(feature = "rustc-serialize", feature = "serde")))]
-fn test_encodable_json<FUtc, FFixed, E>(to_string_utc: FUtc, to_string_fixed: FFixed)
-where
-    FUtc: Fn(&DateTime<Utc>) -> Result<String, E>,
-    FFixed: Fn(&DateTime<FixedOffset>) -> Result<String, E>,
-    E: ::core::fmt::Debug,
-{
-    assert_eq!(
-        to_string_utc(&Utc.with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()).ok(),
-        Some(r#""2014-07-24T12:34:06Z""#.into())
-    );
-
-    assert_eq!(
-        to_string_fixed(
-            &FixedOffset::east_opt(3660).unwrap().with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()
-        )
-        .ok(),
-        Some(r#""2014-07-24T12:34:06+01:01""#.into())
-    );
-    assert_eq!(
-        to_string_fixed(
-            &FixedOffset::east_opt(3650).unwrap().with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()
-        )
-        .ok(),
-        // An offset with seconds is not allowed by RFC 3339, so we round it to the nearest minute.
-        // In this case `+01:00:50` becomes `+01:01`
-        Some(r#""2014-07-24T12:34:06+01:01""#.into())
-    );
-}
-
-#[cfg(all(test, feature = "clock", any(feature = "rustc-serialize", feature = "serde")))]
-fn test_decodable_json<FUtc, FFixed, FLocal, E>(
-    utc_from_str: FUtc,
-    fixed_from_str: FFixed,
-    local_from_str: FLocal,
-) where
-    FUtc: Fn(&str) -> Result<DateTime<Utc>, E>,
-    FFixed: Fn(&str) -> Result<DateTime<FixedOffset>, E>,
-    FLocal: Fn(&str) -> Result<DateTime<Local>, E>,
-    E: ::core::fmt::Debug,
-{
-    // should check against the offset as well (the normal DateTime comparison will ignore them)
-    fn norm<Tz: TimeZone>(dt: &Option<DateTime<Tz>>) -> Option<(&DateTime<Tz>, &Tz::Offset)> {
-        dt.as_ref().map(|dt| (dt, dt.offset()))
-    }
-
-    assert_eq!(
-        norm(&utc_from_str(r#""2014-07-24T12:34:06Z""#).ok()),
-        norm(&Some(Utc.with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()))
-    );
-    assert_eq!(
-        norm(&utc_from_str(r#""2014-07-24T13:57:06+01:23""#).ok()),
-        norm(&Some(Utc.with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()))
-    );
-
-    assert_eq!(
-        norm(&fixed_from_str(r#""2014-07-24T12:34:06Z""#).ok()),
-        norm(&Some(
-            FixedOffset::east_opt(0).unwrap().with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()
-        ))
-    );
-    assert_eq!(
-        norm(&fixed_from_str(r#""2014-07-24T13:57:06+01:23""#).ok()),
-        norm(&Some(
-            FixedOffset::east_opt(60 * 60 + 23 * 60)
-                .unwrap()
-                .with_ymd_and_hms(2014, 7, 24, 13, 57, 6)
-                .unwrap()
-        ))
-    );
-
-    // we don't know the exact local offset but we can check that
-    // the conversion didn't change the instant itself
-    assert_eq!(
-        local_from_str(r#""2014-07-24T12:34:06Z""#).expect("local should parse"),
-        Utc.with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()
-    );
-    assert_eq!(
-        local_from_str(r#""2014-07-24T13:57:06+01:23""#).expect("local should parse with offset"),
-        Utc.with_ymd_and_hms(2014, 7, 24, 12, 34, 6).unwrap()
-    );
-
-    assert!(utc_from_str(r#""2014-07-32T12:34:06Z""#).is_err());
-    assert!(fixed_from_str(r#""2014-07-32T12:34:06Z""#).is_err());
-}
-
-#[cfg(all(test, feature = "clock", feature = "rustc-serialize"))]
-fn test_decodable_json_timestamps<FUtc, FFixed, FLocal, E>(
-    utc_from_str: FUtc,
-    fixed_from_str: FFixed,
-    local_from_str: FLocal,
-) where
-    FUtc: Fn(&str) -> Result<rustc_serialize::TsSeconds<Utc>, E>,
-    FFixed: Fn(&str) -> Result<rustc_serialize::TsSeconds<FixedOffset>, E>,
-    FLocal: Fn(&str) -> Result<rustc_serialize::TsSeconds<Local>, E>,
-    E: ::core::fmt::Debug,
-{
-    fn norm<Tz: TimeZone>(dt: &Option<DateTime<Tz>>) -> Option<(&DateTime<Tz>, &Tz::Offset)> {
-        dt.as_ref().map(|dt| (dt, dt.offset()))
-    }
-
-    assert_eq!(
-        norm(&utc_from_str("0").ok().map(DateTime::from)),
-        norm(&Some(Utc.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap()))
-    );
-    assert_eq!(
-        norm(&utc_from_str("-1").ok().map(DateTime::from)),
-        norm(&Some(Utc.with_ymd_and_hms(1969, 12, 31, 23, 59, 59).unwrap()))
-    );
-
-    assert_eq!(
-        norm(&fixed_from_str("0").ok().map(DateTime::from)),
-        norm(&Some(
-            FixedOffset::east_opt(0).unwrap().with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap()
-        ))
-    );
-    assert_eq!(
-        norm(&fixed_from_str("-1").ok().map(DateTime::from)),
-        norm(&Some(
-            FixedOffset::east_opt(0).unwrap().with_ymd_and_hms(1969, 12, 31, 23, 59, 59).unwrap()
-        ))
-    );
-
-    assert_eq!(
-        *fixed_from_str("0").expect("0 timestamp should parse"),
-        Utc.with_ymd_and_hms(1970, 1, 1, 0, 0, 0).unwrap()
-    );
-    assert_eq!(
-        *local_from_str("-1").expect("-1 timestamp should parse"),
-        Utc.with_ymd_and_hms(1969, 12, 31, 23, 59, 59).unwrap()
-    );
-}

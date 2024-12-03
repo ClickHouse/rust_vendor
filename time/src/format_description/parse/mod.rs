@@ -3,6 +3,9 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+pub use self::strftime::{parse_strftime_borrowed, parse_strftime_owned};
+use crate::{error, format_description};
+
 /// A helper macro to make version restrictions simpler to read and write.
 macro_rules! version {
     ($range:expr) => {
@@ -21,6 +24,7 @@ macro_rules! validate_version {
 mod ast;
 mod format_item;
 mod lexer;
+mod strftime;
 
 /// A struct that is used to ensure that the version is valid.
 struct Version<const N: usize>;
@@ -40,8 +44,7 @@ impl<const N: usize> Version<N> {
 /// `parse_borrowed`.
 pub fn parse(
     s: &str,
-) -> Result<Vec<crate::format_description::FormatItem<'_>>, crate::error::InvalidFormatDescription>
-{
+) -> Result<Vec<format_description::BorrowedFormatItem<'_>>, error::InvalidFormatDescription> {
     parse_borrowed::<1>(s)
 }
 
@@ -52,8 +55,7 @@ pub fn parse(
 /// description is provided as the const parameter. **It is recommended to use version 2.**
 pub fn parse_borrowed<const VERSION: usize>(
     s: &str,
-) -> Result<Vec<crate::format_description::FormatItem<'_>>, crate::error::InvalidFormatDescription>
-{
+) -> Result<Vec<format_description::BorrowedFormatItem<'_>>, error::InvalidFormatDescription> {
     validate_version!(VERSION);
     let mut lexed = lexer::lex::<VERSION>(s.as_bytes());
     let ast = ast::parse::<_, VERSION>(&mut lexed);
@@ -75,15 +77,26 @@ pub fn parse_borrowed<const VERSION: usize>(
 /// [`OwnedFormatItem`]: crate::format_description::OwnedFormatItem
 pub fn parse_owned<const VERSION: usize>(
     s: &str,
-) -> Result<crate::format_description::OwnedFormatItem, crate::error::InvalidFormatDescription> {
+) -> Result<format_description::OwnedFormatItem, error::InvalidFormatDescription> {
     validate_version!(VERSION);
     let mut lexed = lexer::lex::<VERSION>(s.as_bytes());
     let ast = ast::parse::<_, VERSION>(&mut lexed);
     let format_items = format_item::parse(ast);
-    let items = format_items
-        .map(|res| res.map(Into::into))
-        .collect::<Result<Box<_>, _>>()?;
+    let items = format_items.collect::<Result<Box<_>, _>>()?;
     Ok(items.into())
+}
+
+/// Attach [`Location`] information to each byte in the iterator.
+fn attach_location<'item>(
+    iter: impl Iterator<Item = &'item u8>,
+) -> impl Iterator<Item = (&'item u8, Location)> {
+    let mut byte_pos = 0;
+
+    iter.map(move |byte| {
+        let location = Location { byte: byte_pos };
+        byte_pos += 1;
+        (byte, location)
+    })
 }
 
 /// A location within a string.
@@ -97,6 +110,14 @@ impl Location {
     /// Create a new [`Span`] from `self` to `other`.
     const fn to(self, end: Self) -> Span {
         Span { start: self, end }
+    }
+
+    /// Create a new [`Span`] consisting entirely of `self`.
+    const fn to_self(self) -> Span {
+        Span {
+            start: self,
+            end: self,
+        }
     }
 
     /// Offset the location by the provided amount.
@@ -222,10 +243,10 @@ struct Error {
     /// The internal error.
     _inner: Unused<ErrorInner>,
     /// The error needed for interoperability with the rest of `time`.
-    public: crate::error::InvalidFormatDescription,
+    public: error::InvalidFormatDescription,
 }
 
-impl From<Error> for crate::error::InvalidFormatDescription {
+impl From<Error> for error::InvalidFormatDescription {
     fn from(error: Error) -> Self {
         error.public
     }
@@ -239,7 +260,6 @@ impl From<Error> for crate::error::InvalidFormatDescription {
 struct Unused<T>(core::marker::PhantomData<T>);
 
 /// Indicate that a value is currently unused.
-#[allow(clippy::missing_const_for_fn)] // false positive
 fn unused<T>(_: T) -> Unused<T> {
     Unused(core::marker::PhantomData)
 }

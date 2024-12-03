@@ -1,10 +1,10 @@
+use std::borrow::Cow;
+
 use crate::indentation::Indentation;
 use crate::inline_block::InlineBlock;
 use crate::params::Params;
 use crate::tokenizer::{Token, TokenKind};
 use crate::{FormatOptions, QueryParams};
-use itertools::Itertools;
-use std::borrow::Cow;
 
 pub(crate) fn format(tokens: &[Token<'_>], params: &QueryParams, options: FormatOptions) -> String {
     let mut formatter = Formatter::new(tokens, params, options);
@@ -75,6 +75,35 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_line_comment(&self, token: &Token<'_>, query: &mut String) {
+        let is_whitespace_followed_by_special_token =
+            self.next_token(1).map_or(false, |current_token| {
+                current_token.kind == TokenKind::Whitespace
+                    && self.next_token(2).map_or(false, |next_token| {
+                        matches!(
+                            next_token.kind,
+                            TokenKind::Number
+                                | TokenKind::String
+                                | TokenKind::Word
+                                | TokenKind::ReservedTopLevel
+                                | TokenKind::ReservedTopLevelNoIndent
+                                | TokenKind::ReservedNewline
+                                | TokenKind::Reserved
+                        )
+                    })
+            });
+
+        let previous_token = self.previous_token(1);
+        if previous_token.is_some()
+            && previous_token.unwrap().value.contains('\n')
+            && is_whitespace_followed_by_special_token
+        {
+            self.add_new_line(query);
+        } else if let Some(Token { value, .. }) = self.previous_token(2) {
+            if *value == "," {
+                self.trim_all_spaces_end(query);
+                query.push_str("  ");
+            }
+        }
         query.push_str(token.value);
         self.add_new_line(query);
     }
@@ -107,13 +136,14 @@ impl<'a> Formatter<'a> {
     }
 
     fn format_with_spaces(&self, token: &Token<'_>, query: &mut String) {
-        let value = if token.kind == TokenKind::Reserved {
-            self.format_reserved_word(token.value)
+        if token.kind == TokenKind::Reserved {
+            let value = self.equalize_whitespace(&self.format_reserved_word(token.value));
+            query.push_str(&value);
+            query.push(' ');
         } else {
-            Cow::Borrowed(token.value)
+            query.push_str(token.value);
+            query.push(' ');
         };
-        query.push_str(&value);
-        query.push(' ');
     }
 
     // Opening parentheses increase the block indent level and start a new line
@@ -126,7 +156,7 @@ impl<'a> Formatter<'a> {
 
         // Take out the preceding space unless there was whitespace there in the original query
         // or another opening parens or line comment
-        let previous_token = self.previous_token();
+        let previous_token = self.previous_token(1);
         if previous_token.is_none()
             || !PRESERVE_WHITESPACE_FOR.contains(&previous_token.unwrap().kind)
         {
@@ -219,29 +249,33 @@ impl<'a> Formatter<'a> {
     }
 
     fn trim_spaces_end(&self, query: &mut String) {
-        query.truncate(query.trim_end_matches(|c| c == ' ' || c == '\t').len());
+        query.truncate(query.trim_end_matches([' ', '\t']).len());
+    }
+
+    fn trim_all_spaces_end(&self, query: &mut String) {
+        query.truncate(query.trim_end_matches(|c: char| c.is_whitespace()).len());
     }
 
     fn indent_comment(&self, token: &str) -> String {
-        token
-            .split('\n')
-            .enumerate()
-            .map(|(i, line)| {
-                if i == 0 {
-                    return line.to_string();
-                }
-                if !line.starts_with(|c| c == ' ' || c == '\t') {
-                    return line.to_string();
-                }
-                format!(
-                    "{} {}",
-                    self.indentation.get_indent(),
-                    line.chars()
-                        .skip_while(|&c| c == ' ' || c == '\t')
-                        .collect::<String>()
-                )
-            })
-            .join("\n")
+        let mut combined = String::with_capacity(token.len() + 4);
+        for (i, line) in token.split('\n').enumerate() {
+            if i == 0 {
+                combined.push_str(line)
+            } else if line.starts_with([' ', '\t']) {
+                let indent = self.indentation.get_indent();
+                let start_trimmed = line.trim_start_matches([' ', '\t']);
+                combined.reserve(indent.len() + start_trimmed.len() + 2);
+                combined.push('\n');
+                combined.push_str(&indent);
+                combined.push(' ');
+                combined.push_str(start_trimmed);
+            } else {
+                combined.reserve(line.len() + 1);
+                combined.push('\n');
+                combined.push_str(line);
+            }
+        }
+        combined
     }
 
     fn format_reserved_word<'t>(&self, token: &'t str) -> Cow<'t, str> {
@@ -252,16 +286,29 @@ impl<'a> Formatter<'a> {
         }
     }
 
-    // Replace any sequence of whitespace characters with single space
+    /// Replace any sequence of whitespace characters with single space
     fn equalize_whitespace(&self, token: &str) -> String {
-        token
-            .split(char::is_whitespace)
-            .filter(|s| !s.is_empty())
-            .join(" ")
+        let mut combined = String::with_capacity(token.len());
+        for s in token.split(char::is_whitespace).filter(|s| !s.is_empty()) {
+            if !combined.is_empty() {
+                combined.push(' ');
+            }
+            combined.push_str(s);
+        }
+        combined
     }
 
-    fn previous_token(&self) -> Option<&Token<'_>> {
-        let index = self.index.checked_sub(1);
+    fn previous_token(&self, idx: usize) -> Option<&Token<'_>> {
+        let index = self.index.checked_sub(idx);
+        if let Some(index) = index {
+            self.tokens.get(index)
+        } else {
+            None
+        }
+    }
+
+    fn next_token(&self, idx: usize) -> Option<&Token<'_>> {
+        let index = self.index.checked_add(idx);
         if let Some(index) = index {
             self.tokens.get(index)
         } else {

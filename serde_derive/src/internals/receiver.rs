@@ -84,7 +84,7 @@ impl ReplaceReceiver<'_> {
             self.visit_type_mut_impl(ty);
             return;
         };
-        *ty = self.self_ty(span).into();
+        *ty = Type::Path(self.self_ty(span));
     }
 
     // `Self::Assoc` -> `<Receiver>::Assoc`
@@ -209,7 +209,9 @@ impl ReplaceReceiver<'_> {
         match bound {
             #![cfg_attr(all(test, exhaustive), deny(non_exhaustive_omitted_patterns))]
             TypeParamBound::Trait(bound) => self.visit_path_mut(&mut bound.path),
-            TypeParamBound::Lifetime(_) | TypeParamBound::Verbatim(_) => {}
+            TypeParamBound::Lifetime(_)
+            | TypeParamBound::PreciseCapture(_)
+            | TypeParamBound::Verbatim(_) => {}
             _ => {}
         }
     }

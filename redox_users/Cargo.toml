@@ -12,11 +12,16 @@
 [package]
 edition = "2021"
 name = "redox_users"
-version = "0.4.5"
+version = "0.4.6"
 authors = [
     "Jose Narvaez <goyox86@gmail.com>",
     "Wesley Hershberger <mggmugginsmc@gmail.com>",
 ]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "A Rust library to access Redox users and groups functionality"
 documentation = "https://docs.rs/redox_users"
 readme = "README.md"
@@ -26,6 +31,10 @@ keywords = [
 ]
 license = "MIT"
 repository = "https://gitlab.redox-os.org/redox-os/users"
+
+[lib]
+name = "redox_users"
+path = "src/lib.rs"
 
 [dependencies.getrandom]
 version = "0.2"

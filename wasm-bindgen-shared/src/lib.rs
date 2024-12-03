@@ -6,7 +6,7 @@ mod schema_hash_approval;
 // This gets changed whenever our schema changes.
 // At this time versions of wasm-bindgen and wasm-bindgen-cli are required to have the exact same
 // SCHEMA_VERSION in order to work together.
-pub const SCHEMA_VERSION: &str = "0.2.92";
+pub const SCHEMA_VERSION: &str = "0.2.96";
 
 #[macro_export]
 macro_rules! shared_api {
@@ -17,7 +17,11 @@ macro_rules! shared_api {
             enums: Vec<Enum<'a>>,
             imports: Vec<Import<'a>>,
             structs: Vec<Struct<'a>>,
-            typescript_custom_sections: Vec<&'a str>,
+            // NOTE: Originally typescript_custom_sections are just some strings
+            // But the expression type can only be parsed into a string during compilation
+            // So when encoding, LitOrExpr contains two types, one is that expressions are parsed into strings during compilation, and the other is can be parsed directly.
+            // When decoding, LitOrExpr can be decoded as a string.
+            typescript_custom_sections: Vec<LitOrExpr<'a>>,
             local_modules: Vec<LocalModule<'a>>,
             inline_js: Vec<&'a str>,
             unique_crate_identifier: &'a str,
@@ -45,8 +49,9 @@ macro_rules! shared_api {
         enum ImportKind<'a> {
             Function(ImportFunction<'a>),
             Static(ImportStatic<'a>),
+            String(ImportString<'a>),
             Type(ImportType<'a>),
-            Enum(ImportEnum),
+            Enum(StringEnum<'a>),
         }
 
         struct ImportFunction<'a> {
@@ -88,13 +93,23 @@ macro_rules! shared_api {
             shim: &'a str,
         }
 
+        struct ImportString<'a> {
+            shim: &'a str,
+            string: &'a str,
+        }
+
         struct ImportType<'a> {
             name: &'a str,
             instanceof_shim: &'a str,
             vendor_prefixes: Vec<&'a str>,
         }
 
-        struct ImportEnum {}
+        struct StringEnum<'a> {
+            name: &'a str,
+            variant_values: Vec<&'a str>,
+            comments: Vec<&'a str>,
+            generate_typescript: bool,
+        }
 
         struct Export<'a> {
             class: Option<&'a str>,
@@ -107,6 +122,7 @@ macro_rules! shared_api {
 
         struct Enum<'a> {
             name: &'a str,
+            signed: bool,
             variants: Vec<EnumVariant<'a>>,
             comments: Vec<&'a str>,
             generate_typescript: bool,
@@ -146,6 +162,7 @@ macro_rules! shared_api {
         struct LocalModule<'a> {
             identifier: &'a str,
             contents: &'a str,
+            linked_module: bool,
         }
         }
     }; // end of mac case

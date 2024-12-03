@@ -11,14 +11,21 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.73"
 name = "cxx-build"
-version = "1.0.121"
+version = "1.0.133"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
+build = false
 exclude = ["build.rs"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "C++ code generator for integrating `cxx` crate into a Cargo build."
 homepage = "https://cxx.rs"
 documentation = "https://docs.rs/cxx-build"
+readme = false
 keywords = [
     "ffi",
     "build-dependencies",
@@ -35,6 +42,8 @@ rustdoc-args = ["--generate-link-to-definition"]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "cxx_build"
+path = "src/lib.rs"
 doc-scrape-examples = false
 
 [dependencies.cc]
@@ -42,9 +51,6 @@ version = "1.0.83"
 
 [dependencies.codespan-reporting]
 version = "0.11.1"
-
-[dependencies.once_cell]
-version = "1.18"
 
 [dependencies.proc-macro2]
 version = "1.0.74"

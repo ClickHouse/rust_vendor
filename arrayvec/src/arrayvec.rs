@@ -39,10 +39,11 @@ use crate::utils::MakeMaybeUninit;
 ///
 /// It offers a simple API but also dereferences to a slice, so that the full slice API is
 /// available. The ArrayVec can be converted into a by value iterator.
+#[repr(C)]
 pub struct ArrayVec<T, const CAP: usize> {
+    len: LenUint,
     // the `len` first elements of the array are initialized
     xs: [MaybeUninit<T>; CAP],
-    len: LenUint,
 }
 
 impl<T, const CAP: usize> Drop for ArrayVec<T, CAP> {
@@ -879,6 +880,17 @@ pub struct IntoIter<T, const CAP: usize> {
     index: usize,
     v: ArrayVec<T, CAP>,
 }
+impl<T, const CAP: usize> IntoIter<T, CAP> {
+    /// Returns the remaining items of this iterator as a slice.
+    pub fn as_slice(&self) -> &[T] {
+        &self.v[self.index..]
+    }
+
+    /// Returns the remaining items of this iterator as a mutable slice.
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        &mut self.v[self.index..]
+    }
+}
 
 impl<T, const CAP: usize> Iterator for IntoIter<T, CAP> {
     type Item = T;
@@ -1088,7 +1100,9 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
             if let Some(elt) = iter.next() {
                 if ptr == end_ptr && CHECK { extend_panic(); }
                 debug_assert_ne!(ptr, end_ptr);
-                ptr.write(elt);
+                if mem::size_of::<T>() != 0 {
+                    ptr.write(elt);
+                }
                 ptr = raw_ptr_add(ptr, 1);
                 guard.data += 1;
             } else {
@@ -1115,7 +1129,7 @@ impl<T, const CAP: usize> ArrayVec<T, CAP> {
 unsafe fn raw_ptr_add<T>(ptr: *mut T, offset: usize) -> *mut T {
     if mem::size_of::<T>() == 0 {
         // Special case for ZST
-        ptr.cast::<u8>().wrapping_add(offset).cast()
+        ptr.cast::<u8>().wrapping_add(offset).cast::<T>()
     } else {
         ptr.add(offset)
     }
@@ -1296,5 +1310,39 @@ impl<'de, T: Deserialize<'de>, const CAP: usize> Deserialize<'de> for ArrayVec<T
         }
 
         deserializer.deserialize_seq(ArrayVecVisitor::<T, CAP>(PhantomData))
+    }
+}
+
+#[cfg(feature = "borsh")]
+/// Requires crate feature `"borsh"`
+impl<T, const CAP: usize> borsh::BorshSerialize for ArrayVec<T, CAP>
+where
+    T: borsh::BorshSerialize,
+{
+    fn serialize<W: borsh::io::Write>(&self, writer: &mut W) -> borsh::io::Result<()> {
+        <[T] as borsh::BorshSerialize>::serialize(self.as_slice(), writer)
+    }
+}
+
+#[cfg(feature = "borsh")]
+/// Requires crate feature `"borsh"`
+impl<T, const CAP: usize> borsh::BorshDeserialize for ArrayVec<T, CAP>
+where
+    T: borsh::BorshDeserialize,
+{
+    fn deserialize_reader<R: borsh::io::Read>(reader: &mut R) -> borsh::io::Result<Self> {
+        let mut values = Self::new();
+        let len = <u32 as borsh::BorshDeserialize>::deserialize_reader(reader)?;
+        for _ in 0..len {
+            let elem = <T as borsh::BorshDeserialize>::deserialize_reader(reader)?;
+            if let Err(_) = values.try_push(elem) {
+                return Err(borsh::io::Error::new(
+                    borsh::io::ErrorKind::InvalidData,
+                    format!("Expected an array with no more than {} items", CAP),
+                ));
+            }
+        }
+
+        Ok(values)
     }
 }

@@ -11,10 +11,11 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.73"
 name = "cxx"
-version = "1.0.121"
+version = "1.0.133"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
+build = "build.rs"
 links = "cxxbridge1"
 exclude = [
     "/demo",
@@ -23,6 +24,11 @@ exclude = [
     "/third-party",
     "/tools/buck/prelude",
 ]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Safe interop between Rust and C++"
 homepage = "https://cxx.rs"
 documentation = "https://docs.rs/cxx"
@@ -40,18 +46,18 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/dtolnay/cxx"
 
 [package.metadata.bazel]
-additive_build_file_content = """
+additive_build_file_content = '''
 cc_library(
-    name = \"cxx_cc\",
-    srcs = [\"src/cxx.cc\"],
-    hdrs = [\"include/cxx.h\"],
-    include_prefix = \"rust\",
-    includes = [\"include\"],
+    name = "cxx_cc",
+    srcs = ["src/cxx.cc"],
+    hdrs = ["include/cxx.h"],
+    include_prefix = "rust",
+    includes = ["include"],
     linkstatic = True,
-    strip_include_prefix = \"include\",
-    visibility = [\"//visibility:public\"],
+    strip_include_prefix = "include",
+    visibility = ["//visibility:public"],
 )
-"""
+'''
 deps = [":cxx_cc"]
 gen_build_script = false
 
@@ -59,24 +65,50 @@ gen_build_script = false
 cxx_cc = "cxx_cc"
 
 [package.metadata.docs.rs]
-rustdoc-args = [
-    "--cfg",
-    "doc_cfg",
-    "--generate-link-to-definition",
-]
+rustdoc-args = ["--generate-link-to-definition"]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "cxx"
+path = "src/lib.rs"
 doc-scrape-examples = false
 
+[[test]]
+name = "compiletest"
+path = "tests/compiletest.rs"
+
+[[test]]
+name = "cxx_gen"
+path = "tests/cxx_gen.rs"
+
+[[test]]
+name = "cxx_string"
+path = "tests/cxx_string.rs"
+
+[[test]]
+name = "cxx_vector"
+path = "tests/cxx_vector.rs"
+
+[[test]]
+name = "test"
+path = "tests/test.rs"
+
+[[test]]
+name = "unique_ptr"
+path = "tests/unique_ptr.rs"
+
 [dependencies.cxxbridge-macro]
-version = "=1.0.121"
+version = "=1.0.133"
+
+[dependencies.foldhash]
+version = "0.1"
+default-features = false
 
 [dependencies.link-cplusplus]
 version = "1.0.9"
 
 [dev-dependencies.cxx-build]
-version = "=1.0.121"
+version = "=1.0.133"
 
 [dev-dependencies.cxx-gen]
 version = "0.7"
@@ -95,7 +127,7 @@ features = ["diff"]
 version = "1.0.83"
 
 [build-dependencies.cxxbridge-flags]
-version = "=1.0.121"
+version = "=1.0.133"
 default-features = false
 
 [features]
@@ -107,4 +139,10 @@ default = [
     "std",
     "cxxbridge-flags/default",
 ]
-std = ["alloc"]
+std = [
+    "alloc",
+    "foldhash/std",
+]
+
+[target."cfg(any())".build-dependencies.cxxbridge-cmd]
+version = "=1.0.133"

@@ -12,12 +12,17 @@
 [package]
 edition = "2018"
 name = "iana-time-zone"
-version = "0.1.60"
+version = "0.1.61"
 authors = [
     "Andrew Straw <strawman@astraw.com>",
     "René Kijewski <rene.kijewski@fu-berlin.de>",
     "Ryan Lopopolo <rjl@hyperbo.la>",
 ]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "get the IANA time zone for the current system"
 readme = "README.md"
 keywords = [
@@ -32,26 +37,38 @@ categories = [
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/strawlab/iana-time-zone"
 
+[lib]
+name = "iana_time_zone"
+path = "src/lib.rs"
+
+[[example]]
+name = "get_timezone"
+path = "examples/get_timezone.rs"
+
+[[example]]
+name = "stress-test"
+path = "examples/stress-test.rs"
+
 [features]
 fallback = []
 
-[target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies.core-foundation-sys]
-version = "0.8.3"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies.js-sys]
+version = "0.3.66"
 
-[target."cfg(target_arch = \"wasm32\")".dependencies.js-sys]
-version = "0.3.50"
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies.wasm-bindgen]
+version = "0.2.89"
 
-[target."cfg(target_arch = \"wasm32\")".dependencies.wasm-bindgen]
-version = "0.2.70"
-
-[target."cfg(target_arch = \"wasm32\")".dev-dependencies.wasm-bindgen-test]
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies.wasm-bindgen-test]
 version = "0.3"
 
-[target."cfg(target_os = \"android\")".dependencies.android_system_properties]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies.core-foundation-sys]
+version = "0.8.3"
+
+[target.'cfg(target_os = "android")'.dependencies.android_system_properties]
 version = "0.1.5"
 
-[target."cfg(target_os = \"haiku\")".dependencies.iana-time-zone-haiku]
+[target.'cfg(target_os = "haiku")'.dependencies.iana-time-zone-haiku]
 version = "0.1.1"
 
-[target."cfg(target_os = \"windows\")".dependencies.windows-core]
+[target.'cfg(target_os = "windows")'.dependencies.windows-core]
 version = ">=0.50, <=0.52"

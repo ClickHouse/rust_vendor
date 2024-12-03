@@ -17,9 +17,8 @@
 
 #![allow(bad_style)]
 
-use super::super::{dbghelp, windows::*};
+use super::super::{dbghelp, windows_sys::*};
 use super::{BytesOrWideString, ResolveWhat, SymbolName};
-use core::char;
 use core::ffi::c_void;
 use core::marker;
 use core::mem;
@@ -91,7 +90,7 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
         ResolveWhat::Frame(frame) => {
             resolve_with_inline(&dbghelp, frame.ip(), frame.inner.inline_context(), cb)
         }
-    }
+    };
 }
 
 #[cfg(target_vendor = "win7")]
@@ -116,7 +115,7 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
         ResolveWhat::Frame(frame) => {
             resolve_inner(&dbghelp, frame.ip(), frame.inner.inline_context(), cb)
         }
-    }
+    };
 }
 
 /// Resolve the address using the legacy dbghelp API.
@@ -127,15 +126,16 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
 unsafe fn resolve_legacy(
     dbghelp: &dbghelp::Init,
     addr: *mut c_void,
-    _inline_context: Option<DWORD>,
+    _inline_context: Option<u32>,
     cb: &mut dyn FnMut(&super::Symbol),
-) {
-    let addr = super::adjust_ip(addr) as DWORD64;
+) -> Option<()> {
+    let addr = super::adjust_ip(addr) as u64;
     do_resolve(
         |info| dbghelp.SymFromAddrW()(GetCurrentProcess(), addr, &mut 0, info),
         |line| dbghelp.SymGetLineFromAddrW64()(GetCurrentProcess(), addr, &mut 0, line),
         cb,
-    )
+    );
+    Some(())
 }
 
 /// Resolve the address using the modern dbghelp APIs.
@@ -145,24 +145,30 @@ unsafe fn resolve_legacy(
 unsafe fn resolve_with_inline(
     dbghelp: &dbghelp::Init,
     addr: *mut c_void,
-    inline_context: Option<DWORD>,
+    inline_context: Option<u32>,
     cb: &mut dyn FnMut(&super::Symbol),
-) {
+) -> Option<()> {
     let current_process = GetCurrentProcess();
+    // Ensure we have the functions we need. Return if any aren't found.
+    let SymFromInlineContextW = (*dbghelp.dbghelp()).SymFromInlineContextW()?;
+    let SymGetLineFromInlineContextW = (*dbghelp.dbghelp()).SymGetLineFromInlineContextW()?;
 
-    let addr = super::adjust_ip(addr) as DWORD64;
+    let addr = super::adjust_ip(addr) as u64;
 
     let (inlined_frame_count, inline_context) = if let Some(ic) = inline_context {
         (0, ic)
     } else {
-        let mut inlined_frame_count = dbghelp.SymAddrIncludeInlineTrace()(current_process, addr);
+        let SymAddrIncludeInlineTrace = (*dbghelp.dbghelp()).SymAddrIncludeInlineTrace()?;
+        let SymQueryInlineTrace = (*dbghelp.dbghelp()).SymQueryInlineTrace()?;
+
+        let mut inlined_frame_count = SymAddrIncludeInlineTrace(current_process, addr);
 
         let mut inline_context = 0;
 
         // If there is are inlined frames but we can't load them for some reason OR if there are no
         // inlined frames, then we disregard inlined_frame_count and inline_context.
         if (inlined_frame_count > 0
-            && dbghelp.SymQueryInlineTrace()(
+            && SymQueryInlineTrace(
                 current_process,
                 addr,
                 0,
@@ -184,22 +190,14 @@ unsafe fn resolve_with_inline(
 
     for inline_context in inline_context..last_inline_context {
         do_resolve(
-            |info| {
-                dbghelp.SymFromInlineContextW()(current_process, addr, inline_context, &mut 0, info)
-            },
+            |info| SymFromInlineContextW(current_process, addr, inline_context, &mut 0, info),
             |line| {
-                dbghelp.SymGetLineFromInlineContextW()(
-                    current_process,
-                    addr,
-                    inline_context,
-                    0,
-                    &mut 0,
-                    line,
-                )
+                SymGetLineFromInlineContextW(current_process, addr, inline_context, 0, &mut 0, line)
             },
             cb,
         );
     }
+    Some(())
 }
 
 unsafe fn do_resolve(
@@ -207,10 +205,10 @@ unsafe fn do_resolve(
     get_line_from_addr: impl FnOnce(&mut IMAGEHLP_LINEW64) -> BOOL,
     cb: &mut dyn FnMut(&super::Symbol),
 ) {
-    const SIZE: usize = 2 * MAX_SYM_NAME + mem::size_of::<SYMBOL_INFOW>();
+    const SIZE: usize = 2 * MAX_SYM_NAME as usize + mem::size_of::<SYMBOL_INFOW>();
     let mut data = Aligned8([0u8; SIZE]);
     let info = &mut *data.0.as_mut_ptr().cast::<SYMBOL_INFOW>();
-    info.MaxNameLen = MAX_SYM_NAME as ULONG;
+    info.MaxNameLen = MAX_SYM_NAME as u32;
     // the struct size in C.  the value is different to
     // `size_of::<SYMBOL_INFOW>() - MAX_SYM_NAME + 1` (== 81)
     // due to struct alignment.
@@ -225,36 +223,37 @@ unsafe fn do_resolve(
     // the real value.
     let name_len = ::core::cmp::min(info.NameLen as usize, info.MaxNameLen as usize - 1);
     let name_ptr = info.Name.as_ptr().cast::<u16>();
-    let name = slice::from_raw_parts(name_ptr, name_len);
 
     // Reencode the utf-16 symbol to utf-8 so we can use `SymbolName::new` like
     // all other platforms
-    let mut name_len = 0;
-    let mut name_buffer = [0; 256];
-    {
-        let mut remaining = &mut name_buffer[..];
-        for c in char::decode_utf16(name.iter().cloned()) {
-            let c = c.unwrap_or(char::REPLACEMENT_CHARACTER);
-            let len = c.len_utf8();
-            if len < remaining.len() {
-                c.encode_utf8(remaining);
-                let tmp = remaining;
-                remaining = &mut tmp[len..];
-                name_len += len;
-            } else {
-                break;
-            }
-        }
+    let mut name_buffer = [0_u8; 256];
+    let mut name_len = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        name_ptr,
+        name_len as i32,
+        name_buffer.as_mut_ptr(),
+        name_buffer.len() as i32,
+        core::ptr::null_mut(),
+        core::ptr::null_mut(),
+    ) as usize;
+    if name_len == 0 {
+        // If the returned length is zero that means the buffer wasn't big enough.
+        // However, the buffer will be filled with as much as will fit.
+        name_len = name_buffer.len();
+    } else if name_len > name_buffer.len() {
+        // This can't happen.
+        return;
     }
     let name = ptr::addr_of!(name_buffer[..name_len]);
 
     let mut line = mem::zeroed::<IMAGEHLP_LINEW64>();
-    line.SizeOfStruct = mem::size_of::<IMAGEHLP_LINEW64>() as DWORD;
+    line.SizeOfStruct = mem::size_of::<IMAGEHLP_LINEW64>() as u32;
 
     let mut filename = None;
     let mut lineno = None;
     if get_line_from_addr(&mut line) == TRUE {
-        lineno = Some(line.LineNumber as u32);
+        lineno = Some(line.LineNumber);
 
         let base = line.FileName;
         let mut len = 0;

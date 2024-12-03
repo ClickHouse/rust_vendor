@@ -13,11 +13,17 @@
 edition = "2021"
 rust-version = "1.56"
 name = "serde_json"
-version = "1.0.115"
+version = "1.0.133"
 authors = [
     "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
     "David Tolnay <dtolnay@gmail.com>",
 ]
+build = "build.rs"
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "A JSON serialization file format"
 documentation = "https://docs.rs/serde_json"
 readme = "README.md"
@@ -40,25 +46,55 @@ features = [
     "raw_value",
     "unbounded_depth",
 ]
-rustdoc-args = [
-    "--cfg",
-    "docsrs",
-    "--generate-link-to-definition",
-]
+rustdoc-args = ["--generate-link-to-definition"]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [package.metadata.playground]
 features = ["raw_value"]
 
 [lib]
+name = "serde_json"
+path = "src/lib.rs"
 doc-scrape-examples = false
 
+[[test]]
+name = "compiletest"
+path = "tests/compiletest.rs"
+
+[[test]]
+name = "debug"
+path = "tests/debug.rs"
+
+[[test]]
+name = "lexical"
+path = "tests/lexical.rs"
+
+[[test]]
+name = "map"
+path = "tests/map.rs"
+
+[[test]]
+name = "regression"
+path = "tests/regression.rs"
+
+[[test]]
+name = "stream"
+path = "tests/stream.rs"
+
+[[test]]
+name = "test"
+path = "tests/test.rs"
+
 [dependencies.indexmap]
-version = "2.2.1"
+version = "2.2.3"
 optional = true
 
 [dependencies.itoa]
 version = "1.0"
+
+[dependencies.memchr]
+version = "2"
+default-features = false
 
 [dependencies.ryu]
 version = "1.0"
@@ -106,5 +142,8 @@ preserve_order = [
     "std",
 ]
 raw_value = []
-std = ["serde/std"]
+std = [
+    "memchr/std",
+    "serde/std",
+]
 unbounded_depth = []

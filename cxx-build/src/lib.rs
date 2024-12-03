@@ -45,7 +45,8 @@
 //! $ cxxbridge src/main.rs > path/to/mybridge.cc
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.121")]
+#![doc(html_root_url = "https://docs.rs/cxx-build/1.0.133")]
+#![cfg_attr(not(check_cfg), allow(unexpected_cfgs))]
 #![allow(
     clippy::cast_sign_loss,
     clippy::default_trait_access,
@@ -62,11 +63,13 @@
     clippy::match_same_arms,
     clippy::module_name_repetitions,
     clippy::needless_doctest_main,
+    clippy::needless_lifetimes,
     clippy::needless_pass_by_value,
     clippy::new_without_default,
     clippy::nonminimal_bool,
     clippy::or_fun_call,
     clippy::redundant_else,
+    clippy::ref_option,
     clippy::shadow_unrelated,
     clippy::significant_drop_in_scrutinee,
     clippy::similar_names,
@@ -433,9 +436,8 @@ fn best_effort_copy_headers(src: &Path, dst: &Path, max_depth: usize) {
     use std::fs;
 
     let mut dst_created = false;
-    let mut entries = match fs::read_dir(src) {
-        Ok(entries) => entries,
-        Err(_) => return,
+    let Ok(mut entries) = fs::read_dir(src) else {
+        return;
     };
 
     while let Some(Ok(entry)) = entries.next() {

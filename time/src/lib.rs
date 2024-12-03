@@ -41,7 +41,7 @@
 //!
 //! - `serde`
 //!
-//!   Enables [serde](https://docs.rs/serde) support for all types except [`Instant`].
+//!   Enables [serde](https://docs.rs/serde) support for all types.
 //!
 //! - `serde-human-readable` (_implicitly enables `serde`, `formatting`, and `parsing`_)
 //!
@@ -58,7 +58,7 @@
 //!
 //! - `quickcheck` (_implicitly enables `alloc`_)
 //!
-//!   Enables [quickcheck](https://docs.rs/quickcheck) support for all types except [`Instant`].
+//!   Enables [quickcheck](https://docs.rs/quickcheck) support for all types.
 //!
 //! - `wasm-bindgen`
 //!
@@ -67,8 +67,8 @@
 //!   well as obtaining the UTC offset from JavaScript.
 
 #![doc(html_playground_url = "https://play.rust-lang.org")]
-#![cfg_attr(__time_03_docs, feature(doc_auto_cfg, doc_notable_trait))]
-#![cfg_attr(not(feature = "std"), no_std)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg, doc_notable_trait))]
+#![no_std]
 #![doc(html_favicon_url = "https://avatars0.githubusercontent.com/u/55999857")]
 #![doc(html_logo_url = "https://avatars0.githubusercontent.com/u/55999857")]
 #![doc(test(attr(deny(warnings))))]
@@ -76,6 +76,9 @@
 #[allow(unused_extern_crates)]
 #[cfg(feature = "alloc")]
 extern crate alloc;
+
+#[cfg(feature = "std")]
+extern crate std;
 
 mod date;
 mod duration;
@@ -115,7 +118,9 @@ pub use time_core::convert;
 pub use crate::date::Date;
 pub use crate::duration::Duration;
 pub use crate::error::Error;
+#[doc(hidden)]
 #[cfg(feature = "std")]
+#[allow(deprecated)]
 pub use crate::instant::Instant;
 pub use crate::month::Month;
 pub use crate::offset_date_time::OffsetDateTime;

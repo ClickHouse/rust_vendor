@@ -4,16 +4,16 @@ version = 3
 
 [[package]]
 name = "compiler_builtins"
-version = "0.1.101"
+version = "0.1.112"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "01a6d58e9c3408138099a396a98fd0d0e6cfb25d723594d2ae48b5004513fd5b"
+checksum = "b15acab2bb4fe4dad1f1e31f3d9e714f50ef561a0f87dd8a9da004f14d455e1a"
 dependencies = [
  "rustc-std-workspace-core",
 ]
 
 [[package]]
 name = "r-efi"
-version = "4.3.0"
+version = "4.5.0"
 dependencies = [
  "compiler_builtins",
  "rustc-std-workspace-core",

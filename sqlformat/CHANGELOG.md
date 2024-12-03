@@ -1,6 +1,19 @@
+### Version 0.2.6
+
+- fix: ON UPDATE with two many blank formatted incorrectly (#46)
+- fix: `EXCEPT` not handled well
+- fix: REFERENCES xyz ON UPDATE .. causes formatter to treat the remaining as an UPDATE statement
+- fix: Escaped strings formatted incorrectly
+- fix: RETURNING is not placed on a new line
+- fix: fix the issue of misaligned comments after formatting (#40)
+
+### Version 0.2.4
+
+- Remove `itertools` dependency [#34](https://github.com/shssoichiro/sqlformat-rs/pull/34)
+
 ### Version 0.2.3
 
-- Allow alphanumeric charactersin SQLite style parameters [#32](https://github.com/shssoichiro/sqlformat-rs/pull/32)
+- Allow alphanumeric characters in SQLite style parameters [#32](https://github.com/shssoichiro/sqlformat-rs/pull/32)
 - Format "begin" and "declare" for PLPgSql [#30](https://github.com/shssoichiro/sqlformat-rs/pull/30)
 - Allow scientific notation with or without "+"/"-" [#31](https://github.com/shssoichiro/sqlformat-rs/pull/31)
 - Treat "$$" as a reserved token that sits on its own line [#29](https://github.com/shssoichiro/sqlformat-rs/pull/29)
@@ -8,7 +21,8 @@
 
 ### Version 0.2.2
 
-- Fix a performance issue where the tokenizer would run in O^2 time [#24](https://github.com/shssoichiro/sqlformat-rs/pull/24)
+- Fix a performance issue where the tokenizer would run in O^2
+  time [#24](https://github.com/shssoichiro/sqlformat-rs/pull/24)
 
 ### Version 0.2.1
 

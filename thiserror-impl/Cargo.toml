@@ -11,11 +11,18 @@
 
 [package]
 edition = "2021"
-rust-version = "1.56"
+rust-version = "1.61"
 name = "thiserror-impl"
-version = "1.0.58"
+version = "1.0.69"
 authors = ["David Tolnay <dtolnay@gmail.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Implementation detail of the `thiserror` crate"
+readme = false
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/dtolnay/thiserror"
 
@@ -24,6 +31,8 @@ rustdoc-args = ["--generate-link-to-definition"]
 targets = ["x86_64-unknown-linux-gnu"]
 
 [lib]
+name = "thiserror_impl"
+path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.proc-macro2]
@@ -33,4 +42,4 @@ version = "1.0.74"
 version = "1.0.35"
 
 [dependencies.syn]
-version = "2.0.46"
+version = "2.0.87"

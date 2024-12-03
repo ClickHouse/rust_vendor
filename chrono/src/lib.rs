@@ -43,7 +43,6 @@
 //! - `rkyv-64`: Enable serialization/deserialization via [rkyv],
 //!    using 64-bit integers for integral `*size` types.
 //! - `rkyv-validation`: Enable rkyv validation support using `bytecheck`.
-//! - `rustc-serialize`: Enable serialization/deserialization via rustc-serialize (deprecated).
 //! - `arbitrary`: Construct arbitrary instances of a type with the Arbitrary crate.
 //! - `unstable-locales`: Enable localization. This adds various methods with a `_localized` suffix.
 //!   The implementation and API may change or even be removed in a patch release. Feedback welcome.
@@ -508,9 +507,6 @@
 #![warn(unreachable_pub)]
 #![deny(clippy::tests_outside_test_module)]
 #![cfg_attr(not(any(feature = "std", test)), no_std)]
-// can remove this if/when rustc-serialize support is removed
-// keeps clippy happy in the meantime
-#![cfg_attr(feature = "rustc-serialize", allow(deprecated))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 
 #[cfg(feature = "alloc")]
@@ -551,8 +547,6 @@ pub use date::Date;
 pub use date::{MAX_DATE, MIN_DATE};
 
 mod datetime;
-#[cfg(feature = "rustc-serialize")]
-pub use datetime::rustc_serialize::TsSeconds;
 pub use datetime::DateTime;
 #[allow(deprecated)]
 #[doc(no_inline)]

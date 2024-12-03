@@ -1,398 +1,160 @@
-use std::hash::{Hash, Hasher};
-use std::fmt::{self, Display};
-use std::ops::BitOr;
+use core::fmt::{self, Write};
 
-use {Paint, Color};
+use crate::color::{Color, Variant};
+use crate::attr_quirk::{Attribute, Quirk};
+use crate::condition::Condition;
+use crate::set::Set;
 
-#[derive(Default, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Copy, Clone)]
-pub struct Property(u8);
+#[cfg(all(feature = "alloc", not(feature = "std")))]
+use alloc::{string::String, borrow::Cow};
 
-impl Property {
-    pub const BOLD: Self = Property(1 << 0);
-    pub const DIMMED: Self = Property(1 << 1);
-    pub const ITALIC: Self = Property(1 << 2);
-    pub const UNDERLINE: Self = Property(1 << 3);
-    pub const BLINK: Self = Property(1 << 4);
-    pub const INVERT: Self = Property(1 << 5);
-    pub const HIDDEN: Self = Property(1 << 6);
-    pub const STRIKETHROUGH: Self = Property(1 << 7);
+#[cfg(feature = "std")]
+use std::borrow::Cow;
 
-    #[inline(always)]
-    pub fn contains(self, other: Property) -> bool {
-        (other.0 & self.0) == other.0
-    }
-
-    #[inline(always)]
-    pub fn set(&mut self, other: Property) {
-        self.0 |= other.0;
-    }
-
-    #[inline(always)]
-    pub fn iter(self) -> Iter {
-        Iter { index: 0, properties: self }
-    }
-}
-
-impl BitOr for Property {
-    type Output = Self;
-
-    #[inline(always)]
-    fn bitor(self, rhs: Self) -> Self {
-        Property(self.0 | rhs.0)
-    }
-}
-
-pub struct Iter {
-    index: u8,
-    properties: Property,
-}
-
-impl Iterator for Iter {
-    type Item = usize;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        while self.index < 8 {
-            let index = self.index;
-            self.index += 1;
-
-            if self.properties.contains(Property(1 << index)) {
-                return Some(index as usize);
-            }
-        }
-
-        None
-    }
-}
-
-/// Represents a set of styling options.
+/// A set of styling options.
 ///
-/// See the [crate level documentation](./) for usage information.
+/// ## Equivalence and Ordering
 ///
-/// # Method Glossary
-///
-/// The `Style` structure exposes many methods for convenience. The majority of
-/// these methods are shared with [`Paint`](Paint).
-///
-/// ### Foreground Color Constructors
-///
-/// Return a new `Style` structure with a foreground `color` applied.
-///
-///   * [`Style::new(color: Color)`](Style::new())
-///
-/// ### Setters
-///
-/// Set a style property on a given `Style` structure.
-///
-///   * [`style.fg(color: Color)`](Style::fg())
-///   * [`style.bg(color: Color)`](Style::bg())
-///   * [`style.mask()`](Style::mask())
-///   * [`style.wrap()`](Style::wrap())
-///   * [`style.bold()`](Style::bold())
-///   * [`style.dimmed()`](Style::dimmed())
-///   * [`style.italic()`](Style::italic())
-///   * [`style.underline()`](Style::underline())
-///   * [`style.blink()`](Style::blink())
-///   * [`style.invert()`](Style::invert())
-///   * [`style.hidden()`](Style::hidden())
-///   * [`style.strikethrough()`](Style::strikethrough())
-///
-/// These methods can be chained:
-///
-/// ```rust
-/// use yansi::{Style, Color::{Red, Magenta}};
-///
-/// Style::new(Red).bg(Magenta).underline().invert().italic().dimmed().bold();
-/// ```
-///
-/// ### Converters
-///
-/// Convert a `Style` into another structure.
-///
-///   * [`style.paint<T>(item: T) -> Paint<T>`](Style::paint())
-///
-/// ### Getters
-///
-/// Return information about a `Style` structure.
-///
-///   * [`style.fg_color()`](Style::fg_color())
-///   * [`style.bg_color()`](Style::bg_color())
-///   * [`style.is_masked()`](Style::is_masked())
-///   * [`style.is_wrapping()`](Style::is_wrapping())
-///   * [`style.is_bold()`](Style::is_bold())
-///   * [`style.is_dimmed()`](Style::is_dimmed())
-///   * [`style.is_italic()`](Style::is_italic())
-///   * [`style.is_underline()`](Style::is_underline())
-///   * [`style.is_blink()`](Style::is_blink())
-///   * [`style.is_invert()`](Style::is_invert())
-///   * [`style.is_hidden()`](Style::is_hidden())
-///   * [`style.is_strikethrough()`](Style::is_strikethrough())
-///
-/// ### Raw Formatters
-///
-/// Write the raw ANSI codes for a given `Style` to any `fmt::Write`.
-///
-///   * [`style.fmt_prefix(f: &mut fmt::Write)`](Style::fmt_prefix())
-///   * [`style.fmt_suffix(f: &mut fmt::Write)`](Style::fmt_suffix())
-#[repr(packed)]
-#[derive(Default, Debug, Eq, Ord, PartialOrd, Copy, Clone)]
+/// Only a style's `foreground`, `background`, and set of `attributes` are
+/// considered when testing for equivalence or producing an ordering via
+/// `PartialEq` or `Eq`, and `PartialOrd` or `Ord`. A style's quirks and
+/// conditions are ignored.
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Style {
-    pub(crate) foreground: Color,
-    pub(crate) background: Color,
-    pub(crate) properties: Property,
-    pub(crate) masked: bool,
-    pub(crate) wrap: bool,
+    /// The foreground color. Defaults to `None`.
+    ///
+    /// ```rust
+    /// use yansi::{Style, Color};
+    ///
+    /// assert_eq!(Style::new().foreground, None);
+    /// assert_eq!(Style::new().green().foreground, Some(Color::Green));
+    /// ```
+    pub foreground: Option<Color>,
+    /// The background color. Defaults to `None`.
+    ///
+    /// ```rust
+    /// use yansi::{Style, Color};
+    ///
+    /// assert_eq!(Style::new().background, None);
+    /// assert_eq!(Style::new().on_red().background, Some(Color::Red));
+    /// ```
+    pub background: Option<Color>,
+    pub(crate) attributes: Set<Attribute>,
+    pub(crate) quirks: Set<Quirk>,
+    /// The condition.
+    ///
+    /// To check a style's condition directly, use [`Style::enabled()`]:
+    ///
+    /// ```rust
+    /// use yansi::{Style, Condition};
+    ///
+    /// let style = Style::new().whenever(Condition::ALWAYS);
+    /// assert!(style.enabled());
+    ///
+    /// let style = Style::new().whenever(Condition::NEVER);
+    /// assert!(!style.enabled());
+    /// ```
+    pub condition: Option<Condition>,
 }
 
-impl PartialEq for Style {
-    fn eq(&self, other: &Style) -> bool {
-        self.foreground == other.foreground
-            && self.background == other.background
-            && self.properties == other.properties
-    }
+struct AnsiSplicer<'a> {
+    f: &'a mut dyn fmt::Write,
+    splice: bool,
 }
 
-impl Hash for Style {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        self.foreground.hash(state);
-        self.background.hash(state);
-        self.properties.hash(state);
-    }
-}
-
-macro_rules! checker_for {
-    ($($name:ident ($fn_name:ident): $property:ident),*) => ($(
-        #[doc = concat!(
-            "Returns `true` if the _", stringify!($name), "_ property is set on `self`.\n",
-            "```rust\n",
-            "use yansi::Style;\n",
-            "\n",
-            "let plain = Style::default();\n",
-            "assert!(!plain.", stringify!($fn_name), "());\n",
-            "\n",
-            "let styled = plain.", stringify!($name), "();\n",
-            "assert!(styled.", stringify!($fn_name), "());\n",
-            "```\n"
-        )]
-        #[inline]
-        pub fn $fn_name(&self) -> bool {
-            self.properties.contains(Property::$property)
-        }
-    )*)
-}
-
-#[inline]
-fn write_spliced<T: Display>(c: &mut bool, f: &mut fmt::Write, t: T) -> fmt::Result {
-    if *c {
-        write!(f, ";{}", t)
-    } else {
-        *c = true;
-        write!(f, "{}", t)
-    }
+#[derive(Debug)]
+#[allow(non_camel_case_types)]
+pub enum Application {
+    fg(Color),
+    bg(Color),
+    attr(Attribute),
+    quirk(Quirk),
+    whenever(Condition),
 }
 
 impl Style {
-    /// Default style with the foreground set to `color` and no other set
-    /// properties.
+    const DEFAULT: Style = Style {
+        foreground: None,
+        background: None,
+        attributes: Set::EMPTY,
+        quirks: Set::EMPTY,
+        condition: None,
+    };
+
+    /// Returns a new style with no foreground or background, no attributes
+    /// or quirks, and [`Condition::DEFAULT`].
+    ///
+    /// This is the default returned by [`Default::default()`].
+    ///
+    /// # Example
     ///
     /// ```rust
     /// use yansi::Style;
     ///
-    /// let plain = Style::default();
-    /// assert_eq!(plain, Style::default());
+    /// assert_eq!(Style::new(), Style::default());
     /// ```
     #[inline]
-    pub fn new(color: Color) -> Style {
-        Self::default().fg(color)
+    pub const fn new() -> Style {
+        Style::DEFAULT
     }
-
-    /// Sets the foreground to `color`.
-    ///
-    /// ```rust
-    /// use yansi::{Color, Style};
-    ///
-    /// let red_fg = Style::default().fg(Color::Red);
-    /// ```
-    #[inline]
-    pub fn fg(mut self, color: Color) -> Style {
-        self.foreground = color;
-        self
-    }
-
-    /// Sets the background to `color`.
-    ///
-    /// ```rust
-    /// use yansi::{Color, Style};
-    ///
-    /// let red_bg = Style::default().bg(Color::Red);
-    /// ```
-    #[inline]
-    pub fn bg(mut self, color: Color) -> Style {
-        self.background = color;
-        self
-    }
-
-    /// Sets `self` to be masked.
-    ///
-    /// An item with _masked_ styling is not written out when painting is
-    /// disabled during `Display` or `Debug` invocations. When painting is
-    /// enabled, masking has no effect.
-    ///
-    /// ```rust
-    /// use yansi::Style;
-    ///
-    /// let masked = Style::default().mask();
-    ///
-    /// // "Whoops! " will only print when coloring is enabled.
-    /// println!("{}Something happened.", masked.paint("Whoops! "));
-    /// ```
-    #[inline]
-    pub fn mask(mut self) -> Style {
-        self.masked = true;
-        self
-    }
-
-    /// Sets `self` to be wrapping.
-    ///
-    /// A wrapping `Style` converts all color resets written out by the internal
-    /// value to the styling of itself. This allows for seamless color wrapping
-    /// of other colored text.
-    ///
-    /// # Performance
-    ///
-    /// In order to wrap an internal value, the internal value must first be
-    /// written out to a local buffer and examined. As a result, displaying a
-    /// wrapped value is likely to result in a heap allocation and copy.
-    ///
-    /// ```rust
-    /// use yansi::{Paint, Style, Color};
-    ///
-    /// let inner = format!("{} and {}", Paint::red("Stop"), Paint::green("Go"));
-    /// let wrapping = Style::new(Color::Blue).wrap();
-    ///
-    /// // 'Hey!' will be unstyled, "Stop" will be red, "and" will be blue, and
-    /// // "Go" will be green. Without a wrapping `Paint`, "and" would be
-    /// // unstyled.
-    /// println!("Hey! {}", wrapping.paint(inner));
-    /// ```
-    #[inline]
-    pub fn wrap(mut self) -> Style {
-        self.wrap = true;
-        self
-    }
-
-    style_builder_for!(Style, |style| style.properties,
-                       bold: BOLD, dimmed: DIMMED, italic: ITALIC,
-                       underline: UNDERLINE, blink: BLINK, invert: INVERT,
-                       hidden: HIDDEN, strikethrough: STRIKETHROUGH);
-
-    /// Constructs a new `Paint` structure that encapsulates `item` with the
-    /// style set to `self`.
-    ///
-    /// ```rust
-    /// use yansi::{Style, Color};
-    ///
-    /// let alert = Style::new(Color::Red).bold().underline();
-    /// println!("Alert: {}", alert.paint("This thing happened!"));
-    /// ```
-    #[inline]
-    pub fn paint<T>(self, item: T) -> Paint<T> {
-        Paint::new(item).with_style(self)
-    }
-
-    /// Returns the foreground color of `self`.
-    ///
-    /// ```rust
-    /// use yansi::{Style, Color};
-    ///
-    /// let plain = Style::default();
-    /// assert_eq!(plain.fg_color(), Color::Unset);
-    ///
-    /// let red = plain.fg(Color::Red);
-    /// assert_eq!(red.fg_color(), Color::Red);
-    /// ```
-    #[inline]
-    pub fn fg_color(&self) -> Color {
-        self.foreground
-    }
-
-    /// Returns the foreground color of `self`.
-    ///
-    /// ```rust
-    /// use yansi::{Style, Color};
-    ///
-    /// let plain = Style::default();
-    /// assert_eq!(plain.bg_color(), Color::Unset);
-    ///
-    /// let white = plain.bg(Color::White);
-    /// assert_eq!(white.bg_color(), Color::White);
-    /// ```
-    #[inline]
-    pub fn bg_color(&self) -> Color {
-        self.background
-    }
-
-    /// Returns `true` if `self` is masked.
-    ///
-    /// ```rust
-    /// use yansi::Style;
-    ///
-    /// let plain = Style::default();
-    /// assert!(!plain.is_masked());
-    ///
-    /// let masked = plain.mask();
-    /// assert!(masked.is_masked());
-    /// ```
-    #[inline]
-    pub fn is_masked(&self) -> bool {
-        self.masked
-    }
-
-    /// Returns `true` if `self` is wrapping.
-    ///
-    /// ```rust
-    /// use yansi::Style;
-    ///
-    /// let plain = Style::default();
-    /// assert!(!plain.is_wrapping());
-    ///
-    /// let wrapping = plain.wrap();
-    /// assert!(wrapping.is_wrapping());
-    /// ```
-    #[inline]
-    pub fn is_wrapping(&self) -> bool {
-        self.wrap
-    }
-
-    checker_for!(bold (is_bold): BOLD, dimmed (is_dimmed): DIMMED,
-        italic (is_italic): ITALIC, underline (is_underline): UNDERLINE,
-        blink (is_blink): BLINK, invert (is_invert): INVERT,
-        hidden (is_hidden): HIDDEN,
-        strikethrough (is_strikethrough): STRIKETHROUGH);
 
     #[inline(always)]
-    fn is_plain(&self) -> bool {
-        self == &Style::default()
+    pub(crate) const fn apply(mut self, a: Application) -> Style {
+        match a {
+            Application::fg(color) => self.foreground = Some(color),
+            Application::bg(color) => self.background = Some(color),
+            Application::whenever(cond) => self.condition = Some(cond),
+            Application::attr(attr) => self.attributes = self.attributes.insert(attr),
+            Application::quirk(quirk) => self.quirks = self.quirks.insert(quirk),
+        }
+
+        self
+    }
+
+    /// Returns `true` if this style is enabled, based on
+    /// [`condition`](Paint.condition).
+    ///
+    /// **Note:** _For a style to be effected, both this method **and**
+    /// [`yansi::is_enabled()`](crate::is_enabled) must return `true`._
+    ///
+    /// When there is no condition set, this method always returns `true`. When
+    /// a condition has been set, this evaluates the condition and returns the
+    /// result.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use yansi::{Style, Condition};
+    ///
+    /// let style = Style::new().whenever(Condition::ALWAYS);
+    /// assert!(style.enabled());
+    ///
+    /// let style = Style::new().whenever(Condition::NEVER);
+    /// assert!(!style.enabled());
+    /// ```
+    pub fn enabled(&self) -> bool {
+        self.condition.map_or(true, |c| c())
     }
 
     /// Writes the ANSI code prefix for the currently set styles.
     ///
     /// This method is intended to be used inside of [`fmt::Display`] and
     /// [`fmt::Debug`] implementations for custom or specialized use-cases. Most
-    /// users should use [`Paint`] for all painting needs.
+    /// users should use [`Painted`] for all painting needs.
     ///
     /// This method writes the ANSI code prefix irrespective of whether painting
     /// is currently enabled or disabled. To write the prefix only if painting
-    /// is enabled, condition a call to this method on [`Paint::is_enabled()`].
+    /// is enabled, condition a call to this method on [`is_enabled()`].
     ///
     /// [`fmt::Display`]: fmt::Display
     /// [`fmt::Debug`]: fmt::Debug
-    /// [`Paint`]: Paint
-    /// [`Paint::is_enabled()`]: Paint::is_enabled()
+    /// [`Painted`]: crate::Painted
+    /// [`is_enabled()`]: crate::is_enabled()
     ///
     /// # Example
     ///
     /// ```rust
-    /// use std::fmt;
+    /// use core::fmt;
     /// use yansi::Style;
     ///
     /// struct CustomItem {
@@ -408,53 +170,70 @@ impl Style {
     ///     }
     /// }
     /// ```
-    pub fn fmt_prefix(&self, f: &mut fmt::Write) -> fmt::Result {
-        // A user may just want a code-free string when no styles are applied.
-        if self.is_plain() {
+    pub fn fmt_prefix(&self, f: &mut dyn fmt::Write) -> fmt::Result {
+        // Give a sequence-free string when no styles are applied.
+        if self == &Style::DEFAULT {
             return Ok(());
         }
 
-        let mut splice = false;
-        write!(f, "\x1B[")?;
+        let brighten = |color: Option<Color>, bright: bool| match (color, bright) {
+            (Some(color), true) => Some(color.to_bright()),
+            _ => color
+        };
 
-        for i in self.properties.iter() {
-            let k = if i >= 5 { i + 2 } else { i + 1 };
-            write_spliced(&mut splice, f, k)?;
+        let mut f = AnsiSplicer { f, splice: false };
+        f.write_str("\x1B[")?;
+
+        for attr in self.attributes.iter() {
+            f.splice()?;
+            attr.fmt(&mut f)?;
         }
 
-        if self.background != Color::Unset {
-            write_spliced(&mut splice, f, "4")?;
-            self.background.ascii_fmt(f)?;
+        if let Some(color) = brighten(self.background, self.quirks.contains(Quirk::OnBright)) {
+            f.splice()?;
+            color.fmt(&mut f, Variant::Bg)?;
         }
 
-        if self.foreground != Color::Unset {
-            write_spliced(&mut splice, f, "3")?;
-            self.foreground.ascii_fmt(f)?;
+        if let Some(color) = brighten(self.foreground, self.quirks.contains(Quirk::Bright)) {
+            f.splice()?;
+            color.fmt(&mut f, Variant::Fg)?;
         }
 
-        // All the codes end with an `m`.
-        write!(f, "m")
+        // All of the sequences end with an `m`.
+        f.write_char('m')
     }
 
-    /// Writes the ANSI code suffix for the currently set styles.
+    /// Returns the ANSI code sequence prefix for the style as a string.
+    ///
+    /// This returns a string with the exact same sequence written by
+    /// [`fmt_prefix()`](Self::fmt_prefix()). See that method for details.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(feature = "_nightly", doc(cfg(feature = "alloc")))]
+    pub fn prefix(&self) -> Cow<'static, str> {
+        let mut prefix = String::new();
+        let _ = self.fmt_prefix(&mut prefix);
+        prefix.into()
+    }
+
+    /// Writes the ANSI code sequence suffix for the style.
     ///
     /// This method is intended to be used inside of [`fmt::Display`] and
     /// [`fmt::Debug`] implementations for custom or specialized use-cases. Most
-    /// users should use [`Paint`] for all painting needs.
+    /// users should use [`Painted`] for all painting needs.
     ///
     /// This method writes the ANSI code suffix irrespective of whether painting
     /// is currently enabled or disabled. To write the suffix only if painting
-    /// is enabled, condition a call to this method on [`Paint::is_enabled()`].
+    /// is enabled, condition a call to this method on [`is_enabled()`].
     ///
     /// [`fmt::Display`]: fmt::Display
     /// [`fmt::Debug`]: fmt::Debug
-    /// [`Paint`]: Paint
-    /// [`Paint::is_enabled()`]: Paint::is_enabled()
+    /// [`Painted`]: crate::Painted
+    /// [`is_enabled()`]: crate::is_enabled()
     ///
     /// # Example
     ///
     /// ```rust
-    /// use std::fmt;
+    /// use core::fmt;
     /// use yansi::Style;
     ///
     /// struct CustomItem {
@@ -470,11 +249,142 @@ impl Style {
     ///     }
     /// }
     /// ```
-    pub fn fmt_suffix(&self, f: &mut fmt::Write) -> fmt::Result {
-        if self.is_plain() {
-            return Ok(());
+    pub fn fmt_suffix(&self, f: &mut dyn fmt::Write) -> fmt::Result {
+        if !self.quirks.contains(Quirk::Resetting) && !self.quirks.contains(Quirk::Clear) {
+            if self.quirks.contains(Quirk::Linger) || self == &Style::DEFAULT {
+                return Ok(());
+            }
         }
 
-        write!(f, "\x1B[0m")
+        f.write_str("\x1B[0m")
+    }
+
+    /// Returns the ANSI code sequence suffix for the style as a string.
+    ///
+    /// This returns a string with the exact same sequence written by
+    /// [`fmt_suffix()`](Self::fmt_suffix()). See that method for details.
+    #[cfg(feature = "alloc")]
+    #[cfg_attr(feature = "_nightly", doc(cfg(feature = "alloc")))]
+    pub fn suffix(&self) -> Cow<'static, str> {
+        if !self.quirks.contains(Quirk::Resetting) && !self.quirks.contains(Quirk::Clear) {
+            if self.quirks.contains(Quirk::Linger) || self == &Style::DEFAULT {
+                return Cow::from("");
+            }
+        }
+
+        Cow::from("\x1B[0m")
+    }
+
+    properties!([pub const] constructor(Self) -> Self);
+}
+
+impl AnsiSplicer<'_> {
+    fn splice(&mut self) -> fmt::Result {
+        if self.splice { self.f.write_char(';')?; }
+        self.splice = true;
+        Ok(())
+    }
+}
+
+impl fmt::Write for AnsiSplicer<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.f.write_str(s)
+    }
+}
+
+impl PartialEq for Style {
+    fn eq(&self, other: &Self) -> bool {
+        let Style {
+            foreground: fg_a,
+            background: bg_a,
+            attributes: attrs_a,
+            quirks: _,
+            condition: _,
+        } = self;
+
+        let Style {
+            foreground: fg_b,
+            background: bg_b,
+            attributes: attrs_b,
+            quirks: _,
+            condition: _,
+        } = other;
+
+        fg_a == fg_b && bg_a == bg_b && attrs_a == attrs_b
+    }
+}
+
+impl Eq for Style { }
+
+impl core::hash::Hash for Style {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
+        let Style { foreground, background, attributes, quirks: _, condition: _, } = self;
+        foreground.hash(state);
+        background.hash(state);
+        attributes.hash(state);
+    }
+}
+
+impl PartialOrd for Style {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        let Style {
+            foreground: fg_a,
+            background: bg_a,
+            attributes: attrs_a,
+            quirks: _,
+            condition: _,
+        } = self;
+
+        let Style {
+            foreground: fg_b,
+            background: bg_b,
+            attributes: attrs_b,
+            quirks: _,
+            condition: _,
+        } = other;
+
+        match fg_a.partial_cmp(&fg_b) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+
+        match bg_a.partial_cmp(&bg_b) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+
+        attrs_a.partial_cmp(&attrs_b)
+    }
+}
+
+impl Ord for Style {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        let Style {
+            foreground: fg_a,
+            background: bg_a,
+            attributes: attrs_a,
+            quirks: _,
+            condition: _,
+        } = self;
+
+        let Style {
+            foreground: fg_b,
+            background: bg_b,
+            attributes: attrs_b,
+            quirks: _,
+            condition: _,
+        } = other;
+
+        match fg_a.cmp(&fg_b) {
+            core::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+
+        match bg_a.cmp(&bg_b) {
+            core::cmp::Ordering::Equal => {}
+            ord => return ord,
+        }
+
+        attrs_a.cmp(&attrs_b)
     }
 }
