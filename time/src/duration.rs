@@ -15,6 +15,7 @@ use crate::internal_macros::{
     const_try_opt, expect_opt, impl_add_assign, impl_div_assign, impl_mul_assign, impl_sub_assign,
 };
 #[cfg(feature = "std")]
+#[allow(deprecated)]
 use crate::Instant;
 
 /// By explicitly inserting this enum where padding is expected, the compiler is able to better
@@ -516,7 +517,7 @@ impl Duration {
     /// ```rust
     /// # use time::{Duration, ext::NumericalDuration};
     /// assert_eq!(Duration::seconds_f64(0.5), 0.5.seconds());
-    /// assert_eq!(Duration::seconds_f64(-0.5), -0.5.seconds());
+    /// assert_eq!(Duration::seconds_f64(-0.5), (-0.5).seconds());
     /// ```
     pub fn seconds_f64(seconds: f64) -> Self {
         try_from_secs!(
@@ -563,7 +564,7 @@ impl Duration {
     /// ```rust
     /// # use time::{Duration, ext::NumericalDuration};
     /// assert_eq!(Duration::saturating_seconds_f64(0.5), 0.5.seconds());
-    /// assert_eq!(Duration::saturating_seconds_f64(-0.5), -0.5.seconds());
+    /// assert_eq!(Duration::saturating_seconds_f64(-0.5), (-0.5).seconds());
     /// assert_eq!(
     ///     Duration::saturating_seconds_f64(f64::NAN),
     ///     Duration::new(0, 0),
@@ -636,7 +637,7 @@ impl Duration {
     /// ```rust
     /// # use time::{Duration, ext::NumericalDuration};
     /// assert_eq!(Duration::checked_seconds_f64(0.5), Some(0.5.seconds()));
-    /// assert_eq!(Duration::checked_seconds_f64(-0.5), Some(-0.5.seconds()));
+    /// assert_eq!(Duration::checked_seconds_f64(-0.5), Some((-0.5).seconds()));
     /// assert_eq!(Duration::checked_seconds_f64(f64::NAN), None);
     /// assert_eq!(Duration::checked_seconds_f64(f64::NEG_INFINITY), None);
     /// assert_eq!(Duration::checked_seconds_f64(f64::INFINITY), None);
@@ -663,7 +664,7 @@ impl Duration {
     /// ```rust
     /// # use time::{Duration, ext::NumericalDuration};
     /// assert_eq!(Duration::checked_seconds_f32(0.5), Some(0.5.seconds()));
-    /// assert_eq!(Duration::checked_seconds_f32(-0.5), Some(-0.5.seconds()));
+    /// assert_eq!(Duration::checked_seconds_f32(-0.5), Some((-0.5).seconds()));
     /// assert_eq!(Duration::checked_seconds_f32(f32::NAN), None);
     /// assert_eq!(Duration::checked_seconds_f32(f32::NEG_INFINITY), None);
     /// assert_eq!(Duration::checked_seconds_f32(f32::INFINITY), None);
@@ -857,7 +858,7 @@ impl Duration {
 
     /// Get the number of milliseconds past the number of whole seconds.
     ///
-    /// Always in the range `-1_000..1_000`.
+    /// Always in the range `-999..=999`.
     ///
     /// ```rust
     /// # use time::ext::NumericalDuration;
@@ -885,7 +886,7 @@ impl Duration {
 
     /// Get the number of microseconds past the number of whole seconds.
     ///
-    /// Always in the range `-1_000_000..1_000_000`.
+    /// Always in the range `-999_999..=999_999`.
     ///
     /// ```rust
     /// # use time::ext::NumericalDuration;
@@ -911,7 +912,7 @@ impl Duration {
 
     /// Get the number of nanoseconds past the number of whole seconds.
     ///
-    /// The returned value will always be in the range `-1_000_000_000..1_000_000_000`.
+    /// The returned value will always be in the range `-999_999_999..=999_999_999`.
     ///
     /// ```rust
     /// # use time::ext::NumericalDuration;
@@ -1022,6 +1023,25 @@ impl Duration {
 
         // Safety: `nanoseconds` is in range.
         unsafe { Some(Self::new_unchecked(secs, nanos)) }
+    }
+
+    /// Computes `-self`, returning `None` if the result would overflow.
+    ///
+    /// ```rust
+    /// # use time::ext::NumericalDuration;
+    /// # use time::Duration;
+    /// assert_eq!(5.seconds().checked_neg(), Some((-5).seconds()));
+    /// assert_eq!(Duration::MIN.checked_neg(), None);
+    /// ```
+    pub const fn checked_neg(self) -> Option<Self> {
+        if self.seconds == i64::MIN {
+            None
+        } else {
+            Some(Self::new_ranged_unchecked(
+                -self.seconds,
+                self.nanoseconds.neg(),
+            ))
+        }
     }
     // endregion checked arithmetic
 
@@ -1147,11 +1167,13 @@ impl Duration {
 
     /// Runs a closure, returning the duration of time it took to run. The return value of the
     /// closure is provided in the second part of the tuple.
+    #[doc(hidden)]
     #[cfg(feature = "std")]
     #[deprecated(
         since = "0.3.32",
         note = "extremely limited use case, not intended for benchmarking"
     )]
+    #[allow(deprecated)]
     pub fn time_fn<T>(f: impl FnOnce() -> T) -> (Self, T) {
         let start = Instant::now();
         let return_value = f();
@@ -1338,7 +1360,7 @@ impl Neg for Duration {
     type Output = Self;
 
     fn neg(self) -> Self::Output {
-        Self::new_ranged_unchecked(-self.seconds, self.nanoseconds.neg())
+        self.checked_neg().expect("overflow when negating duration")
     }
 }
 

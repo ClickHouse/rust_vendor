@@ -25,11 +25,26 @@ __ https://docs.rs/either/
 How to use with cargo::
 
     [dependencies]
-    either = "1.10"
+    either = "1.12"
 
 
 Recent Changes
 --------------
+
+- 1.13.0
+
+  - Add new methods ``.cloned()`` and ``.copied()``, by @ColonelThirtyTwo (#107)
+
+- 1.12.0
+
+  - **MSRV**: ``either`` now requires Rust 1.37 or later.
+
+  - Specialize ``nth_back`` for ``Either`` and ``IterEither``, by @cuviper (#106)
+
+- 1.11.0
+
+  - Add new trait ``IntoEither`` that is useful to convert to ``Either`` in method chains,
+    by @SFM61319 (#101)
 
 - 1.10.0
 

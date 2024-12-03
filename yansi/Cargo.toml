@@ -10,8 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
+edition = "2021"
+rust-version = "1.63"
 name = "yansi"
-version = "0.5.1"
+version = "1.0.1"
 authors = ["Sergio Benitez <sb@sergio.bz>"]
 description = "A dead simple ANSI terminal color painting library."
 documentation = "https://docs.rs/yansi"
@@ -24,14 +26,25 @@ keywords = [
     "paint",
 ]
 categories = ["command-line-interface"]
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/SergioBenitez/yansi"
+resolver = "2"
 
-[dependencies]
+[package.metadata.docs.rs]
+all-features = true
 
-[dev-dependencies.serial_test]
-version = "0.6"
+[dependencies.is-terminal]
+version = "0.4.11"
+optional = true
 
-[badges.travis-ci]
-branch = "master"
-repository = "SergioBenitez/yansi"
+[features]
+_nightly = []
+alloc = []
+default = ["std"]
+detect-env = ["std"]
+detect-tty = [
+    "is-terminal",
+    "std",
+]
+hyperlink = ["std"]
+std = ["alloc"]

@@ -10,8 +10,9 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
+rust-version = "1.63"
 name = "stacker"
-version = "0.1.15"
+version = "0.1.17"
 authors = [
     "Alex Crichton <alex@alexcrichton.com>",
     "Simonas Kazlauskas <stacker@kazlauskas.me>",
@@ -36,7 +37,7 @@ doctest = false
 version = "1.0.0"
 
 [dependencies.libc]
-version = "0.2.45"
+version = "0.2.156"
 
 [dependencies.psm]
 version = "0.1.7"
@@ -44,12 +45,10 @@ version = "0.1.7"
 [build-dependencies.cc]
 version = "1.0.2"
 
-[target."cfg(windows)".dependencies.winapi]
-version = "0.3.6"
+[target."cfg(windows)".dependencies.windows-sys]
+version = ">=0.52.0, <0.60.0"
 features = [
-    "memoryapi",
-    "winbase",
-    "fibersapi",
-    "processthreadsapi",
-    "minwindef",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_Foundation",
 ]

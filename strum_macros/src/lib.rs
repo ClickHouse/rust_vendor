@@ -3,6 +3,10 @@
 //! Strum is a set of macros and traits for working with
 //! enums and strings easier in Rust.
 //!
+//! This crate only contains derive macros for use with the
+//! [`strum`](https://docs.rs/strum)
+//! crate.  The macros provied by this crate are also available by
+//! enabling the `derive` feature in aforementioned `strum` crate.
 
 #![recursion_limit = "128"]
 
@@ -367,7 +371,7 @@ pub fn to_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// 3. The name of the variant will be used if there are no `serialize` or `to_string` attributes.
 /// 4. If the enum has a `strum(prefix = "some_value_")`, every variant will have that prefix prepended
 ///    to the serialization.
-/// 5. Enums with named fields support named field interpolation. The value will be interpolated into the output string.
+/// 5. Enums with fields support string interpolation.
 ///    Note this means the variant will not "round trip" if you then deserialize the string.
 ///
 ///    ```rust
@@ -375,6 +379,8 @@ pub fn to_string(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///    pub enum Color {
 ///        #[strum(to_string = "saturation is {sat}")]
 ///        Red { sat: usize },
+///        #[strum(to_string = "hue is {1}, saturation is {0}")]
+///        Blue(usize, usize),
 ///    }
 ///    ```
 ///
@@ -426,7 +432,7 @@ pub fn display(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// Creates a new type that iterates of the variants of an enum.
 ///
 /// Iterate over the variants of an Enum. Any additional data on your variants will be set to `Default::default()`.
-/// The macro implements `strum::IntoEnumIterator` on your enum and creates a new type called `YourEnumIter` that is the iterator object.
+/// The macro implements [`strum::IntoEnumIterator`](https://docs.rs/strum/latest/strum/trait.IntoEnumIterator.html) on your enum and creates a new type called `YourEnumIter` that is the iterator object.
 /// You cannot derive `EnumIter` on any type with a lifetime bound (`<'a>`) because the iterator would surely
 /// create [unbounded lifetimes](https://doc.rust-lang.org/nightly/nomicon/unbounded-lifetimes.html).
 ///
@@ -588,7 +594,7 @@ pub fn enum_table(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 /// data. The discriminant follows the same rules as `rustc`. The first discriminant is zero and each
 /// successive variant has a discriminant of one greater than the previous variant, except where an
 /// explicit discriminant is specified. The type of the discriminant will match the `repr` type if
-/// it is specifed.
+/// it is specified.
 ///
 /// When the macro is applied using rustc >= 1.46 and when there is no additional data on any of
 /// the variants, the `from_repr` function is marked `const`. rustc >= 1.46 is required
@@ -668,7 +674,7 @@ pub fn from_repr(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
 ///
 /// Encode strings into the enum itself. The `strum_macros::EmumMessage` macro implements the `strum::EnumMessage` trait.
 /// `EnumMessage` looks for `#[strum(message="...")]` attributes on your variants.
-/// You can also provided a `detailed_message="..."` attribute to create a seperate more detailed message than the first.
+/// You can also provided a `detailed_message="..."` attribute to create a separate more detailed message than the first.
 ///
 /// `EnumMessage` also exposes the variants doc comments through `get_documentation()`. This is useful in some scenarios,
 /// but `get_message` should generally be preferred. Rust doc comments are intended for developer facing documentation,
@@ -754,7 +760,7 @@ pub fn enum_messages(input: proc_macro::TokenStream) -> proc_macro::TokenStream 
 
 /// Add custom properties to enum variants.
 ///
-/// Enables the encoding of arbitary constants into enum variants. This method
+/// Enables the encoding of arbitrary constants into enum variants. This method
 /// currently only supports adding additional string values. Other types of literals are still
 /// experimental in the rustc compiler. The generated code works by nesting match statements.
 /// The first match statement matches on the type of the enum, and the inner match statement

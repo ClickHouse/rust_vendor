@@ -1,8 +1,8 @@
-use std::fmt::Display;
+use core::fmt::Display;
 use std::path::{self, Path, PathBuf};
 
 #[doc(hidden)]
-pub trait AsDisplay<'a> {
+pub trait AsDisplay<'a>: Sealed {
     // TODO: convert to generic associated type.
     // https://github.com/dtolnay/thiserror/pull/253
     type Target: Display;
@@ -38,3 +38,9 @@ impl<'a> AsDisplay<'a> for PathBuf {
         self.display()
     }
 }
+
+#[doc(hidden)]
+pub trait Sealed {}
+impl<T: Display> Sealed for &T {}
+impl Sealed for Path {}
+impl Sealed for PathBuf {}

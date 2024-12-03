@@ -1,5 +1,37 @@
 # r-efi - UEFI Reference Specification Protocol Constants and Definitions
 
+## CHANGES WITH 4.5.0:
+
+        * Implement or derive more standard traits for UEFI base types. In
+          particular, implement `[Partial]Eq`, `Hash`, `[Partial]Ord` for
+          `Boolean`, `Status`, `Guid`, and network address types.
+
+        * Fix the signature of `BootUninstallMultipleProtocolInterfaces` to
+          match the UEFI specification. Note that it uses var-args and is thus
+          not fully usable from stable Rust.
+
+        Contributions from: Ayush Singh, David Rheinsberg, John Schock
+
+        - Dußlingen, 2024-05-23
+
+## CHANGES WITH 4.4.0:
+
+        * Add definitions for `UNACCEPTED_MEMORY_TYPE`, media device subtypes
+          for device paths, before-EBS and after-RTB event groups, missing
+          memory attributes.
+
+        * Add memory masks for common memory attribute classes. The symbol
+          names are takend from EDK2, yet their purpose is defined in the
+          specification.
+
+        * New protocols: platform_driver_override, bus_specific_driver_override,
+          driver_family_override, load_file, load_file2, pci-io
+
+        Contributions from: David Rheinsberg, Dmitry Mostovenko, John Schock,
+                            Michael Kubacki
+
+        - Dußlingen, 2024-03-27
+
 ## CHANGES WITH 4.3.0:
 
         * Change alignment of `Guid` to 4 (was 8 before). This deviates from

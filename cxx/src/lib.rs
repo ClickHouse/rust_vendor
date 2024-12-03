@@ -18,7 +18,7 @@
 //!
 //! <br>
 //!
-//! *Compiler support: requires rustc 1.60+ and c++11 or newer*<br>
+//! *Compiler support: requires rustc 1.73+ and c++11 or newer*<br>
 //! *[Release notes](https://github.com/dtolnay/cxx/releases)*
 //!
 //! <br>
@@ -364,8 +364,8 @@
 //! </table>
 
 #![no_std]
-#![doc(html_root_url = "https://docs.rs/cxx/1.0.121")]
-#![cfg_attr(doc_cfg, feature(doc_cfg))]
+#![doc(html_root_url = "https://docs.rs/cxx/1.0.133")]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![deny(
     improper_ctypes,
     improper_ctypes_definitions,
@@ -396,10 +396,12 @@
     clippy::module_name_repetitions,
     clippy::must_use_candidate,
     clippy::needless_doctest_main,
+    clippy::needless_lifetimes,
     clippy::new_without_default,
     clippy::or_fun_call,
     clippy::ptr_arg,
     clippy::ptr_as_ptr,
+    clippy::ptr_cast_constness,
     clippy::toplevel_ref_arg,
     clippy::transmute_undefined_repr, // clippy bug: https://github.com/rust-lang/rust-clippy/issues/8417
     clippy::uninlined_format_args,
@@ -448,7 +450,6 @@ compile_error! {
 #[macro_use]
 mod macros;
 
-mod c_char;
 mod cxx_vector;
 mod exception;
 mod extern_type;
@@ -465,7 +466,6 @@ mod rust_string;
 mod rust_type;
 mod rust_vec;
 mod shared_ptr;
-mod sip;
 #[path = "cxx_string.rs"]
 mod string;
 mod symbols;
@@ -477,7 +477,7 @@ mod weak_ptr;
 
 pub use crate::cxx_vector::CxxVector;
 #[cfg(feature = "alloc")]
-#[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]
+#[cfg_attr(docsrs, doc(cfg(feature = "alloc")))]
 pub use crate::exception::Exception;
 pub use crate::extern_type::{kind, ExternType};
 pub use crate::shared_ptr::SharedPtr;
@@ -503,7 +503,6 @@ pub type Vector<T> = CxxVector<T>;
 // Not public API.
 #[doc(hidden)]
 pub mod private {
-    pub use crate::c_char::c_char;
     pub use crate::cxx_vector::VectorElement;
     pub use crate::extern_type::{verify_extern_kind, verify_extern_type};
     pub use crate::function::FatFunction;

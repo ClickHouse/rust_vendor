@@ -20,7 +20,8 @@
 //!
 //! fn main() {
 //! #   // Normally, cargo will set `OUT_DIR` for build scripts.
-//! #   std::env::set_var("OUT_DIR", "target");
+//! #   let exe = std::env::current_exe().unwrap();
+//! #   std::env::set_var("OUT_DIR", exe.parent().unwrap());
 //!     let ac = autocfg::new();
 //!     ac.emit_has_type("i128");
 //!
@@ -61,16 +62,20 @@ macro_rules! try {
 
 use std::env;
 use std::ffi::OsString;
+use std::fmt::Arguments;
 use std::fs;
 use std::io::{stderr, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 #[allow(deprecated)]
 use std::sync::atomic::ATOMIC_USIZE_INIT;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 mod error;
 pub use error::Error;
+
+mod rustc;
+use rustc::Rustc;
 
 mod version;
 use version::Version;
@@ -82,13 +87,12 @@ mod tests;
 #[derive(Clone, Debug)]
 pub struct AutoCfg {
     out_dir: PathBuf,
-    rustc: PathBuf,
-    rustc_wrapper: Option<PathBuf>,
-    rustc_workspace_wrapper: Option<PathBuf>,
+    rustc: Rustc,
     rustc_version: Version,
     target: Option<OsString>,
     no_std: bool,
     rustflags: Vec<String>,
+    uuid: u64,
 }
 
 /// Writes a config flag for rustc on standard out.
@@ -96,6 +100,12 @@ pub struct AutoCfg {
 /// This looks like: `cargo:rustc-cfg=CFG`
 ///
 /// Cargo will use this in arguments to rustc, like `--cfg CFG`.
+///
+/// This does not automatically call [`emit_possibility`]
+/// so the compiler my generate an [`unexpected_cfgs` warning][check-cfg-flags].
+/// However, all the builtin emit methods on [`AutoCfg`] call [`emit_possibility`] automatically.
+///
+/// [check-cfg-flags]: https://blog.rust-lang.org/2024/05/06/check-cfg.html
 pub fn emit(cfg: &str) {
     println!("cargo:rustc-cfg={}", cfg);
 }
@@ -119,6 +129,25 @@ pub fn rerun_path(path: &str) {
 /// versions of cargo will simply ignore the directive.
 pub fn rerun_env(var: &str) {
     println!("cargo:rerun-if-env-changed={}", var);
+}
+
+/// Indicates to rustc that a config flag should not generate an [`unexpected_cfgs` warning][check-cfg-flags]
+///
+/// This looks like `cargo:rustc-check-cfg=cfg(VAR)`
+///
+/// As of rust 1.80, the compiler does [automatic checking of cfgs at compile time][check-cfg-flags].
+/// All custom configuration flags must be known to rustc, or they will generate a warning.
+/// This is done automatically when calling the builtin emit methods on [`AutoCfg`],
+/// but not when calling [`autocfg::emit`](crate::emit) directly.
+///
+/// Versions before rust 1.80 will simply ignore this directive.
+///
+/// This function indicates to the compiler that the config flag never has a value.
+/// If this is not desired, see [the blog post][check-cfg].
+///
+/// [check-cfg-flags]: https://blog.rust-lang.org/2024/05/06/check-cfg.html
+pub fn emit_possibility(cfg: &str) {
+    println!("cargo:rustc-check-cfg=cfg({})", cfg);
 }
 
 /// Creates a new `AutoCfg` instance.
@@ -155,9 +184,8 @@ impl AutoCfg {
     /// - `dir` is not a writable directory.
     ///
     pub fn with_dir<T: Into<PathBuf>>(dir: T) -> Result<Self, Error> {
-        let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-        let rustc: PathBuf = rustc.into();
-        let rustc_version = try!(Version::from_rustc(&rustc));
+        let rustc = Rustc::new();
+        let rustc_version = try!(rustc.version());
 
         let target = env::var_os("TARGET");
 
@@ -170,21 +198,20 @@ impl AutoCfg {
 
         let mut ac = AutoCfg {
             rustflags: rustflags(&target, &dir),
-            rustc_wrapper: get_rustc_wrapper(false),
-            rustc_workspace_wrapper: get_rustc_wrapper(true),
             out_dir: dir,
             rustc: rustc,
             rustc_version: rustc_version,
             target: target,
             no_std: false,
+            uuid: new_uuid(),
         };
 
         // Sanity check with and without `std`.
-        if !ac.probe("").unwrap_or(false) {
-            ac.no_std = true;
-            if !ac.probe("").unwrap_or(false) {
+        if !ac.probe_raw("").is_ok() {
+            if ac.probe_raw("#![no_std]").is_ok() {
+                ac.no_std = true;
+            } else {
                 // Neither worked, so assume nothing...
-                ac.no_std = false;
                 let warning = b"warning: autocfg could not probe for `std`\n";
                 stderr().write_all(warning).ok();
             }
@@ -207,7 +234,7 @@ impl AutoCfg {
     ///
     /// See also [`set_no_std`](#method.set_no_std).
     ///
-    /// [prelude]: https://doc.rust-lang.org/reference/crates-and-source-files.html#preludes-and-no_std
+    /// [prelude]: https://doc.rust-lang.org/reference/names/preludes.html#the-no_std-attribute
     pub fn no_std(&self) -> bool {
         self.no_std
     }
@@ -228,31 +255,27 @@ impl AutoCfg {
     /// Sets a `cfg` value of the form `rustc_major_minor`, like `rustc_1_29`,
     /// if the current `rustc` is at least that version.
     pub fn emit_rustc_version(&self, major: usize, minor: usize) {
+        let cfg_flag = format!("rustc_{}_{}", major, minor);
+        emit_possibility(&cfg_flag);
         if self.probe_rustc_version(major, minor) {
-            emit(&format!("rustc_{}_{}", major, minor));
+            emit(&cfg_flag);
         }
     }
 
-    fn probe<T: AsRef<[u8]>>(&self, code: T) -> Result<bool, Error> {
+    /// Returns a new (hopefully unique) crate name for probes.
+    fn new_crate_name(&self) -> String {
         #[allow(deprecated)]
         static ID: AtomicUsize = ATOMIC_USIZE_INIT;
 
         let id = ID.fetch_add(1, Ordering::Relaxed);
+        format!("autocfg_{:016x}_{}", self.uuid, id)
+    }
 
-        // Build the command with possible wrappers.
-        let mut rustc = self
-            .rustc_wrapper
-            .iter()
-            .chain(self.rustc_workspace_wrapper.iter())
-            .chain(Some(&self.rustc));
-        let mut command = Command::new(rustc.next().unwrap());
-        for arg in rustc {
-            command.arg(arg);
-        }
-
+    fn probe_fmt<'a>(&self, source: Arguments<'a>) -> Result<(), Error> {
+        let mut command = self.rustc.command();
         command
             .arg("--crate-name")
-            .arg(format!("probe{}", id))
+            .arg(self.new_crate_name())
             .arg("--crate-type=lib")
             .arg("--out-dir")
             .arg(&self.out_dir)
@@ -268,14 +291,71 @@ impl AutoCfg {
         let mut child = try!(command.spawn().map_err(error::from_io));
         let mut stdin = child.stdin.take().expect("rustc stdin");
 
-        if self.no_std {
-            try!(stdin.write_all(b"#![no_std]\n").map_err(error::from_io));
-        }
-        try!(stdin.write_all(code.as_ref()).map_err(error::from_io));
+        try!(stdin.write_fmt(source).map_err(error::from_io));
         drop(stdin);
 
-        let status = try!(child.wait().map_err(error::from_io));
-        Ok(status.success())
+        match child.wait() {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => Err(error::from_exit(status)),
+            Err(error) => Err(error::from_io(error)),
+        }
+    }
+
+    fn probe<'a>(&self, code: Arguments<'a>) -> bool {
+        let result = if self.no_std {
+            self.probe_fmt(format_args!("#![no_std]\n{}", code))
+        } else {
+            self.probe_fmt(code)
+        };
+        result.is_ok()
+    }
+
+    /// Tests whether the given code can be compiled as a Rust library.
+    ///
+    /// This will only return `Ok` if the compiler ran and exited successfully,
+    /// per `ExitStatus::success()`.
+    /// The code is passed to the compiler exactly as-is, notably not even
+    /// adding the [`#![no_std]`][Self::no_std] attribute like other probes.
+    ///
+    /// Raw probes are useful for testing functionality that's not yet covered
+    /// by the rest of the `AutoCfg` API. For example, the following attribute
+    /// **must** be used at the crate level, so it wouldn't work within the code
+    /// templates used by other `probe_*` methods.
+    ///
+    /// ```
+    /// # extern crate autocfg;
+    /// # // Normally, cargo will set `OUT_DIR` for build scripts.
+    /// # let exe = std::env::current_exe().unwrap();
+    /// # std::env::set_var("OUT_DIR", exe.parent().unwrap());
+    /// let ac = autocfg::new();
+    /// assert!(ac.probe_raw("#![no_builtins]").is_ok());
+    /// ```
+    ///
+    /// Rust nightly features could be tested as well -- ideally including a
+    /// code sample to ensure the unstable feature still works as expected.
+    /// For example, `slice::group_by` was renamed to `chunk_by` when it was
+    /// stabilized, even though the feature name was unchanged, so testing the
+    /// `#![feature(..)]` alone wouldn't reveal that. For larger snippets,
+    /// [`include_str!`] may be useful to load them from separate files.
+    ///
+    /// ```
+    /// # extern crate autocfg;
+    /// # // Normally, cargo will set `OUT_DIR` for build scripts.
+    /// # let exe = std::env::current_exe().unwrap();
+    /// # std::env::set_var("OUT_DIR", exe.parent().unwrap());
+    /// let ac = autocfg::new();
+    /// let code = r#"
+    ///     #![feature(slice_group_by)]
+    ///     pub fn probe(slice: &[i32]) -> impl Iterator<Item = &[i32]> {
+    ///         slice.group_by(|a, b| a == b)
+    ///     }
+    /// "#;
+    /// if ac.probe_raw(code).is_ok() {
+    ///     autocfg::emit("has_slice_group_by");
+    /// }
+    /// ```
+    pub fn probe_raw(&self, code: &str) -> Result<(), Error> {
+        self.probe_fmt(format_args!("{}", code))
     }
 
     /// Tests whether the given sysroot crate can be used.
@@ -286,14 +366,16 @@ impl AutoCfg {
     /// extern crate CRATE as probe;
     /// ```
     pub fn probe_sysroot_crate(&self, name: &str) -> bool {
-        self.probe(format!("extern crate {} as probe;", name)) // `as _` wasn't stabilized until Rust 1.33
-            .unwrap_or(false)
+        // Note: `as _` wasn't stabilized until Rust 1.33
+        self.probe(format_args!("extern crate {} as probe;", name))
     }
 
     /// Emits a config value `has_CRATE` if `probe_sysroot_crate` returns true.
     pub fn emit_sysroot_crate(&self, name: &str) {
+        let cfg_flag = format!("has_{}", mangle(name));
+        emit_possibility(&cfg_flag);
         if self.probe_sysroot_crate(name) {
-            emit(&format!("has_{}", mangle(name)));
+            emit(&cfg_flag);
         }
     }
 
@@ -305,7 +387,7 @@ impl AutoCfg {
     /// pub use PATH;
     /// ```
     pub fn probe_path(&self, path: &str) -> bool {
-        self.probe(format!("pub use {};", path)).unwrap_or(false)
+        self.probe(format_args!("pub use {};", path))
     }
 
     /// Emits a config value `has_PATH` if `probe_path` returns true.
@@ -313,13 +395,12 @@ impl AutoCfg {
     /// Any non-identifier characters in the `path` will be replaced with
     /// `_` in the generated config value.
     pub fn emit_has_path(&self, path: &str) {
-        if self.probe_path(path) {
-            emit(&format!("has_{}", mangle(path)));
-        }
+        self.emit_path_cfg(path, &format!("has_{}", mangle(path)));
     }
 
     /// Emits the given `cfg` value if `probe_path` returns true.
     pub fn emit_path_cfg(&self, path: &str, cfg: &str) {
+        emit_possibility(cfg);
         if self.probe_path(path) {
             emit(cfg);
         }
@@ -333,8 +414,7 @@ impl AutoCfg {
     /// pub trait Probe: TRAIT + Sized {}
     /// ```
     pub fn probe_trait(&self, name: &str) -> bool {
-        self.probe(format!("pub trait Probe: {} + Sized {{}}", name))
-            .unwrap_or(false)
+        self.probe(format_args!("pub trait Probe: {} + Sized {{}}", name))
     }
 
     /// Emits a config value `has_TRAIT` if `probe_trait` returns true.
@@ -342,13 +422,12 @@ impl AutoCfg {
     /// Any non-identifier characters in the trait `name` will be replaced with
     /// `_` in the generated config value.
     pub fn emit_has_trait(&self, name: &str) {
-        if self.probe_trait(name) {
-            emit(&format!("has_{}", mangle(name)));
-        }
+        self.emit_trait_cfg(name, &format!("has_{}", mangle(name)));
     }
 
     /// Emits the given `cfg` value if `probe_trait` returns true.
     pub fn emit_trait_cfg(&self, name: &str, cfg: &str) {
+        emit_possibility(cfg);
         if self.probe_trait(name) {
             emit(cfg);
         }
@@ -362,8 +441,7 @@ impl AutoCfg {
     /// pub type Probe = TYPE;
     /// ```
     pub fn probe_type(&self, name: &str) -> bool {
-        self.probe(format!("pub type Probe = {};", name))
-            .unwrap_or(false)
+        self.probe(format_args!("pub type Probe = {};", name))
     }
 
     /// Emits a config value `has_TYPE` if `probe_type` returns true.
@@ -371,13 +449,12 @@ impl AutoCfg {
     /// Any non-identifier characters in the type `name` will be replaced with
     /// `_` in the generated config value.
     pub fn emit_has_type(&self, name: &str) {
-        if self.probe_type(name) {
-            emit(&format!("has_{}", mangle(name)));
-        }
+        self.emit_type_cfg(name, &format!("has_{}", mangle(name)));
     }
 
     /// Emits the given `cfg` value if `probe_type` returns true.
     pub fn emit_type_cfg(&self, name: &str, cfg: &str) {
+        emit_possibility(cfg);
         if self.probe_type(name) {
             emit(cfg);
         }
@@ -391,12 +468,12 @@ impl AutoCfg {
     /// pub fn probe() { let _ = EXPR; }
     /// ```
     pub fn probe_expression(&self, expr: &str) -> bool {
-        self.probe(format!("pub fn probe() {{ let _ = {}; }}", expr))
-            .unwrap_or(false)
+        self.probe(format_args!("pub fn probe() {{ let _ = {}; }}", expr))
     }
 
     /// Emits the given `cfg` value if `probe_expression` returns true.
     pub fn emit_expression_cfg(&self, expr: &str, cfg: &str) {
+        emit_possibility(cfg);
         if self.probe_expression(expr) {
             emit(cfg);
         }
@@ -410,12 +487,12 @@ impl AutoCfg {
     /// pub const PROBE: () = ((), EXPR).0;
     /// ```
     pub fn probe_constant(&self, expr: &str) -> bool {
-        self.probe(format!("pub const PROBE: () = ((), {}).0;", expr))
-            .unwrap_or(false)
+        self.probe(format_args!("pub const PROBE: () = ((), {}).0;", expr))
     }
 
     /// Emits the given `cfg` value if `probe_constant` returns true.
     pub fn emit_constant_cfg(&self, expr: &str, cfg: &str) {
+        emit_possibility(cfg);
         if self.probe_constant(expr) {
             emit(cfg);
         }
@@ -494,26 +571,20 @@ fn rustflags(target: &Option<OsString>, dir: &Path) -> Vec<String> {
     Vec::new()
 }
 
-fn get_rustc_wrapper(workspace: bool) -> Option<PathBuf> {
-    // We didn't really know whether the workspace wrapper is applicable until Cargo started
-    // deliberately setting or unsetting it in rust-lang/cargo#9601. We'll use the encoded
-    // rustflags as a proxy for that change for now, but we could instead check version 1.55.
-    if workspace && env::var_os("CARGO_ENCODED_RUSTFLAGS").is_none() {
-        return None;
+/// Generates a numeric ID to use in probe crate names.
+///
+/// This attempts to be random, within the constraints of Rust 1.0 and no dependencies.
+fn new_uuid() -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x100_0000_01b3;
+
+    // This set should have an actual random hasher.
+    let set: std::collections::HashSet<u64> = (0..256).collect();
+
+    // Feed the `HashSet`-shuffled order into FNV-1a.
+    let mut hash: u64 = FNV_OFFSET_BASIS;
+    for x in set {
+        hash = (hash ^ x).wrapping_mul(FNV_PRIME);
     }
-
-    let name = if workspace {
-        "RUSTC_WORKSPACE_WRAPPER"
-    } else {
-        "RUSTC_WRAPPER"
-    };
-
-    if let Some(wrapper) = env::var_os(name) {
-        // NB: `OsStr` didn't get `len` or `is_empty` until 1.9.
-        if wrapper != OsString::new() {
-            return Some(wrapper.into());
-        }
-    }
-
-    None
+    hash
 }

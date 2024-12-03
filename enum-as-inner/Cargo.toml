@@ -12,8 +12,13 @@
 [package]
 edition = "2018"
 name = "enum-as-inner"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["Benjamin Fry <benjaminfry@me.com>"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = """
 A proc-macro for deriving inner field accessor functions on enums.
 """
@@ -23,10 +28,36 @@ license = "MIT/Apache-2.0"
 repository = "https://github.com/bluejekyll/enum-as-inner"
 
 [lib]
+name = "enum_as_inner"
+path = "src/lib.rs"
 proc-macro = true
 
+[[test]]
+name = "basic"
+path = "tests/basic.rs"
+
+[[test]]
+name = "generics"
+path = "tests/generics.rs"
+
+[[test]]
+name = "named"
+path = "tests/named.rs"
+
+[[test]]
+name = "snake_case"
+path = "tests/snake_case.rs"
+
+[[test]]
+name = "unit"
+path = "tests/unit.rs"
+
+[[test]]
+name = "unnamed"
+path = "tests/unnamed.rs"
+
 [dependencies.heck]
-version = "0.4"
+version = "0.5"
 
 [dependencies.proc-macro2]
 version = "1.0"

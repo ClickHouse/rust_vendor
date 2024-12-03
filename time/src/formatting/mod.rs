@@ -2,6 +2,7 @@
 
 pub(crate) mod formattable;
 mod iso8601;
+
 use core::num::NonZeroU8;
 use std::io;
 
@@ -48,7 +49,11 @@ pub(crate) fn write(output: &mut impl io::Write, bytes: &[u8]) -> io::Result<usi
 
 /// If `pred` is true, write all bytes to the output, returning the number of bytes written.
 pub(crate) fn write_if(output: &mut impl io::Write, pred: bool, bytes: &[u8]) -> io::Result<usize> {
-    if pred { write(output, bytes) } else { Ok(0) }
+    if pred {
+        write(output, bytes)
+    } else {
+        Ok(0)
+    }
 }
 
 /// If `pred` is true, write `true_bytes` to the output. Otherwise, write `false_bytes`.
@@ -73,6 +78,10 @@ pub(crate) fn format_float(
 ) -> io::Result<usize> {
     match digits_after_decimal {
         Some(digits_after_decimal) => {
+            // Truncate the decimal points up to the precision
+            let trunc_num = 10_f64.powi(digits_after_decimal.get().cast_signed().extend());
+            let value = f64::trunc(value * trunc_num) / trunc_num;
+
             let digits_after_decimal = digits_after_decimal.get().extend();
             let width = digits_before_decimal.extend::<usize>() + 1 + digits_after_decimal;
             write!(output, "{value:0>width$.digits_after_decimal$}")?;
@@ -299,6 +308,7 @@ fn fmt_year(
     };
     let value = match repr {
         modifier::YearRepr::Full => full_year,
+        modifier::YearRepr::Century => full_year / 100,
         modifier::YearRepr::LastTwo => (full_year % 100).abs(),
     };
     let format_number = match repr {
@@ -307,7 +317,11 @@ fn fmt_year(
         #[cfg(feature = "large-dates")]
         modifier::YearRepr::Full if value.abs() >= 10_000 => format_number::<5>,
         modifier::YearRepr::Full => format_number::<4>,
-        modifier::YearRepr::LastTwo => format_number::<2>,
+        #[cfg(feature = "large-dates")]
+        modifier::YearRepr::Century if value.abs() >= 1_000 => format_number::<4>,
+        #[cfg(feature = "large-dates")]
+        modifier::YearRepr::Century if value.abs() >= 100 => format_number::<3>,
+        modifier::YearRepr::Century | modifier::YearRepr::LastTwo => format_number::<2>,
     };
     let mut bytes = 0;
     if repr != modifier::YearRepr::LastTwo {

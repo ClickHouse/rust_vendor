@@ -240,6 +240,14 @@ pub const EVENT_GROUP_EXIT_BOOT_SERVICES: crate::base::Guid = crate::base::Guid:
     0x48,
     &[0x74, 0x8f, 0x37, 0xba, 0xa2, 0xdf],
 );
+pub const EVENT_GROUP_BEFORE_EXIT_BOOT_SERVICES: crate::base::Guid = crate::base::Guid::from_fields(
+    0x8be0e274,
+    0x3970,
+    0x4b44,
+    0x80,
+    0xc5,
+    &[0x1a, 0xb9, 0x50, 0x2f, 0x3b, 0xfc],
+);
 pub const EVENT_GROUP_VIRTUAL_ADDRESS_CHANGE: crate::base::Guid = crate::base::Guid::from_fields(
     0x13fa7698,
     0xc831,
@@ -263,6 +271,14 @@ pub const EVENT_GROUP_READY_TO_BOOT: crate::base::Guid = crate::base::Guid::from
     0x87,
     0xa8,
     &[0xa8, 0xd8, 0xde, 0xe5, 0x0d, 0x2b],
+);
+pub const EVENT_GROUP_AFTER_READY_TO_BOOT: crate::base::Guid = crate::base::Guid::from_fields(
+    0x3a2a00ad,
+    0x98b9,
+    0x4cdf,
+    0xa4,
+    0x78,
+    &[0x70, 0x27, 0x77, 0xf1, 0xc1, 0x0b],
 );
 pub const EVENT_GROUP_RESET_SYSTEM: crate::base::Guid = crate::base::Guid::from_fields(
     0x62da6a56,
@@ -316,6 +332,7 @@ pub const MEMORY_MAPPED_IO: MemoryType = 0x0000000b;
 pub const MEMORY_MAPPED_IO_PORT_SPACE: MemoryType = 0x0000000c;
 pub const PAL_CODE: MemoryType = 0x0000000d;
 pub const PERSISTENT_MEMORY: MemoryType = 0x0000000e;
+pub const UNACCEPTED_MEMORY_TYPE: MemoryType = 0x0000000f;
 
 pub const MEMORY_UC: u64 = 0x0000000000000001u64;
 pub const MEMORY_WC: u64 = 0x0000000000000002u64;
@@ -328,7 +345,28 @@ pub const MEMORY_XP: u64 = 0x0000000000004000u64;
 pub const MEMORY_NV: u64 = 0x0000000000008000u64;
 pub const MEMORY_MORE_RELIABLE: u64 = 0x0000000000010000u64;
 pub const MEMORY_RO: u64 = 0x0000000000020000u64;
+pub const MEMORY_SP: u64 = 0x0000000000040000u64;
+pub const MEMORY_CPU_CRYPTO: u64 = 0x0000000000080000u64;
 pub const MEMORY_RUNTIME: u64 = 0x8000000000000000u64;
+pub const MEMORY_ISA_VALID: u64 = 0x4000000000000000u64;
+pub const MEMORY_ISA_MASK: u64 = 0x0FFFF00000000000u64;
+
+/// Mask of memory attributes that specify cacheability attributes. No symbol
+/// is defined by the spec, but the attributes are annotated in the spec. Note
+/// that `MEMORY_WP`, despite its name, is treated as cacheability attribute.
+/// Use `MEMORY_RO` as replacement access attribute (see the spec for details).
+pub const CACHE_ATTRIBUTE_MASK: u64 =
+    MEMORY_UC | MEMORY_WC | MEMORY_WT | MEMORY_WB | MEMORY_UCE | MEMORY_WP;
+
+/// Mask of memory attributes that specify access protection attributes. No
+/// symbol is defined by the spec, but the attributes are annotated in the
+/// spec. Note that `MEMORY_WP` is treated as cacheability attribute, and its
+/// access protection functionality is replaced by `MEMORY_RO`.
+pub const MEMORY_ACCESS_MASK: u64 = MEMORY_RP | MEMORY_XP | MEMORY_RO;
+
+/// Mask of memory attributes that specify properties of a memory region that
+/// can be managed via the CPU architecture protocol.
+pub const MEMORY_ATTRIBUTE_MASK: u64 = MEMORY_ACCESS_MASK | MEMORY_SP | MEMORY_CPU_CRYPTO;
 
 pub const MEMORY_DESCRIPTOR_VERSION: u32 = 0x00000001u32;
 
@@ -959,7 +997,7 @@ pub type BootInstallMultipleProtocolInterfaces = eficall! {fn(
 ) -> crate::base::Status};
 
 pub type BootUninstallMultipleProtocolInterfaces = eficall! {fn(
-    *mut crate::base::Handle,
+    crate::base::Handle,
     // XXX: Actual definition is variadic. See eficall!{} for details.
     *mut core::ffi::c_void,
     *mut core::ffi::c_void,

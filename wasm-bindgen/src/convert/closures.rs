@@ -54,9 +54,10 @@ macro_rules! stack_closures {
             where $($var: FromWasmAbi,)*
                   R: ReturnWasmAbi
         {
+            #[cfg_attr(wasm_bindgen_unstable_test_coverage, coverage(off))]
             fn describe() {
                 inform(FUNCTION);
-                inform($invoke::<$($var,)* R> as u32);
+                inform($invoke::<$($var,)* R> as usize as u32);
                 inform($cnt);
                 $(<$var as WasmDescribe>::describe();)*
                 <R as WasmDescribe>::describe();
@@ -108,9 +109,10 @@ macro_rules! stack_closures {
             where $($var: FromWasmAbi,)*
                   R: ReturnWasmAbi
         {
+            #[cfg_attr(wasm_bindgen_unstable_test_coverage, coverage(off))]
             fn describe() {
                 inform(FUNCTION);
-                inform($invoke_mut::<$($var,)* R> as u32);
+                inform($invoke_mut::<$($var,)* R> as usize as u32);
                 inform($cnt);
                 $(<$var as WasmDescribe>::describe();)*
                 <R as WasmDescribe>::describe();
@@ -132,7 +134,7 @@ stack_closures! {
     (8 invoke8 invoke8_mut A a1 a2 a3 a4 B b1 b2 b3 b4 C c1 c2 c3 c4 D d1 d2 d3 d4 E e1 e2 e3 e4 F f1 f2 f3 f4 G g1 g2 g3 g4 H h1 h2 h3 h4)
 }
 
-impl<'a, 'b, A, R> IntoWasmAbi for &'a (dyn Fn(&A) -> R + 'b)
+impl<A, R> IntoWasmAbi for &(dyn Fn(&A) -> R + '_)
 where
     A: RefFromWasmAbi,
     R: ReturnWasmAbi,
@@ -151,6 +153,7 @@ where
 }
 
 #[allow(non_snake_case)]
+#[cfg_attr(wasm_bindgen_unstable_test_coverage, coverage(off))]
 unsafe extern "C" fn invoke1_ref<A: RefFromWasmAbi, R: ReturnWasmAbi>(
     a: usize,
     b: usize,
@@ -172,14 +175,15 @@ unsafe extern "C" fn invoke1_ref<A: RefFromWasmAbi, R: ReturnWasmAbi>(
     ret.return_abi().into()
 }
 
-impl<'a, A, R> WasmDescribe for dyn Fn(&A) -> R + 'a
+impl<A, R> WasmDescribe for dyn Fn(&A) -> R + '_
 where
     A: RefFromWasmAbi,
     R: ReturnWasmAbi,
 {
+    #[cfg_attr(wasm_bindgen_unstable_test_coverage, coverage(off))]
     fn describe() {
         inform(FUNCTION);
-        inform(invoke1_ref::<A, R> as u32);
+        inform(invoke1_ref::<A, R> as usize as u32);
         inform(1);
         <&A as WasmDescribe>::describe();
         <R as WasmDescribe>::describe();
@@ -187,7 +191,7 @@ where
     }
 }
 
-impl<'a, 'b, A, R> IntoWasmAbi for &'a mut (dyn FnMut(&A) -> R + 'b)
+impl<A, R> IntoWasmAbi for &mut (dyn FnMut(&A) -> R + '_)
 where
     A: RefFromWasmAbi,
     R: ReturnWasmAbi,
@@ -206,6 +210,7 @@ where
 }
 
 #[allow(non_snake_case)]
+#[cfg_attr(wasm_bindgen_unstable_test_coverage, coverage(off))]
 unsafe extern "C" fn invoke1_mut_ref<A: RefFromWasmAbi, R: ReturnWasmAbi>(
     a: usize,
     b: usize,
@@ -227,14 +232,15 @@ unsafe extern "C" fn invoke1_mut_ref<A: RefFromWasmAbi, R: ReturnWasmAbi>(
     ret.return_abi().into()
 }
 
-impl<'a, A, R> WasmDescribe for dyn FnMut(&A) -> R + 'a
+impl<A, R> WasmDescribe for dyn FnMut(&A) -> R + '_
 where
     A: RefFromWasmAbi,
     R: ReturnWasmAbi,
 {
+    #[cfg_attr(wasm_bindgen_unstable_test_coverage, coverage(off))]
     fn describe() {
         inform(FUNCTION);
-        inform(invoke1_mut_ref::<A, R> as u32);
+        inform(invoke1_mut_ref::<A, R> as usize as u32);
         inform(1);
         <&A as WasmDescribe>::describe();
         <R as WasmDescribe>::describe();

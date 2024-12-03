@@ -14,6 +14,12 @@ edition = "2018"
 name = "tuikit"
 version = "0.5.0"
 authors = ["Jinzhou Zhang <lotabout@gmail.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Toolkit for writing TUI applications"
 homepage = "https://github.com/lotabout/tuikit"
 documentation = "https://docs.rs/tuikit"
@@ -26,6 +32,54 @@ keywords = [
 ]
 license = "MIT"
 repository = "https://github.com/lotabout/tuikit"
+
+[lib]
+name = "tuikit"
+path = "src/lib.rs"
+
+[[example]]
+name = "256color"
+path = "examples/256color.rs"
+
+[[example]]
+name = "256color_on_screen"
+path = "examples/256color_on_screen.rs"
+
+[[example]]
+name = "custom-event"
+path = "examples/custom-event.rs"
+
+[[example]]
+name = "get_keys"
+path = "examples/get_keys.rs"
+
+[[example]]
+name = "hello-world"
+path = "examples/hello-world.rs"
+
+[[example]]
+name = "split"
+path = "examples/split.rs"
+
+[[example]]
+name = "stack"
+path = "examples/stack.rs"
+
+[[example]]
+name = "term_size"
+path = "examples/term_size.rs"
+
+[[example]]
+name = "termbox"
+path = "examples/termbox.rs"
+
+[[example]]
+name = "true_color"
+path = "examples/true_color.rs"
+
+[[example]]
+name = "win"
+path = "examples/win.rs"
 
 [dependencies]
 bitflags = "1.0.4"

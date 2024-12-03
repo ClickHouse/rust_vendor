@@ -1,10 +1,16 @@
 use std::env;
 use std::ffi::OsString;
+use std::fs;
+use std::io::ErrorKind;
+use std::iter;
 use std::path::Path;
 use std::process::{self, Command, Stdio};
 
 fn main() {
     println!("cargo:rerun-if-changed=build/probe.rs");
+
+    println!("cargo:rustc-check-cfg=cfg(error_generic_member_access)");
+    println!("cargo:rustc-check-cfg=cfg(thiserror_nightly_testing)");
 
     let error_generic_member_access;
     let consider_rustc_bootstrap;
@@ -64,17 +70,25 @@ fn compile_probe(rustc_bootstrap: bool) -> bool {
 
     let rustc = cargo_env_var("RUSTC");
     let out_dir = cargo_env_var("OUT_DIR");
+    let out_subdir = Path::new(&out_dir).join("probe");
     let probefile = Path::new("build").join("probe.rs");
 
-    // Make sure to pick up Cargo rustc configuration.
-    let mut cmd = if let Some(wrapper) = env::var_os("RUSTC_WRAPPER") {
-        let mut cmd = Command::new(wrapper);
-        // The wrapper's first argument is supposed to be the path to rustc.
-        cmd.arg(rustc);
-        cmd
-    } else {
-        Command::new(rustc)
-    };
+    if let Err(err) = fs::create_dir(&out_subdir) {
+        if err.kind() != ErrorKind::AlreadyExists {
+            eprintln!("Failed to create {}: {}", out_subdir.display(), err);
+            process::exit(1);
+        }
+    }
+
+    let rustc_wrapper = env::var_os("RUSTC_WRAPPER").filter(|wrapper| !wrapper.is_empty());
+    let rustc_workspace_wrapper =
+        env::var_os("RUSTC_WORKSPACE_WRAPPER").filter(|wrapper| !wrapper.is_empty());
+    let mut rustc = rustc_wrapper
+        .into_iter()
+        .chain(rustc_workspace_wrapper)
+        .chain(iter::once(rustc));
+    let mut cmd = Command::new(rustc.next().unwrap());
+    cmd.args(rustc);
 
     if !rustc_bootstrap {
         cmd.env_remove("RUSTC_BOOTSTRAP");
@@ -87,7 +101,7 @@ fn compile_probe(rustc_bootstrap: bool) -> bool {
         .arg("--cap-lints=allow")
         .arg("--emit=dep-info,metadata")
         .arg("--out-dir")
-        .arg(out_dir)
+        .arg(&out_subdir)
         .arg(probefile);
 
     if let Some(target) = env::var_os("TARGET") {
@@ -103,18 +117,27 @@ fn compile_probe(rustc_bootstrap: bool) -> bool {
         }
     }
 
-    match cmd.status() {
+    let success = match cmd.status() {
         Ok(status) => status.success(),
         Err(_) => false,
+    };
+
+    // Clean up to avoid leaving nondeterministic absolute paths in the dep-info
+    // file in OUT_DIR, which causes nonreproducible builds in build systems
+    // that treat the entire OUT_DIR as an artifact.
+    if let Err(err) = fs::remove_dir_all(&out_subdir) {
+        if err.kind() != ErrorKind::NotFound {
+            eprintln!("Failed to clean up {}: {}", out_subdir.display(), err);
+            process::exit(1);
+        }
     }
+
+    success
 }
 
 fn cargo_env_var(key: &str) -> OsString {
     env::var_os(key).unwrap_or_else(|| {
-        eprintln!(
-            "Environment variable ${} is not set during execution of build script",
-            key,
-        );
+        eprintln!("Environment variable ${key} is not set during execution of build script");
         process::exit(1);
     })
 }

@@ -11,9 +11,15 @@
 
 [package]
 edition = "2018"
+rust-version = "1.51"
 name = "arrayvec"
-version = "0.7.4"
+version = "0.7.6"
 authors = ["bluss"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "A vector with fixed capacity, backed by an array (it can be stored on the stack too). Implements fixed capacity ArrayVec and ArrayString."
 documentation = "https://docs.rs/arrayvec/"
 readme = "README.md"
@@ -33,6 +39,7 @@ repository = "https://github.com/bluss/arrayvec"
 
 [package.metadata.docs.rs]
 features = [
+    "borsh",
     "serde",
     "zeroize",
 ]
@@ -47,13 +54,36 @@ debug = 2
 [profile.release]
 debug = 2
 
-[[bench]]
-name = "extend"
-harness = false
+[lib]
+name = "arrayvec"
+path = "src/lib.rs"
+
+[[test]]
+name = "borsh"
+path = "tests/borsh.rs"
+
+[[test]]
+name = "serde"
+path = "tests/serde.rs"
+
+[[test]]
+name = "tests"
+path = "tests/tests.rs"
 
 [[bench]]
 name = "arraystring"
+path = "benches/arraystring.rs"
 harness = false
+
+[[bench]]
+name = "extend"
+path = "benches/extend.rs"
+harness = false
+
+[dependencies.borsh]
+version = "1.2.0"
+optional = true
+default-features = false
 
 [dependencies.serde]
 version = "1.0"

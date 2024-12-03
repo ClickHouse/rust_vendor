@@ -1,1 +1,1 @@
-{"name":"psm","vers":"0.1.21","deps":[{"name":"cc","req":"^1.0.2","features":[],"optional":false,"default_features":true,"target":null,"kind":"build","package":null}],"cksum":"5787f7cda34e3033a72192c018bc5883100330f362ef279a8cbccfce8bb4e874","features":{},"yanked":false}
+{"name":"psm","vers":"0.1.24","deps":[{"name":"cc","req":"^1.1.22","features":[],"optional":false,"default_features":true,"target":null,"kind":"build","package":null}],"cksum":"200b9ff220857e53e184257720a14553b2f4aa02577d2ed9842d45d4b9654810","features":{},"yanked":false}
