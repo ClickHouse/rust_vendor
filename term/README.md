@@ -3,14 +3,13 @@ term
 
 A Rust library for terminfo parsing and terminal colors.
 
-[![CircleCI](https://circleci.com/gh/Stebalien/term.svg?style=svg)](https://circleci.com/gh/Stebalien/term)
-[![AppVeyor](https://ci.appveyor.com/api/projects/status/2duvop23k4n3owyt?svg=true)](https://ci.appveyor.com/project/Stebalien/term)
+[![CI](https://github.com/Stebalien/term/actions/workflows/ci.yml/badge.svg)](https://github.com/Stebalien/term/actions/workflows/ci.yml)
 
 [Documentation](https://docs.rs/term/)
 
 ## MSRV
 
-1.36 - the minimum version testable on circleci.
+1.63
 
 ## Usage
 

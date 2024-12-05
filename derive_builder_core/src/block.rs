@@ -1,8 +1,8 @@
 use std::convert::TryFrom;
 
-use proc_macro2::TokenStream;
+use proc_macro2::{Span, TokenStream};
 use quote::ToTokens;
-use syn::{self, spanned::Spanned, Block, LitStr};
+use syn::{spanned::Spanned, Block, LitStr};
 
 /// A wrapper for expressions/blocks which automatically adds the start and end
 /// braces.
@@ -15,6 +15,10 @@ pub struct BlockContents(Block);
 impl BlockContents {
     pub fn is_empty(&self) -> bool {
         self.0.stmts.is_empty()
+    }
+
+    pub fn span(&self) -> Span {
+        self.0.span()
     }
 }
 
@@ -39,7 +43,7 @@ impl From<syn::Expr> for BlockContents {
     fn from(v: syn::Expr) -> Self {
         Self(Block {
             brace_token: syn::token::Brace(v.span()),
-            stmts: vec![syn::Stmt::Expr(v)],
+            stmts: vec![syn::Stmt::Expr(v, None)],
         })
     }
 }
@@ -57,6 +61,14 @@ impl darling::FromMeta for BlockContents {
             Err(darling::Error::unexpected_lit_type(value))
         }
     }
+
+    fn from_expr(expr: &syn::Expr) -> darling::Result<Self> {
+        if let syn::Expr::Lit(lit) = expr {
+            Self::from_value(&lit.lit)
+        } else {
+            Ok(Self::from(expr.clone()))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -64,14 +76,13 @@ mod test {
     use std::convert::TryInto;
 
     use super::*;
-    use proc_macro2::Span;
 
     fn parse(s: &str) -> Result<BlockContents, syn::Error> {
         (&LitStr::new(s, Span::call_site())).try_into()
     }
 
     #[test]
-    #[should_panic(expected = r#"lex error"#)]
+    #[should_panic(expected = r#"cannot parse"#)]
     fn block_invalid_token_trees() {
         parse("let x = 2; { x+1").unwrap();
     }

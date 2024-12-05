@@ -1,35 +1,35 @@
 use std::collections::HashMap;
 use std::iter::zip;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
-use anyhow::Result;
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 
 use super::gen_expr::{translate_operand, ExprOrSource, SourceExpr};
 use super::{Context, Dialect};
-
 use crate::ir::{decl, pl, rq};
-use crate::semantic;
 use crate::utils::Pluck;
+use crate::Result;
+use crate::{debug, semantic};
 use crate::{Error, WithErrorInfo};
 
-static STD: Lazy<decl::Module> = Lazy::new(load_std_sql);
+fn std() -> &'static decl::Module {
+    static STD: OnceLock<decl::Module> = OnceLock::new();
+    STD.get_or_init(|| {
+        let _suppressed = debug::log_suppress();
 
-fn load_std_sql() -> decl::Module {
-    let std_lib = crate::SourceTree::new(
-        [(
-            PathBuf::from("std.prql"),
-            include_str!("./std.sql.prql").to_string(),
-        )],
-        None,
-    );
-    let ast = crate::parser::parse(&std_lib).unwrap();
+        let std_lib = crate::SourceTree::new(
+            [(
+                PathBuf::from("std.prql"),
+                include_str!("./std.sql.prql").to_string(),
+            )],
+            None,
+        );
+        let ast = crate::parser::parse(&std_lib).unwrap();
+        let context = semantic::resolve(ast).unwrap();
 
-    let options = semantic::ResolverOptions {};
-
-    let context = semantic::resolve(ast, options).unwrap();
-    context.module
+        context.module
+    })
 }
 
 pub(super) fn translate_operator_expr(expr: rq::Expr, ctx: &mut Context) -> Result<ExprOrSource> {
@@ -63,8 +63,7 @@ pub(super) fn translate_operator(
             return Err(Error::new_simple(format!(
                 "operator {} is not supported for dialect {}",
                 name, ctx.dialect_enum
-            ))
-            .into())
+            )))
         }
         pl::ExprKind::SString(items) => items,
         _ => panic!("Bad RQ operator implementation. Expected s-string or null"),
@@ -133,7 +132,7 @@ fn find_operator_impl(
             .collect::<Vec<_>>(),
     );
 
-    let dialect_module = STD.get(&pl::Ident::from_name(dialect.to_string()));
+    let dialect_module = std().get(&pl::Ident::from_name(dialect.to_string()));
 
     let mut func_def = None;
 
@@ -143,7 +142,7 @@ fn find_operator_impl(
     }
 
     if func_def.is_none() {
-        func_def = STD.get(&operator_ident);
+        func_def = std().get(&operator_ident);
     }
 
     let decl = func_def?;
@@ -151,13 +150,9 @@ fn find_operator_impl(
     let func_def = decl.kind.as_expr().unwrap();
     let func_def = func_def.kind.as_func().unwrap();
 
-    let mut annotation = decl
-        .clone()
-        .annotations
-        .into_iter()
-        .exactly_one()
-        .ok()
-        .and_then(|x| x.tuple_items().ok())
+    let annotation = decl.annotations.iter().exactly_one().ok();
+    let mut annotation = annotation
+        .and_then(|x| into_tuple_items(*x.expr.clone()).ok())
         .unwrap_or_default();
 
     let binding_strength = pluck_annotation(&mut annotation, "binding_strength")
@@ -183,4 +178,16 @@ fn pluck_annotation(
         .into_iter()
         .next()
         .and_then(|val| val.into_literal().ok())
+}
+
+/// Find the items in a `@{a=b}`. We're only using annotations with tuples;
+/// we can consider formalizing this constraint.
+fn into_tuple_items(expr: pl::Expr) -> Result<Vec<(String, pl::ExprKind)>, pl::Expr> {
+    match expr.kind {
+        pl::ExprKind::Tuple(items) => items
+            .into_iter()
+            .map(|item| Ok((item.alias.clone().unwrap(), item.kind)))
+            .collect(),
+        _ => Err(expr),
+    }
 }

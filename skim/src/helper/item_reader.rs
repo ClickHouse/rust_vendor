@@ -73,10 +73,11 @@ impl SkimItemReaderOption {
         self
     }
 
-    pub fn with_nth(mut self, with_nth: &str) -> Self {
-        if !with_nth.is_empty() {
-            self.transform_fields = with_nth.split(',').filter_map(FieldRange::from_str).collect();
-        }
+    pub fn with_nth<'a, T>(mut self, with_nth: T) -> Self
+    where
+        T: Iterator<Item = &'a str>,
+    {
+        self.transform_fields = with_nth.filter_map(FieldRange::from_str).collect();
         self
     }
 
@@ -85,10 +86,11 @@ impl SkimItemReaderOption {
         self
     }
 
-    pub fn nth(mut self, nth: &str) -> Self {
-        if !nth.is_empty() {
-            self.matching_fields = nth.split(',').filter_map(FieldRange::from_str).collect();
-        }
+    pub fn nth<'a, T>(mut self, nth: T) -> Self
+    where
+        T: Iterator<Item = &'a str>,
+    {
+        self.matching_fields = nth.filter_map(FieldRange::from_str).collect();
         self
     }
 
@@ -170,10 +172,10 @@ impl SkimItemReader {
                             break;
                         }
 
-                        if buffer.ends_with(&[b'\r', b'\n']) {
+                        if buffer.ends_with(b"\r\n") {
                             buffer.pop();
                             buffer.pop();
-                        } else if buffer.ends_with(&[b'\n']) || buffer.ends_with(&[b'\0']) {
+                        } else if buffer.ends_with(b"\n") || buffer.ends_with(b"\0") {
                             buffer.pop();
                         }
 
@@ -254,24 +256,24 @@ impl SkimItemReader {
             started_clone.store(true, Ordering::SeqCst); // notify parent that it is started
 
             let mut buffer = Vec::with_capacity(option.buf_size);
+            let mut line_idx = 0;
             loop {
                 buffer.clear();
 
                 // start reading
                 match source.read_until(option.line_ending, &mut buffer) {
-                    Ok(n) => {
-                        if n == 0 {
-                            break;
-                        }
-
-                        if buffer.ends_with(&[b'\r', b'\n']) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        if buffer.ends_with(b"\r\n") {
                             buffer.pop();
                             buffer.pop();
-                        } else if buffer.ends_with(&[b'\n']) || buffer.ends_with(&[b'\0']) {
+                        } else if buffer.ends_with(b"\n") || buffer.ends_with(b"\0") {
                             buffer.pop();
                         }
 
                         let line = String::from_utf8_lossy(&buffer).to_string();
+
+                        trace!("got item {} with index {} from command", line.clone(), line_idx);
 
                         let raw_item = DefaultSkimItem::new(
                             line,
@@ -279,6 +281,7 @@ impl SkimItemReader {
                             &option.transform_fields,
                             &option.matching_fields,
                             &option.delimiter,
+                            line_idx,
                         );
 
                         match tx_item.send(Arc::new(raw_item)) {
@@ -288,6 +291,7 @@ impl SkimItemReader {
                                 break;
                             }
                         }
+                        line_idx += 1;
                     }
                     Err(_err) => {} // String not UTF8 or other error, skip.
                 }

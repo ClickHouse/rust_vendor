@@ -1,20 +1,22 @@
+//! Handle the selections of items
 use std::cmp::max;
 use std::cmp::min;
-use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use tuikit::prelude::{Event as TermEvent, *};
 
-///! Handle the selections of items
 use crate::event::{Event, EventHandler, UpdateScreen};
 use crate::global::current_run_num;
 use crate::item::MatchedItem;
 use crate::orderedvec::OrderedVec;
+use crate::prelude::DefaultSkimSelector;
 use crate::theme::{ColorTheme, DEFAULT_THEME};
 use crate::util::clear_canvas;
+use crate::util::read_file_lines;
 use crate::util::{print_item, reshape_string, LinePrinter};
 use crate::{DisplayContext, MatchRange, Matches, Selector, SkimItem, SkimOptions};
+use indexmap::IndexMap;
 use regex::Regex;
 use std::rc::Rc;
 use unicode_width::UnicodeWidthStr;
@@ -24,7 +26,7 @@ type ItemIndex = (u32, u32);
 pub struct Selection {
     // all items
     items: OrderedVec<MatchedItem>,
-    selected: BTreeMap<ItemIndex, Arc<dyn SkimItem>>,
+    selected: IndexMap<ItemIndex, Arc<dyn SkimItem>>,
 
     //
     // |>------ items[items.len()-1]
@@ -64,7 +66,7 @@ impl Selection {
     pub fn new() -> Self {
         Selection {
             items: OrderedVec::new(),
-            selected: BTreeMap::new(),
+            selected: IndexMap::new(),
             item_cursor: 0,
             line_cursor: 0,
             hscroll_offset: 0,
@@ -101,25 +103,53 @@ impl Selection {
             self.no_hscroll = true;
         }
 
-        if let Some(tabstop_str) = options.tabstop {
-            let tabstop = tabstop_str.parse::<usize>().unwrap_or(8);
-            self.tabstop = max(1, tabstop);
-        }
+        self.tabstop = max(1, options.tabstop);
 
         if options.tac {
             self.items.tac(true);
         }
 
-        if options.nosort {
+        if options.no_sort {
             self.items.nosort(true);
         }
 
-        if !options.skip_to_pattern.is_empty() {
-            self.skip_to_pattern = Regex::new(options.skip_to_pattern).ok();
+        if let Some(skip_to_pattern) = options.skip_to_pattern.clone() {
+            self.skip_to_pattern = Regex::new(&skip_to_pattern).ok();
         }
 
         self.keep_right = options.keep_right;
-        self.selector = options.selector.clone();
+        let pre_select_items: Vec<String> = options
+            .pre_select_items
+            .clone()
+            .split('\n')
+            .map(|item| item.to_string())
+            .collect();
+
+        if options.pre_select_n > 0
+            || !options.pre_select_pat.is_empty()
+            || !pre_select_items.is_empty()
+            || options.pre_select_file.is_some()
+            || options.selector.is_some()
+        {
+            match options.selector.clone() {
+                None => {
+                    let mut preset_file_items: Vec<String> = vec![];
+                    if let Some(pre_select_file) = options.pre_select_file.clone() {
+                        preset_file_items = read_file_lines(&pre_select_file).unwrap();
+                    }
+
+                    let selector = DefaultSkimSelector::default()
+                        .first_n(options.pre_select_n)
+                        .regex(&options.pre_select_pat)
+                        .preset(pre_select_items)
+                        .preset(preset_file_items);
+                    self.selector = Some(Rc::new(selector));
+                }
+                Some(s) => {
+                    self.selector = Some(s);
+                }
+            }
+        }
     }
 
     pub fn theme(mut self, theme: Arc<ColorTheme>) -> Self {
@@ -232,7 +262,7 @@ impl Selection {
         if !self.selected.contains_key(&index) {
             self.selected.insert(index, current_item.item.clone());
         } else {
-            self.selected.remove(&index);
+            self.selected.shift_remove(&index);
         }
     }
 
@@ -248,7 +278,7 @@ impl Selection {
             if !self.selected.contains_key(&index) {
                 self.selected.insert(index, current_item.item.clone());
             } else {
-                self.selected.remove(&index);
+                self.selected.shift_remove(&index);
             }
         }
     }
@@ -395,9 +425,9 @@ impl EventHandler for Selection {
             EvActScrollRight(diff) => {
                 self.act_scroll(*diff);
             }
-            _ => return UpdateScreen::DONT_REDRAW,
+            _ => return UpdateScreen::DontRedraw,
         }
-        UpdateScreen::REDRAW
+        UpdateScreen::Redraw
     }
 }
 

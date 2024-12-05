@@ -13,7 +13,7 @@ use std::iter::{self, Iterator};
 use std::string::ToString;
 use std::vec;
 use syn::spanned::Spanned;
-use syn::{Lit, LitStr, Path};
+use syn::{Expr, Lit, LitStr, Path};
 
 #[cfg(feature = "diagnostics")]
 mod child;
@@ -125,6 +125,17 @@ impl Error {
         Error::new(ErrorUnknownField::with_alts(field, alternates).into())
     }
 
+    /// Creates a new error for a field name that appears in the input but does not correspond to
+    /// a known attribute. The second argument is the list of known attributes; if a similar name
+    /// is found that will be shown in the emitted error message.
+    pub fn unknown_field_path_with_alts<'a, T, I>(field: &Path, alternates: I) -> Self
+    where
+        T: AsRef<str> + 'a,
+        I: IntoIterator<Item = &'a T>,
+    {
+        Error::new(ErrorUnknownField::with_alts(&path_to_string(field), alternates).into())
+    }
+
     /// Creates a new error for a struct or variant that does not adhere to the supported shape.
     pub fn unsupported_shape(shape: &str) -> Self {
         Error::new(ErrorKind::UnsupportedShape {
@@ -147,6 +158,53 @@ impl Error {
     /// Creates a new error for a field which has an unexpected literal type.
     pub fn unexpected_type(ty: &str) -> Self {
         Error::new(ErrorKind::UnexpectedType(ty.into()))
+    }
+
+    pub fn unexpected_expr_type(expr: &Expr) -> Self {
+        Error::unexpected_type(match *expr {
+            Expr::Array(_) => "array",
+            Expr::Assign(_) => "assign",
+            Expr::Async(_) => "async",
+            Expr::Await(_) => "await",
+            Expr::Binary(_) => "binary",
+            Expr::Block(_) => "block",
+            Expr::Break(_) => "break",
+            Expr::Call(_) => "call",
+            Expr::Cast(_) => "cast",
+            Expr::Closure(_) => "closure",
+            Expr::Const(_) => "const",
+            Expr::Continue(_) => "continue",
+            Expr::Field(_) => "field",
+            Expr::ForLoop(_) => "for_loop",
+            Expr::Group(_) => "group",
+            Expr::If(_) => "if",
+            Expr::Index(_) => "index",
+            Expr::Infer(_) => "infer",
+            Expr::Let(_) => "let",
+            Expr::Lit(_) => "lit",
+            Expr::Loop(_) => "loop",
+            Expr::Macro(_) => "macro",
+            Expr::Match(_) => "match",
+            Expr::MethodCall(_) => "method_call",
+            Expr::Paren(_) => "paren",
+            Expr::Path(_) => "path",
+            Expr::Range(_) => "range",
+            Expr::Reference(_) => "reference",
+            Expr::Repeat(_) => "repeat",
+            Expr::Return(_) => "return",
+            Expr::Struct(_) => "struct",
+            Expr::Try(_) => "try",
+            Expr::TryBlock(_) => "try_block",
+            Expr::Tuple(_) => "tuple",
+            Expr::Unary(_) => "unary",
+            Expr::Unsafe(_) => "unsafe",
+            Expr::Verbatim(_) => "verbatim",
+            Expr::While(_) => "while",
+            Expr::Yield(_) => "yield",
+            // non-exhaustive enum
+            _ => "unknown",
+        })
+        .with_span(expr)
     }
 
     /// Creates a new error for a field which has an unexpected literal type. This will automatically
@@ -188,6 +246,8 @@ impl Error {
             Lit::Float(_) => "float",
             Lit::Bool(_) => "bool",
             Lit::Verbatim(_) => "verbatim",
+            // non-exhaustive enum
+            _ => "unknown",
         })
         .with_span(lit)
     }
@@ -338,6 +398,51 @@ impl Error {
     /// a multi-error from an empty `Vec`.
     pub fn len(&self) -> usize {
         self.kind.len()
+    }
+
+    /// Consider additional field names as "did you mean" suggestions for
+    /// unknown field errors **if and only if** the caller appears to be operating
+    /// at error's origin (meaning no calls to [`Self::at`] have yet taken place).
+    ///
+    /// # Usage
+    /// `flatten` fields in derived trait implementations rely on this method to offer correct
+    /// "did you mean" suggestions in errors.
+    ///
+    /// Because the `flatten` field receives _all_ unknown fields, if a user mistypes a field name
+    /// that is present on the outer struct but not the flattened struct, they would get an incomplete
+    /// or inferior suggestion unless this method was invoked.
+    pub fn add_sibling_alts_for_unknown_field<'a, T, I>(mut self, alternates: I) -> Self
+    where
+        T: AsRef<str> + 'a,
+        I: IntoIterator<Item = &'a T>,
+    {
+        // The error may have bubbled up before this method was called,
+        // and in those cases adding alternates would be incorrect.
+        if !self.locations.is_empty() {
+            return self;
+        }
+
+        if let ErrorKind::UnknownField(unknown_field) = &mut self.kind {
+            unknown_field.add_alts(alternates);
+        } else if let ErrorKind::Multiple(errors) = self.kind {
+            let alternates = alternates.into_iter().collect::<Vec<_>>();
+            self.kind = ErrorKind::Multiple(
+                errors
+                    .into_iter()
+                    .map(|err| {
+                        err.add_sibling_alts_for_unknown_field(
+                            // This clone seems like it shouldn't be necessary.
+                            // Attempting to borrow alternates here leads to the following compiler error:
+                            //
+                            // error: reached the recursion limit while instantiating `darling::Error::add_sibling_alts_for_unknown_field::<'_, &&&&..., ...>`
+                            alternates.clone(),
+                        )
+                    })
+                    .collect(),
+            )
+        }
+
+        self
     }
 
     /// Adds a location chain to the head of the error's existing locations.
@@ -529,7 +634,7 @@ impl StdError for Error {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.kind)?;
         if !self.locations.is_empty() {
             write!(f, " at {}", self.locations.join("/"))?;
@@ -726,7 +831,7 @@ impl Accumulator {
     /// This function defuses the drop bomb.
     #[must_use = "Accumulated errors should be handled or propagated to the caller"]
     pub fn into_inner(mut self) -> Vec<Error> {
-        match std::mem::replace(&mut self.0, None) {
+        match self.0.take() {
             Some(errors) => errors,
             None => panic!("darling internal error: Accumulator accessed after defuse"),
         }

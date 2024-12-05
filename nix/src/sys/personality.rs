@@ -1,6 +1,6 @@
 //! Process execution domains
-use crate::Result;
 use crate::errno::Errno;
+use crate::Result;
 
 use libc::{self, c_int, c_ulong};
 
@@ -21,7 +21,6 @@ libc_bitflags! {
         ADDR_LIMIT_3GB;
         /// User-space function pointers to signal handlers point to descriptors.
         #[cfg(not(any(target_env = "musl", target_env = "uclibc")))]
-        #[cfg_attr(docsrs, doc(cfg(all())))]
         FDPIC_FUNCPTRS;
         /// Map page 0 as read-only.
         MMAP_PAGE_ZERO;
@@ -43,7 +42,6 @@ libc_bitflags! {
         ///
         /// [`uname(2)`]: https://man7.org/linux/man-pages/man2/uname.2.html
         #[cfg(not(any(target_env = "musl", target_env = "uclibc")))]
-        #[cfg_attr(docsrs, doc(cfg(all())))]
         UNAME26;
         /// No effects.
         WHOLE_SECONDS;
@@ -62,9 +60,7 @@ libc_bitflags! {
 /// assert!(!pers.contains(Persona::WHOLE_SECONDS));
 /// ```
 pub fn get() -> Result<Persona> {
-    let res = unsafe {
-        libc::personality(0xFFFFFFFF)
-    };
+    let res = unsafe { libc::personality(0xFFFFFFFF) };
 
     Errno::result(res).map(Persona::from_bits_truncate)
 }
@@ -82,16 +78,17 @@ pub fn get() -> Result<Persona> {
 ///
 /// Example:
 ///
-/// ```
+// Disable test on aarch64 until we know why it fails.
+// https://github.com/nix-rust/nix/issues/2060
+#[cfg_attr(target_arch = "aarch64", doc = " ```no_run")]
+#[cfg_attr(not(target_arch = "aarch64"), doc = " ```")]
 /// # use nix::sys::personality::{self, Persona};
 /// let mut pers = personality::get().unwrap();
 /// assert!(!pers.contains(Persona::ADDR_NO_RANDOMIZE));
 /// personality::set(pers | Persona::ADDR_NO_RANDOMIZE).unwrap();
 /// ```
 pub fn set(persona: Persona) -> Result<Persona> {
-    let res = unsafe {
-        libc::personality(persona.bits() as c_ulong)
-    };
+    let res = unsafe { libc::personality(persona.bits() as c_ulong) };
 
     Errno::result(res).map(Persona::from_bits_truncate)
 }

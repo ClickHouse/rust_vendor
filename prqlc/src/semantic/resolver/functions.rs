@@ -1,18 +1,16 @@
 use std::collections::HashMap;
 use std::iter::zip;
 
-use anyhow::Result;
 use itertools::{Itertools, Position};
 
+use super::Resolver;
 use crate::ir::decl::{Decl, DeclKind, Module};
 use crate::ir::pl::*;
-use prqlc_ast::{Ty, TyFunc, TyKind};
-
+use crate::pr::{Ty, TyFunc, TyKind};
 use crate::semantic::resolver::types;
 use crate::semantic::{NS_GENERIC, NS_PARAM, NS_THAT, NS_THIS};
+use crate::Result;
 use crate::{Error, Span, WithErrorInfo};
-
-use super::Resolver;
 
 impl Resolver<'_> {
     pub fn fold_function(
@@ -35,8 +33,7 @@ impl Resolver<'_> {
                 "Too many arguments to function `{}`",
                 closure.as_debug_name()
             ))
-            .with_span(span)
-            .into());
+            .with_span(span));
         }
 
         let enough_args = closure.args.len() == closure.params.len();
@@ -151,8 +148,8 @@ impl Resolver<'_> {
 
             // make sure to use the resolved type
             let mut body = body;
-            if let Some(ret_ty) = *return_ty {
-                body.ty = Some(ret_ty);
+            if let Some(ret_ty) = return_ty.map(|x| *x) {
+                body.ty = Some(ret_ty.clone());
             }
 
             body
@@ -217,10 +214,10 @@ impl Resolver<'_> {
         }
         if let Some((name, _)) = named_args.into_iter().next() {
             // TODO: report all remaining named_args as separate errors
-            anyhow::bail!(
+            return Err(Error::new_simple(format!(
                 "unknown named argument `{name}` to closure {:?}",
                 closure.name_hint
-            )
+            )));
         }
 
         // positional
@@ -276,7 +273,10 @@ impl Resolver<'_> {
 
                 // add relation frame into scope
                 if partial_application_position.is_none() {
-                    let frame = arg.lineage.as_ref().unwrap();
+                    let frame = arg
+                        .lineage
+                        .as_ref()
+                        .ok_or_else(|| Error::new_bug(4317).with_span(closure.body.span))?;
                     if is_last {
                         self.root_mod.module.insert_frame(frame, NS_THIS);
                     } else {
@@ -457,7 +457,7 @@ fn extract_partial_application(mut func: Box<Func>, position: usize) -> Box<Func
     })
 }
 
-fn env_of_closure(closure: Func) -> (Module, Expr, Box<Option<Ty>>) {
+fn env_of_closure(closure: Func) -> (Module, Expr, Option<Box<Ty>>) {
     let mut func_env = Module::default();
 
     for (param, arg) in zip(closure.params, closure.args) {
@@ -470,18 +470,22 @@ fn env_of_closure(closure: Func) -> (Module, Expr, Box<Option<Ty>>) {
         func_env.names.insert(param_name.to_string(), v);
     }
 
-    (func_env, *closure.body, Box::new(closure.return_ty))
+    (func_env, *closure.body, closure.return_ty.map(Box::new))
 }
 
 pub fn expr_of_func(func: Box<Func>, span: Option<Span>) -> Box<Expr> {
     let ty = TyFunc {
-        args: func
+        params: func
             .params
             .iter()
             .skip(func.args.len())
             .map(|a| a.ty.clone())
             .collect(),
-        return_ty: Box::new(func.return_ty.clone().or_else(|| func.body.ty.clone())),
+        return_ty: func
+            .return_ty
+            .clone()
+            .or_else(|| func.clone().body.ty)
+            .map(Box::new),
         name_hint: func.name_hint.clone(),
     };
 

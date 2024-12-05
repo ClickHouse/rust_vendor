@@ -15,7 +15,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::{boxed::Box, string::String, vec::Vec};
-use core::fmt;
+use core::fmt::{self, Write};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -25,8 +25,8 @@ use sqlparser_derive::{Visit, VisitMut};
 
 use crate::ast::value::escape_single_quote_string;
 use crate::ast::{
-    display_comma_separated, display_separated, DataType, Expr, Ident, ObjectName, SequenceOptions,
-    SqlOption,
+    display_comma_separated, display_separated, DataType, Expr, Ident, MySQLColumnPosition,
+    ObjectName, OrderByExpr, ProjectionSelect, SequenceOptions, SqlOption, Value,
 };
 use crate::tokenizer::Token;
 
@@ -45,7 +45,45 @@ pub enum AlterTableOperation {
         if_not_exists: bool,
         /// <column_def>.
         column_def: ColumnDef,
+        /// MySQL `ALTER TABLE` only  [FIRST | AFTER column_name]
+        column_position: Option<MySQLColumnPosition>,
     },
+    /// `ADD PROJECTION [IF NOT EXISTS] name ( SELECT <COLUMN LIST EXPR> [GROUP BY] [ORDER BY])`
+    ///
+    /// Note: this is a ClickHouse-specific operation.
+    /// Please refer to [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/projection#add-projection)
+    AddProjection {
+        if_not_exists: bool,
+        name: Ident,
+        select: ProjectionSelect,
+    },
+
+    /// `DROP PROJECTION [IF EXISTS] name`
+    ///
+    /// Note: this is a ClickHouse-specific operation.
+    /// Please refer to [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/projection#drop-projection)
+    DropProjection { if_exists: bool, name: Ident },
+
+    /// `MATERIALIZE PROJECTION [IF EXISTS] name [IN PARTITION partition_name]`
+    ///
+    ///  Note: this is a ClickHouse-specific operation.
+    /// Please refer to [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/projection#materialize-projection)
+    MaterializeProjection {
+        if_exists: bool,
+        name: Ident,
+        partition: Option<Ident>,
+    },
+
+    /// `CLEAR PROJECTION [IF EXISTS] name [IN PARTITION partition_name]`
+    ///
+    /// Note: this is a ClickHouse-specific operation.
+    /// Please refer to [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/projection#clear-projection)
+    ClearProjection {
+        if_exists: bool,
+        name: Ident,
+        partition: Option<Ident>,
+    },
+
     /// `DISABLE ROW LEVEL SECURITY`
     ///
     /// Note: this is a PostgreSQL-specific operation.
@@ -69,6 +107,35 @@ pub enum AlterTableOperation {
         column_name: Ident,
         if_exists: bool,
         cascade: bool,
+    },
+    /// `ATTACH PART|PARTITION <partition_expr>`
+    /// Note: this is a ClickHouse-specific operation, please refer to
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/pakrtition#attach-partitionpart)
+    AttachPartition {
+        // PART is not a short form of PARTITION, it's a separate keyword
+        // which represents a physical file on disk and partition is a logical entity.
+        partition: Partition,
+    },
+    /// `DETACH PART|PARTITION <partition_expr>`
+    /// Note: this is a ClickHouse-specific operation, please refer to
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#detach-partitionpart)
+    DetachPartition {
+        // See `AttachPartition` for more details
+        partition: Partition,
+    },
+    /// `FREEZE PARTITION <partition_expr>`
+    /// Note: this is a ClickHouse-specific operation, please refer to
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#freeze-partition)
+    FreezePartition {
+        partition: Partition,
+        with_name: Option<Ident>,
+    },
+    /// `UNFREEZE PARTITION <partition_expr>`
+    /// Note: this is a ClickHouse-specific operation, please refer to
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#unfreeze-partition)
+    UnfreezePartition {
+        partition: Partition,
+        with_name: Option<Ident>,
     },
     /// `DROP PRIMARY KEY`
     ///
@@ -129,6 +196,16 @@ pub enum AlterTableOperation {
         new_name: Ident,
         data_type: DataType,
         options: Vec<ColumnOption>,
+        /// MySQL `ALTER TABLE` only  [FIRST | AFTER column_name]
+        column_position: Option<MySQLColumnPosition>,
+    },
+    // CHANGE [ COLUMN ] <col_name> <data_type> [ <options> ]
+    ModifyColumn {
+        col_name: Ident,
+        data_type: DataType,
+        options: Vec<ColumnOption>,
+        /// MySQL `ALTER TABLE` only  [FIRST | AFTER column_name]
+        column_position: Option<MySQLColumnPosition>,
     },
     /// `RENAME CONSTRAINT <old_constraint_name> TO <new_constraint_name>`
     ///
@@ -143,6 +220,34 @@ pub enum AlterTableOperation {
     ///
     /// Note: this is Snowflake specific <https://docs.snowflake.com/en/sql-reference/sql/alter-table>
     SwapWith { table_name: ObjectName },
+    /// 'SET TBLPROPERTIES ( { property_key [ = ] property_val } [, ...] )'
+    SetTblProperties { table_properties: Vec<SqlOption> },
+
+    /// `OWNER TO { <new_owner> | CURRENT_ROLE | CURRENT_USER | SESSION_USER }`
+    ///
+    /// Note: this is PostgreSQL-specific <https://www.postgresql.org/docs/current/sql-altertable.html>
+    OwnerTo { new_owner: Owner },
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum Owner {
+    Ident(Ident),
+    CurrentRole,
+    CurrentUser,
+    SessionUser,
+}
+
+impl fmt::Display for Owner {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Owner::Ident(ident) => write!(f, "{}", ident),
+            Owner::CurrentRole => write!(f, "CURRENT_ROLE"),
+            Owner::CurrentUser => write!(f, "CURRENT_USER"),
+            Owner::SessionUser => write!(f, "SESSION_USER"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -169,6 +274,7 @@ impl fmt::Display for AlterTableOperation {
                 column_keyword,
                 if_not_exists,
                 column_def,
+                column_position,
             } => {
                 write!(f, "ADD")?;
                 if *column_keyword {
@@ -179,6 +285,58 @@ impl fmt::Display for AlterTableOperation {
                 }
                 write!(f, " {column_def}")?;
 
+                if let Some(position) = column_position {
+                    write!(f, " {position}")?;
+                }
+
+                Ok(())
+            }
+            AlterTableOperation::AddProjection {
+                if_not_exists,
+                name,
+                select: query,
+            } => {
+                write!(f, "ADD PROJECTION")?;
+                if *if_not_exists {
+                    write!(f, " IF NOT EXISTS")?;
+                }
+                write!(f, " {} ({})", name, query)
+            }
+            AlterTableOperation::DropProjection { if_exists, name } => {
+                write!(f, "DROP PROJECTION")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {}", name)
+            }
+            AlterTableOperation::MaterializeProjection {
+                if_exists,
+                name,
+                partition,
+            } => {
+                write!(f, "MATERIALIZE PROJECTION")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {}", name)?;
+                if let Some(partition) = partition {
+                    write!(f, " IN PARTITION {}", partition)?;
+                }
+                Ok(())
+            }
+            AlterTableOperation::ClearProjection {
+                if_exists,
+                name,
+                partition,
+            } => {
+                write!(f, "CLEAR PROJECTION")?;
+                if *if_exists {
+                    write!(f, " IF EXISTS")?;
+                }
+                write!(f, " {}", name)?;
+                if let Some(partition) = partition {
+                    write!(f, " IN PARTITION {}", partition)?;
+                }
                 Ok(())
             }
             AlterTableOperation::AlterColumn { column_name, op } => {
@@ -227,6 +385,12 @@ impl fmt::Display for AlterTableOperation {
                 column_name,
                 if *cascade { " CASCADE" } else { "" }
             ),
+            AlterTableOperation::AttachPartition { partition } => {
+                write!(f, "ATTACH {partition}")
+            }
+            AlterTableOperation::DetachPartition { partition } => {
+                write!(f, "DETACH {partition}")
+            }
             AlterTableOperation::EnableAlwaysRule { name } => {
                 write!(f, "ENABLE ALWAYS RULE {name}")
             }
@@ -269,19 +433,69 @@ impl fmt::Display for AlterTableOperation {
                 new_name,
                 data_type,
                 options,
+                column_position,
             } => {
                 write!(f, "CHANGE COLUMN {old_name} {new_name} {data_type}")?;
-                if options.is_empty() {
-                    Ok(())
-                } else {
-                    write!(f, " {}", display_separated(options, " "))
+                if !options.is_empty() {
+                    write!(f, " {}", display_separated(options, " "))?;
                 }
+                if let Some(position) = column_position {
+                    write!(f, " {position}")?;
+                }
+
+                Ok(())
+            }
+            AlterTableOperation::ModifyColumn {
+                col_name,
+                data_type,
+                options,
+                column_position,
+            } => {
+                write!(f, "MODIFY COLUMN {col_name} {data_type}")?;
+                if !options.is_empty() {
+                    write!(f, " {}", display_separated(options, " "))?;
+                }
+                if let Some(position) = column_position {
+                    write!(f, " {position}")?;
+                }
+
+                Ok(())
             }
             AlterTableOperation::RenameConstraint { old_name, new_name } => {
                 write!(f, "RENAME CONSTRAINT {old_name} TO {new_name}")
             }
             AlterTableOperation::SwapWith { table_name } => {
                 write!(f, "SWAP WITH {table_name}")
+            }
+            AlterTableOperation::OwnerTo { new_owner } => {
+                write!(f, "OWNER TO {new_owner}")
+            }
+            AlterTableOperation::SetTblProperties { table_properties } => {
+                write!(
+                    f,
+                    "SET TBLPROPERTIES({})",
+                    display_comma_separated(table_properties)
+                )
+            }
+            AlterTableOperation::FreezePartition {
+                partition,
+                with_name,
+            } => {
+                write!(f, "FREEZE {partition}")?;
+                if let Some(name) = with_name {
+                    write!(f, " WITH NAME {name}")?;
+                }
+                Ok(())
+            }
+            AlterTableOperation::UnfreezePartition {
+                partition,
+                with_name,
+            } => {
+                write!(f, "UNFREEZE {partition}")?;
+                if let Some(name) = with_name {
+                    write!(f, " WITH NAME {name}")?;
+                }
+                Ok(())
             }
         }
     }
@@ -375,12 +589,68 @@ impl fmt::Display for AlterColumnOperation {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum TableConstraint {
-    /// `[ CONSTRAINT <name> ] { PRIMARY KEY | UNIQUE } (<columns>)`
+    /// MySQL [definition][1] for `UNIQUE` constraints statements:\
+    /// * `[CONSTRAINT [<name>]] UNIQUE <index_type_display> [<index_name>] [index_type] (<columns>) <index_options>`
+    ///
+    /// where:
+    /// * [index_type][2] is `USING {BTREE | HASH}`
+    /// * [index_options][3] is `{index_type | COMMENT 'string' | ... %currently unsupported stmts% } ...`
+    /// * [index_type_display][4] is `[INDEX | KEY]`
+    ///
+    /// [1]: https://dev.mysql.com/doc/refman/8.3/en/create-table.html
+    /// [2]: IndexType
+    /// [3]: IndexOption
+    /// [4]: KeyOrIndexDisplay
     Unique {
+        /// Constraint name.
+        ///
+        /// Can be not the same as `index_name`
         name: Option<Ident>,
+        /// Index name
+        index_name: Option<Ident>,
+        /// Whether the type is followed by the keyword `KEY`, `INDEX`, or no keyword at all.
+        index_type_display: KeyOrIndexDisplay,
+        /// Optional `USING` of [index type][1] statement before columns.
+        ///
+        /// [1]: IndexType
+        index_type: Option<IndexType>,
+        /// Identifiers of the columns that are unique.
         columns: Vec<Ident>,
-        /// Whether this is a `PRIMARY KEY` or just a `UNIQUE` constraint
-        is_primary: bool,
+        index_options: Vec<IndexOption>,
+        characteristics: Option<ConstraintCharacteristics>,
+    },
+    /// MySQL [definition][1] for `PRIMARY KEY` constraints statements:\
+    /// * `[CONSTRAINT [<name>]] PRIMARY KEY [index_name] [index_type] (<columns>) <index_options>`
+    ///
+    /// Actually the specification have no `[index_name]` but the next query will complete successfully:
+    /// ```sql
+    /// CREATE TABLE unspec_table (
+    ///   xid INT NOT NULL,
+    ///   CONSTRAINT p_name PRIMARY KEY index_name USING BTREE (xid)
+    /// );
+    /// ```
+    ///
+    /// where:
+    /// * [index_type][2] is `USING {BTREE | HASH}`
+    /// * [index_options][3] is `{index_type | COMMENT 'string' | ... %currently unsupported stmts% } ...`
+    ///
+    /// [1]: https://dev.mysql.com/doc/refman/8.3/en/create-table.html
+    /// [2]: IndexType
+    /// [3]: IndexOption
+    PrimaryKey {
+        /// Constraint name.
+        ///
+        /// Can be not the same as `index_name`
+        name: Option<Ident>,
+        /// Index name
+        index_name: Option<Ident>,
+        /// Optional `USING` of [index type][1] statement before columns.
+        ///
+        /// [1]: IndexType
+        index_type: Option<IndexType>,
+        /// Identifiers of the columns that form the primary key.
+        columns: Vec<Ident>,
+        index_options: Vec<IndexOption>,
         characteristics: Option<ConstraintCharacteristics>,
     },
     /// A referential integrity constraint (`[ CONSTRAINT <name> ] FOREIGN KEY (<columns>)
@@ -450,22 +720,51 @@ impl fmt::Display for TableConstraint {
         match self {
             TableConstraint::Unique {
                 name,
+                index_name,
+                index_type_display,
+                index_type,
                 columns,
-                is_primary,
+                index_options,
                 characteristics,
             } => {
                 write!(
                     f,
-                    "{}{} ({})",
+                    "{}UNIQUE{index_type_display:>}{}{} ({})",
                     display_constraint_name(name),
-                    if *is_primary { "PRIMARY KEY" } else { "UNIQUE" },
-                    display_comma_separated(columns)
+                    display_option_spaced(index_name),
+                    display_option(" USING ", "", index_type),
+                    display_comma_separated(columns),
                 )?;
 
-                if let Some(characteristics) = characteristics {
-                    write!(f, " {}", characteristics)?;
+                if !index_options.is_empty() {
+                    write!(f, " {}", display_separated(index_options, " "))?;
                 }
 
+                write!(f, "{}", display_option_spaced(characteristics))?;
+                Ok(())
+            }
+            TableConstraint::PrimaryKey {
+                name,
+                index_name,
+                index_type,
+                columns,
+                index_options,
+                characteristics,
+            } => {
+                write!(
+                    f,
+                    "{}PRIMARY KEY{}{} ({})",
+                    display_constraint_name(name),
+                    display_option_spaced(index_name),
+                    display_option(" USING ", "", index_type),
+                    display_comma_separated(columns),
+                )?;
+
+                if !index_options.is_empty() {
+                    write!(f, " {}", display_separated(index_options, " "))?;
+                }
+
+                write!(f, "{}", display_option_spaced(characteristics))?;
                 Ok(())
             }
             TableConstraint::ForeignKey {
@@ -528,9 +827,7 @@ impl fmt::Display for TableConstraint {
                     write!(f, "SPATIAL")?;
                 }
 
-                if !matches!(index_type_display, KeyOrIndexDisplay::None) {
-                    write!(f, " {index_type_display}")?;
-                }
+                write!(f, "{index_type_display:>}")?;
 
                 if let Some(name) = opt_index_name {
                     write!(f, " {name}")?;
@@ -563,8 +860,20 @@ pub enum KeyOrIndexDisplay {
     Index,
 }
 
+impl KeyOrIndexDisplay {
+    pub fn is_none(self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
 impl fmt::Display for KeyOrIndexDisplay {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let left_space = matches!(f.align(), Some(fmt::Alignment::Right));
+
+        if left_space && !self.is_none() {
+            f.write_char(' ')?
+        }
+
         match self {
             KeyOrIndexDisplay::None => {
                 write!(f, "")
@@ -604,6 +913,30 @@ impl fmt::Display for IndexType {
         }
     }
 }
+
+/// MySQLs index option.
+///
+/// This structure used here [`MySQL` CREATE TABLE][1], [`MySQL` CREATE INDEX][2].
+///
+/// [1]: https://dev.mysql.com/doc/refman/8.3/en/create-table.html
+/// [2]: https://dev.mysql.com/doc/refman/8.3/en/create-index.html
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum IndexOption {
+    Using(IndexType),
+    Comment(String),
+}
+
+impl fmt::Display for IndexOption {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Using(index_type) => write!(f, "USING {index_type}"),
+            Self::Comment(s) => write!(f, "COMMENT '{s}'"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
@@ -650,7 +983,7 @@ impl fmt::Display for ColumnDef {
 ///
 /// Syntax
 /// ```markdown
-/// <name> [OPTIONS(option, ...)]
+/// <name> [data_type][OPTIONS(option, ...)]
 ///
 /// option: <name> = <value>
 /// ```
@@ -659,18 +992,23 @@ impl fmt::Display for ColumnDef {
 /// ```sql
 /// name
 /// age OPTIONS(description = "age column", tag = "prod")
+/// created_at DateTime64
 /// ```
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ViewColumnDef {
     pub name: Ident,
+    pub data_type: Option<DataType>,
     pub options: Option<Vec<SqlOption>>,
 }
 
 impl fmt::Display for ViewColumnDef {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.name)?;
+        if let Some(data_type) = self.data_type.as_ref() {
+            write!(f, " {}", data_type)?;
+        }
         if let Some(options) = self.options.as_ref() {
             write!(
                 f,
@@ -724,6 +1062,18 @@ pub enum ColumnOption {
     NotNull,
     /// `DEFAULT <restricted-expr>`
     Default(Expr),
+
+    /// ClickHouse supports `MATERIALIZE`, `EPHEMERAL` and `ALIAS` expr to generate default values.
+    /// Syntax: `b INT MATERIALIZE (a + 1)`
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/create/table#default_values)
+
+    /// `MATERIALIZE <expr>`
+    Materialized(Expr),
+    /// `EPHEMERAL [<expr>]`
+    Ephemeral(Option<Expr>),
+    /// `ALIAS <expr>`
+    Alias(Expr),
+
     /// `{ PRIMARY KEY | UNIQUE } [<constraint_characteristics>]`
     Unique {
         is_primary: bool,
@@ -779,6 +1129,15 @@ impl fmt::Display for ColumnOption {
             Null => write!(f, "NULL"),
             NotNull => write!(f, "NOT NULL"),
             Default(expr) => write!(f, "DEFAULT {expr}"),
+            Materialized(expr) => write!(f, "MATERIALIZED {expr}"),
+            Ephemeral(expr) => {
+                if let Some(e) = expr {
+                    write!(f, "EPHEMERAL {e}")
+                } else {
+                    write!(f, "EPHEMERAL")
+                }
+            }
+            Alias(expr) => write!(f, "ALIAS {expr}"),
             Unique {
                 is_primary,
                 characteristics,
@@ -887,6 +1246,7 @@ pub enum GeneratedExpressionMode {
     Stored,
 }
 
+#[must_use]
 fn display_constraint_name(name: &'_ Option<Ident>) -> impl fmt::Display + '_ {
     struct ConstraintName<'a>(&'a Option<Ident>);
     impl<'a> fmt::Display for ConstraintName<'a> {
@@ -900,10 +1260,40 @@ fn display_constraint_name(name: &'_ Option<Ident>) -> impl fmt::Display + '_ {
     ConstraintName(name)
 }
 
+/// If `option` is
+/// * `Some(inner)` => create display struct for `"{prefix}{inner}{postfix}"`
+/// * `_` => do nothing
+#[must_use]
+fn display_option<'a, T: fmt::Display>(
+    prefix: &'a str,
+    postfix: &'a str,
+    option: &'a Option<T>,
+) -> impl fmt::Display + 'a {
+    struct OptionDisplay<'a, T>(&'a str, &'a str, &'a Option<T>);
+    impl<'a, T: fmt::Display> fmt::Display for OptionDisplay<'a, T> {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            if let Some(inner) = self.2 {
+                let (prefix, postfix) = (self.0, self.1);
+                write!(f, "{prefix}{inner}{postfix}")?;
+            }
+            Ok(())
+        }
+    }
+    OptionDisplay(prefix, postfix, option)
+}
+
+/// If `option` is
+/// * `Some(inner)` => create display struct for `" {inner}"`
+/// * `_` => do nothing
+#[must_use]
+fn display_option_spaced<T: fmt::Display>(option: &Option<T>) -> impl fmt::Display + '_ {
+    display_option(" ", "", option)
+}
+
 /// `<constraint_characteristics> = [ DEFERRABLE | NOT DEFERRABLE ] [ INITIALLY DEFERRED | INITIALLY IMMEDIATE ] [ ENFORCED | NOT ENFORCED ]`
 ///
 /// Used in UNIQUE and foreign key constraints. The individual settings may occur in any order.
-#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Default, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct ConstraintCharacteristics {
@@ -1045,20 +1435,76 @@ impl fmt::Display for UserDefinedTypeCompositeAttributeDef {
     }
 }
 
-/// PARTITION statement used in ALTER TABLE et al. such as in Hive SQL
+/// PARTITION statement used in ALTER TABLE et al. such as in Hive and ClickHouse SQL.
+/// For example, ClickHouse's OPTIMIZE TABLE supports syntax like PARTITION ID 'partition_id' and PARTITION expr.
+/// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/optimize)
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
-pub struct Partition {
-    pub partitions: Vec<Expr>,
+pub enum Partition {
+    Identifier(Ident),
+    Expr(Expr),
+    /// ClickHouse supports PART expr which represents physical partition in disk.
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/partition#attach-partitionpart)
+    Part(Expr),
+    Partitions(Vec<Expr>),
 }
 
 impl fmt::Display for Partition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Partition::Identifier(id) => write!(f, "PARTITION ID {id}"),
+            Partition::Expr(expr) => write!(f, "PARTITION {expr}"),
+            Partition::Part(expr) => write!(f, "PART {expr}"),
+            Partition::Partitions(partitions) => {
+                write!(f, "PARTITION ({})", display_comma_separated(partitions))
+            }
+        }
+    }
+}
+
+/// DEDUPLICATE statement used in OPTIMIZE TABLE et al. such as in ClickHouse SQL
+/// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/optimize)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum Deduplicate {
+    All,
+    ByExpression(Expr),
+}
+
+impl fmt::Display for Deduplicate {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Deduplicate::All => write!(f, "DEDUPLICATE"),
+            Deduplicate::ByExpression(expr) => write!(f, "DEDUPLICATE BY {expr}"),
+        }
+    }
+}
+
+/// Hive supports `CLUSTERED BY` statement in `CREATE TABLE`.
+/// Syntax: `CLUSTERED BY (col_name, ...) [SORTED BY (col_name [ASC|DESC], ...)] INTO num_buckets BUCKETS`
+///
+/// [Hive](https://cwiki.apache.org/confluence/display/Hive/LanguageManual+DDL#LanguageManualDDL-CreateTable)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ClusteredBy {
+    pub columns: Vec<Ident>,
+    pub sorted_by: Option<Vec<OrderByExpr>>,
+    pub num_buckets: Value,
+}
+
+impl fmt::Display for ClusteredBy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "PARTITION ({})",
-            display_comma_separated(&self.partitions)
-        )
+            "CLUSTERED BY ({})",
+            display_comma_separated(&self.columns)
+        )?;
+        if let Some(ref sorted_by) = self.sorted_by {
+            write!(f, " SORTED BY ({})", display_comma_separated(sorted_by))?;
+        }
+        write!(f, " INTO {} BUCKETS", self.num_buckets)
     }
 }

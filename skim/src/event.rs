@@ -1,6 +1,5 @@
 // All the events that will be used
 
-use bitflags::bitflags;
 use std::sync::mpsc::{Receiver, Sender};
 use tuikit::key::Key;
 
@@ -53,6 +52,7 @@ pub enum Event {
     EvActPreviewPageDown(i32),
     EvActPreviousHistory,
     EvActRedraw,
+    EvActReload(Option<String>),
     EvActRefreshCmd,
     EvActRefreshPreview,
     EvActRotateMode,
@@ -77,12 +77,10 @@ pub enum Event {
     __Nonexhaustive,
 }
 
-bitflags! {
-    /// `Effect` is the effect of a text
-    pub struct UpdateScreen: u8 {
-        const REDRAW = 0b0000_0000;
-        const DONT_REDRAW = 0b0000_0010;
-    }
+/// `Effect` is the effect of a text
+pub enum UpdateScreen {
+    Redraw,
+    DontRedraw,
 }
 
 pub trait EventHandler {
@@ -132,6 +130,7 @@ pub fn parse_event(action: &str, arg: Option<String>) -> Option<Event> {
         "previous-history"     =>   Some(Event::EvActPreviousHistory),
         "refresh-cmd"          =>   Some(Event::EvActRefreshCmd),
         "refresh-preview"      =>   Some(Event::EvActRefreshPreview),
+        "reload" => Some(Event::EvActReload(arg.clone())),
         "scroll-left"          =>   Some(Event::EvActScrollLeft(arg.and_then(|s|s.parse().ok()).unwrap_or(1))),
         "scroll-right"         =>   Some(Event::EvActScrollRight(arg.and_then(|s|s.parse().ok()).unwrap_or(1))),
         "select-all"           =>   Some(Event::EvActSelectAll),

@@ -1,14 +1,13 @@
 use insta::assert_yaml_snapshot;
 use prqlc::ir::{constant::ConstExpr, decl::RootModule};
-use prqlc_ast::{Expr, VarDef};
+use prqlc_parser::parser::pr::{Expr, VarDef};
 
 #[track_caller]
 fn static_eval(prql_source: &str) -> ConstExpr {
     let sources = prqlc::SourceTree::single("".into(), prql_source.to_string());
     let stmts_tree = prqlc::prql_to_pl_tree(&sources).unwrap();
 
-    let stmts = stmts_tree.sources.values().next().unwrap();
-    let stmt = stmts.iter().next().unwrap();
+    let stmt = &stmts_tree.stmts[0];
     let var_def: &VarDef = stmt.kind.as_var_def().unwrap();
     let expr: Expr = *var_def.value.as_ref().unwrap().clone();
 
@@ -17,8 +16,7 @@ fn static_eval(prql_source: &str) -> ConstExpr {
     let mut root_module = RootModule::default();
 
     prqlc::semantic::static_eval(expr, &mut root_module)
-        .map_err(prqlc::downcast)
-        .map_err(|e| e.composed(&sources))
+        .map_err(|e| prqlc::ErrorMessages::from(e).composed(&sources))
         .unwrap()
 }
 
@@ -28,8 +26,7 @@ fn basic_01() {
     {
         a = 1, "hello", [1.1, 0.0, 2.4], {null, false}
     }
-    "#), @r###"
-    ---
+    "#), @r#"
     kind:
       Tuple:
         - kind:
@@ -66,5 +63,5 @@ fn basic_01() {
                 span: "1:55-60"
           span: "1:48-61"
     span: "1:5-67"
-    "###)
+    "#)
 }

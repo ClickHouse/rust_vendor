@@ -33,7 +33,7 @@ pub struct Query {
     /// SELECT or UNION / EXCEPT / INTERSECT
     pub body: Box<SetExpr>,
     /// ORDER BY
-    pub order_by: Vec<OrderByExpr>,
+    pub order_by: Option<OrderBy>,
     /// `LIMIT { <N> | ALL }`
     pub limit: Option<Expr>,
 
@@ -50,6 +50,15 @@ pub struct Query {
     /// `FOR JSON { AUTO | PATH } [ , INCLUDE_NULL_VALUES ]`
     /// (MSSQL-specific)
     pub for_clause: Option<ForClause>,
+    /// ClickHouse syntax: `SELECT * FROM t SETTINGS key1 = value1, key2 = value2`
+    ///
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/select#settings-in-select-query)
+    pub settings: Option<Vec<Setting>>,
+    /// `SELECT * FROM t FORMAT JSONCompact`
+    ///
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/select/format)
+    /// (ClickHouse-specific)
+    pub format_clause: Option<FormatClause>,
 }
 
 impl fmt::Display for Query {
@@ -58,8 +67,8 @@ impl fmt::Display for Query {
             write!(f, "{with} ")?;
         }
         write!(f, "{}", self.body)?;
-        if !self.order_by.is_empty() {
-            write!(f, " ORDER BY {}", display_comma_separated(&self.order_by))?;
+        if let Some(ref order_by) = self.order_by {
+            write!(f, " {order_by}")?;
         }
         if let Some(ref limit) = self.limit {
             write!(f, " LIMIT {limit}")?;
@@ -70,6 +79,9 @@ impl fmt::Display for Query {
         if !self.limit_by.is_empty() {
             write!(f, " BY {}", display_separated(&self.limit_by, ", "))?;
         }
+        if let Some(ref settings) = self.settings {
+            write!(f, " SETTINGS {}", display_comma_separated(settings))?;
+        }
         if let Some(ref fetch) = self.fetch {
             write!(f, " {fetch}")?;
         }
@@ -78,6 +90,36 @@ impl fmt::Display for Query {
         }
         if let Some(ref for_clause) = self.for_clause {
             write!(f, " {}", for_clause)?;
+        }
+        if let Some(ref format) = self.format_clause {
+            write!(f, " {}", format)?;
+        }
+        Ok(())
+    }
+}
+
+/// Query syntax for ClickHouse ADD PROJECTION statement.
+/// Its syntax is similar to SELECT statement, but it is used to add a new projection to a table.
+/// Syntax is `SELECT <COLUMN LIST EXPR> [GROUP BY] [ORDER BY]`
+///
+/// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/alter/projection#add-projection)
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ProjectionSelect {
+    pub projection: Vec<SelectItem>,
+    pub order_by: Option<OrderBy>,
+    pub group_by: Option<GroupByExpr>,
+}
+
+impl fmt::Display for ProjectionSelect {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "SELECT {}", display_comma_separated(&self.projection))?;
+        if let Some(ref group_by) = self.group_by {
+            write!(f, " {group_by}")?;
+        }
+        if let Some(ref order_by) = self.order_by {
+            write!(f, " {order_by}")?;
         }
         Ok(())
     }
@@ -106,6 +148,17 @@ pub enum SetExpr {
     Insert(Statement),
     Update(Statement),
     Table(Box<Table>),
+}
+
+impl SetExpr {
+    /// If this `SetExpr` is a `SELECT`, returns the [`Select`].
+    pub fn as_select(&self) -> Option<&Select> {
+        if let Self::Select(select) = self {
+            Some(&**select)
+        } else {
+            None
+        }
+    }
 }
 
 impl fmt::Display for SetExpr {
@@ -229,6 +282,11 @@ pub struct Select {
     pub from: Vec<TableWithJoins>,
     /// LATERAL VIEWs
     pub lateral_views: Vec<LateralView>,
+    /// ClickHouse syntax: `PREWHERE a = 1 WHERE b = 2`,
+    /// and it can be used together with WHERE selection.
+    ///
+    /// [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/select/prewhere)
+    pub prewhere: Option<Expr>,
     /// WHERE
     pub selection: Option<Expr>,
     /// GROUP BY
@@ -245,11 +303,25 @@ pub struct Select {
     pub named_window: Vec<NamedWindowDefinition>,
     /// QUALIFY (Snowflake)
     pub qualify: Option<Expr>,
+    /// The positioning of QUALIFY and WINDOW clauses differ between dialects.
+    /// e.g. BigQuery requires that WINDOW comes after QUALIFY, while DUCKDB accepts
+    /// WINDOW before QUALIFY.
+    /// We accept either positioning and flag the accepted variant.
+    pub window_before_qualify: bool,
+    /// BigQuery syntax: `SELECT AS VALUE | SELECT AS STRUCT`
+    pub value_table_mode: Option<ValueTableMode>,
+    /// STARTING WITH .. CONNECT BY
+    pub connect_by: Option<ConnectBy>,
 }
 
 impl fmt::Display for Select {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "SELECT")?;
+
+        if let Some(value_table_mode) = self.value_table_mode {
+            write!(f, " {value_table_mode}")?;
+        }
+
         if let Some(ref distinct) = self.distinct {
             write!(f, " {distinct}")?;
         }
@@ -270,14 +342,17 @@ impl fmt::Display for Select {
                 write!(f, "{lv}")?;
             }
         }
+        if let Some(ref prewhere) = self.prewhere {
+            write!(f, " PREWHERE {prewhere}")?;
+        }
         if let Some(ref selection) = self.selection {
             write!(f, " WHERE {selection}")?;
         }
         match &self.group_by {
-            GroupByExpr::All => write!(f, " GROUP BY ALL")?,
-            GroupByExpr::Expressions(exprs) => {
+            GroupByExpr::All(_) => write!(f, " {}", self.group_by)?,
+            GroupByExpr::Expressions(exprs, _) => {
                 if !exprs.is_empty() {
-                    write!(f, " GROUP BY {}", display_comma_separated(exprs))?;
+                    write!(f, " {}", self.group_by)?
                 }
             }
         }
@@ -301,11 +376,23 @@ impl fmt::Display for Select {
         if let Some(ref having) = self.having {
             write!(f, " HAVING {having}")?;
         }
-        if !self.named_window.is_empty() {
-            write!(f, " WINDOW {}", display_comma_separated(&self.named_window))?;
+        if self.window_before_qualify {
+            if !self.named_window.is_empty() {
+                write!(f, " WINDOW {}", display_comma_separated(&self.named_window))?;
+            }
+            if let Some(ref qualify) = self.qualify {
+                write!(f, " QUALIFY {qualify}")?;
+            }
+        } else {
+            if let Some(ref qualify) = self.qualify {
+                write!(f, " QUALIFY {qualify}")?;
+            }
+            if !self.named_window.is_empty() {
+                write!(f, " WINDOW {}", display_comma_separated(&self.named_window))?;
+            }
         }
-        if let Some(ref qualify) = self.qualify {
-            write!(f, " QUALIFY {qualify}")?;
+        if let Some(ref connect_by) = self.connect_by {
+            write!(f, " {connect_by}")?;
         }
         Ok(())
     }
@@ -346,14 +433,56 @@ impl fmt::Display for LateralView {
     }
 }
 
+/// An expression used in a named window declaration.
+///
+/// ```sql
+/// WINDOW mywindow AS [named_window_expr]
+/// ```
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
-pub struct NamedWindowDefinition(pub Ident, pub WindowSpec);
+pub enum NamedWindowExpr {
+    /// A direct reference to another named window definition.
+    /// [BigQuery]
+    ///
+    /// Example:
+    /// ```sql
+    /// WINDOW mywindow AS prev_window
+    /// ```
+    ///
+    /// [BigQuery]: https://cloud.google.com/bigquery/docs/reference/standard-sql/window-function-calls#ref_named_window
+    NamedWindow(Ident),
+    /// A window expression.
+    ///
+    /// Example:
+    /// ```sql
+    /// WINDOW mywindow AS (ORDER BY 1)
+    /// ```
+    WindowSpec(WindowSpec),
+}
+
+impl fmt::Display for NamedWindowExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            NamedWindowExpr::NamedWindow(named_window) => {
+                write!(f, "{named_window}")?;
+            }
+            NamedWindowExpr::WindowSpec(window_spec) => {
+                write!(f, "({window_spec})")?;
+            }
+        };
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct NamedWindowDefinition(pub Ident, pub NamedWindowExpr);
 
 impl fmt::Display for NamedWindowDefinition {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} AS ({})", self.0, self.1)
+        write!(f, "{} AS {}", self.0, self.1)
     }
 }
 
@@ -376,7 +505,31 @@ impl fmt::Display for With {
     }
 }
 
-/// A single CTE (used after `WITH`): `alias [(col1, col2, ...)] AS ( query )`
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum CteAsMaterialized {
+    /// The `WITH` statement specifies `AS MATERIALIZED` behavior
+    Materialized,
+    /// The `WITH` statement specifies `AS NOT MATERIALIZED` behavior
+    NotMaterialized,
+}
+
+impl fmt::Display for CteAsMaterialized {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            CteAsMaterialized::Materialized => {
+                write!(f, "MATERIALIZED")?;
+            }
+            CteAsMaterialized::NotMaterialized => {
+                write!(f, "NOT MATERIALIZED")?;
+            }
+        };
+        Ok(())
+    }
+}
+
+/// A single CTE (used after `WITH`): `<alias> [(col1, col2, ...)] AS <materialized> ( <query> )`
 /// The names in the column list before `AS`, when specified, replace the names
 /// of the columns returned by the query. The parser does not validate that the
 /// number of columns in the query matches the number of columns in the query.
@@ -387,11 +540,15 @@ pub struct Cte {
     pub alias: TableAlias,
     pub query: Box<Query>,
     pub from: Option<Ident>,
+    pub materialized: Option<CteAsMaterialized>,
 }
 
 impl fmt::Display for Cte {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{} AS ({})", self.alias, self.query)?;
+        match self.materialized.as_ref() {
+            None => write!(f, "{} AS ({})", self.alias, self.query)?,
+            Some(materialized) => write!(f, "{} AS {materialized} ({})", self.alias, self.query)?,
+        };
         if let Some(ref fr) = self.from {
             write!(f, " FROM {fr}")?;
         }
@@ -439,37 +596,67 @@ impl fmt::Display for IdentWithAlias {
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct WildcardAdditionalOptions {
+    /// `[ILIKE...]`.
+    ///  Snowflake syntax: <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
+    pub opt_ilike: Option<IlikeSelectItem>,
     /// `[EXCLUDE...]`.
     pub opt_exclude: Option<ExcludeSelectItem>,
     /// `[EXCEPT...]`.
     ///  Clickhouse syntax: <https://clickhouse.com/docs/en/sql-reference/statements/select#except>
     pub opt_except: Option<ExceptSelectItem>,
-    /// `[RENAME ...]`.
-    pub opt_rename: Option<RenameSelectItem>,
     /// `[REPLACE]`
     ///  BigQuery syntax: <https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#select_replace>
     ///  Clickhouse syntax: <https://clickhouse.com/docs/en/sql-reference/statements/select#replace>
+    ///  Snowflake syntax: <https://docs.snowflake.com/en/sql-reference/sql/select#parameters>
     pub opt_replace: Option<ReplaceSelectItem>,
+    /// `[RENAME ...]`.
+    pub opt_rename: Option<RenameSelectItem>,
 }
 
 impl fmt::Display for WildcardAdditionalOptions {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if let Some(ilike) = &self.opt_ilike {
+            write!(f, " {ilike}")?;
+        }
         if let Some(exclude) = &self.opt_exclude {
             write!(f, " {exclude}")?;
         }
         if let Some(except) = &self.opt_except {
             write!(f, " {except}")?;
         }
-        if let Some(rename) = &self.opt_rename {
-            write!(f, " {rename}")?;
-        }
         if let Some(replace) = &self.opt_replace {
             write!(f, " {replace}")?;
+        }
+        if let Some(rename) = &self.opt_rename {
+            write!(f, " {rename}")?;
         }
         Ok(())
     }
 }
 
+/// Snowflake `ILIKE` information.
+///
+/// # Syntax
+/// ```plaintext
+/// ILIKE <value>
+/// ```
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct IlikeSelectItem {
+    pub pattern: String,
+}
+
+impl fmt::Display for IlikeSelectItem {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "ILIKE '{}'",
+            value::escape_single_quote_string(&self.pattern)
+        )?;
+        Ok(())
+    }
+}
 /// Snowflake `EXCLUDE` information.
 ///
 /// # Syntax
@@ -667,6 +854,82 @@ impl fmt::Display for TableWithJoins {
     }
 }
 
+/// Joins a table to itself to process hierarchical data in the table.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/constructs/connect-by>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ConnectBy {
+    /// START WITH
+    pub condition: Expr,
+    /// CONNECT BY
+    pub relationships: Vec<Expr>,
+}
+
+impl fmt::Display for ConnectBy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "START WITH {condition} CONNECT BY {relationships}",
+            condition = self.condition,
+            relationships = display_comma_separated(&self.relationships)
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct Setting {
+    pub key: Ident,
+    pub value: Value,
+}
+
+impl fmt::Display for Setting {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{} = {}", self.key, self.value)
+    }
+}
+
+/// An expression optionally followed by an alias.
+///
+/// Example:
+/// ```sql
+/// 42 AS myint
+/// ```
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct ExprWithAlias {
+    pub expr: Expr,
+    pub alias: Option<Ident>,
+}
+
+impl fmt::Display for ExprWithAlias {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ExprWithAlias { expr, alias } = self;
+        write!(f, "{expr}")?;
+        if let Some(alias) = alias {
+            write!(f, " AS {alias}")?;
+        }
+        Ok(())
+    }
+}
+
+/// Arguments to a table-valued function
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct TableFunctionArgs {
+    pub args: Vec<FunctionArg>,
+    /// ClickHouse-specific SETTINGS clause.
+    /// For example,
+    /// `SELECT * FROM executable('generate_random.py', TabSeparated, 'id UInt32, random String', SETTINGS send_chunk_header = false, pool_size = 16)`
+    /// [`executable` table function](https://clickhouse.com/docs/en/engines/table-functions/executable)
+    pub settings: Option<Vec<Setting>>,
+}
+
 /// A table name or a parenthesized subquery with an optional alias
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -684,12 +947,16 @@ pub enum TableFactor {
         /// This field's value is `Some(v)`, where `v` is a (possibly empty)
         /// vector of arguments, in the case of a table-valued function call,
         /// whereas it's `None` in the case of a regular table name.
-        args: Option<Vec<FunctionArg>>,
+        args: Option<TableFunctionArgs>,
         /// MSSQL-specific `WITH (...)` hints such as NOLOCK.
         with_hints: Vec<Expr>,
         /// Optional version qualifier to facilitate table time-travel, as
         /// supported by BigQuery and MSSQL.
         version: Option<TableVersion>,
+        //  Optional table function modifier to generate the ordinality for column.
+        /// For example, `SELECT * FROM generate_series(1, 10) WITH ORDINALITY AS t(a, b);`
+        /// [WITH ORDINALITY](https://www.postgresql.org/docs/current/functions-srf.html), supported by Postgres.
+        with_ordinality: bool,
         /// [Partition selection](https://dev.mysql.com/doc/refman/8.0/en/partitioning-selection.html), supported by MySQL.
         partitions: Vec<Ident>,
     },
@@ -725,6 +992,7 @@ pub enum TableFactor {
         array_exprs: Vec<Expr>,
         with_offset: bool,
         with_offset_alias: Option<Ident>,
+        with_ordinality: bool,
     },
     /// The `JSON_TABLE` table-valued function.
     /// Part of the SQL standard, but implemented only by MySQL, Oracle, and DB2.
@@ -765,12 +1033,15 @@ pub enum TableFactor {
     },
     /// Represents PIVOT operation on a table.
     /// For example `FROM monthly_sales PIVOT(sum(amount) FOR MONTH IN ('JAN', 'FEB'))`
-    /// See <https://docs.snowflake.com/en/sql-reference/constructs/pivot>
+    ///
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#pivot_operator)
+    /// [Snowflake](https://docs.snowflake.com/en/sql-reference/constructs/pivot)
     Pivot {
         table: Box<TableFactor>,
-        aggregate_function: Expr, // Function expression
+        aggregate_functions: Vec<ExprWithAlias>, // Function expression
         value_column: Vec<Ident>,
-        pivot_values: Vec<Value>,
+        value_source: PivotValueSource,
+        default_on_null: Option<Expr>,
         alias: Option<TableAlias>,
     },
     /// An UNPIVOT operation on a table.
@@ -788,6 +1059,273 @@ pub enum TableFactor {
         columns: Vec<Ident>,
         alias: Option<TableAlias>,
     },
+    /// A `MATCH_RECOGNIZE` operation on a table.
+    ///
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize>.
+    MatchRecognize {
+        table: Box<TableFactor>,
+        /// `PARTITION BY <expr> [, ... ]`
+        partition_by: Vec<Expr>,
+        /// `ORDER BY <expr> [, ... ]`
+        order_by: Vec<OrderByExpr>,
+        /// `MEASURES <expr> [AS] <alias> [, ... ]`
+        measures: Vec<Measure>,
+        /// `ONE ROW PER MATCH | ALL ROWS PER MATCH [ <option> ]`
+        rows_per_match: Option<RowsPerMatch>,
+        /// `AFTER MATCH SKIP <option>`
+        after_match_skip: Option<AfterMatchSkip>,
+        /// `PATTERN ( <pattern> )`
+        pattern: MatchRecognizePattern,
+        /// `DEFINE <symbol> AS <expr> [, ... ]`
+        symbols: Vec<SymbolDefinition>,
+        alias: Option<TableAlias>,
+    },
+}
+
+/// The source of values in a `PIVOT` operation.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum PivotValueSource {
+    /// Pivot on a static list of values.
+    ///
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/pivot#pivot-on-a-specified-list-of-column-values-for-the-pivot-column>.
+    List(Vec<ExprWithAlias>),
+    /// Pivot on all distinct values of the pivot column.
+    ///
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/pivot#pivot-on-all-distinct-column-values-automatically-with-dynamic-pivot>.
+    Any(Vec<OrderByExpr>),
+    /// Pivot on all values returned by a subquery.
+    ///
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/pivot#pivot-on-column-values-using-a-subquery-with-dynamic-pivot>.
+    Subquery(Query),
+}
+
+impl fmt::Display for PivotValueSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PivotValueSource::List(values) => write!(f, "{}", display_comma_separated(values)),
+            PivotValueSource::Any(order_by) => {
+                write!(f, "ANY")?;
+                if !order_by.is_empty() {
+                    write!(f, " ORDER BY {}", display_comma_separated(order_by))?;
+                }
+                Ok(())
+            }
+            PivotValueSource::Subquery(query) => write!(f, "{query}"),
+        }
+    }
+}
+
+/// An item in the `MEASURES` subclause of a `MATCH_RECOGNIZE` operation.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize#measures-specifying-additional-output-columns>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct Measure {
+    pub expr: Expr,
+    pub alias: Ident,
+}
+
+impl fmt::Display for Measure {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} AS {}", self.expr, self.alias)
+    }
+}
+
+/// The rows per match option in a `MATCH_RECOGNIZE` operation.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize#row-s-per-match-specifying-the-rows-to-return>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum RowsPerMatch {
+    /// `ONE ROW PER MATCH`
+    OneRow,
+    /// `ALL ROWS PER MATCH <mode>`
+    AllRows(Option<EmptyMatchesMode>),
+}
+
+impl fmt::Display for RowsPerMatch {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RowsPerMatch::OneRow => write!(f, "ONE ROW PER MATCH"),
+            RowsPerMatch::AllRows(mode) => {
+                write!(f, "ALL ROWS PER MATCH")?;
+                if let Some(mode) = mode {
+                    write!(f, " {}", mode)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// The after match skip option in a `MATCH_RECOGNIZE` operation.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize#after-match-skip-specifying-where-to-continue-after-a-match>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum AfterMatchSkip {
+    /// `PAST LAST ROW`
+    PastLastRow,
+    /// `TO NEXT ROW`
+    ToNextRow,
+    /// `TO FIRST <symbol>`
+    ToFirst(Ident),
+    /// `TO LAST <symbol>`
+    ToLast(Ident),
+}
+
+impl fmt::Display for AfterMatchSkip {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "AFTER MATCH SKIP ")?;
+        match self {
+            AfterMatchSkip::PastLastRow => write!(f, "PAST LAST ROW"),
+            AfterMatchSkip::ToNextRow => write!(f, " TO NEXT ROW"),
+            AfterMatchSkip::ToFirst(symbol) => write!(f, "TO FIRST {symbol}"),
+            AfterMatchSkip::ToLast(symbol) => write!(f, "TO LAST {symbol}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum EmptyMatchesMode {
+    /// `SHOW EMPTY MATCHES`
+    Show,
+    /// `OMIT EMPTY MATCHES`
+    Omit,
+    /// `WITH UNMATCHED ROWS`
+    WithUnmatched,
+}
+
+impl fmt::Display for EmptyMatchesMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EmptyMatchesMode::Show => write!(f, "SHOW EMPTY MATCHES"),
+            EmptyMatchesMode::Omit => write!(f, "OMIT EMPTY MATCHES"),
+            EmptyMatchesMode::WithUnmatched => write!(f, "WITH UNMATCHED ROWS"),
+        }
+    }
+}
+
+/// A symbol defined in a `MATCH_RECOGNIZE` operation.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize#define-defining-symbols>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct SymbolDefinition {
+    pub symbol: Ident,
+    pub definition: Expr,
+}
+
+impl fmt::Display for SymbolDefinition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} AS {}", self.symbol, self.definition)
+    }
+}
+
+/// A symbol in a `MATCH_RECOGNIZE` pattern.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum MatchRecognizeSymbol {
+    /// A named symbol, e.g. `S1`.
+    Named(Ident),
+    /// A virtual symbol representing the start of the of partition (`^`).
+    Start,
+    /// A virtual symbol representing the end of the partition (`$`).
+    End,
+}
+
+impl fmt::Display for MatchRecognizeSymbol {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MatchRecognizeSymbol::Named(symbol) => write!(f, "{symbol}"),
+            MatchRecognizeSymbol::Start => write!(f, "^"),
+            MatchRecognizeSymbol::End => write!(f, "$"),
+        }
+    }
+}
+
+/// The pattern in a `MATCH_RECOGNIZE` operation.
+///
+/// See <https://docs.snowflake.com/en/sql-reference/constructs/match_recognize#pattern-specifying-the-pattern-to-match>.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum MatchRecognizePattern {
+    /// A named symbol such as `S1` or a virtual symbol such as `^`.
+    Symbol(MatchRecognizeSymbol),
+    /// {- symbol -}
+    Exclude(MatchRecognizeSymbol),
+    /// PERMUTE(symbol_1, ..., symbol_n)
+    Permute(Vec<MatchRecognizeSymbol>),
+    /// pattern_1 pattern_2 ... pattern_n
+    Concat(Vec<MatchRecognizePattern>),
+    /// ( pattern )
+    Group(Box<MatchRecognizePattern>),
+    /// pattern_1 | pattern_2 | ... | pattern_n
+    Alternation(Vec<MatchRecognizePattern>),
+    /// e.g. pattern*
+    Repetition(Box<MatchRecognizePattern>, RepetitionQuantifier),
+}
+
+impl fmt::Display for MatchRecognizePattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use MatchRecognizePattern::*;
+        match self {
+            Symbol(symbol) => write!(f, "{}", symbol),
+            Exclude(symbol) => write!(f, "{{- {symbol} -}}"),
+            Permute(symbols) => write!(f, "PERMUTE({})", display_comma_separated(symbols)),
+            Concat(patterns) => write!(f, "{}", display_separated(patterns, " ")),
+            Group(pattern) => write!(f, "( {pattern} )"),
+            Alternation(patterns) => write!(f, "{}", display_separated(patterns, " | ")),
+            Repetition(pattern, op) => write!(f, "{pattern}{op}"),
+        }
+    }
+}
+
+/// Determines the minimum and maximum allowed occurrences of a pattern in a
+/// `MATCH_RECOGNIZE` operation.
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum RepetitionQuantifier {
+    /// `*`
+    ZeroOrMore,
+    /// `+`
+    OneOrMore,
+    /// `?`
+    AtMostOne,
+    /// `{n}`
+    Exactly(u32),
+    /// `{n,}`
+    AtLeast(u32),
+    /// `{,n}`
+    AtMost(u32),
+    /// `{n,m}
+    Range(u32, u32),
+}
+
+impl fmt::Display for RepetitionQuantifier {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use RepetitionQuantifier::*;
+        match self {
+            ZeroOrMore => write!(f, "*"),
+            OneOrMore => write!(f, "+"),
+            AtMostOne => write!(f, "?"),
+            Exactly(n) => write!(f, "{{{n}}}"),
+            AtLeast(n) => write!(f, "{{{n},}}"),
+            AtMost(n) => write!(f, "{{,{n}}}"),
+            Range(n, m) => write!(f, "{{{n},{m}}}"),
+        }
+    }
 }
 
 impl fmt::Display for TableFactor {
@@ -800,13 +1338,25 @@ impl fmt::Display for TableFactor {
                 with_hints,
                 version,
                 partitions,
+                with_ordinality,
             } => {
                 write!(f, "{name}")?;
                 if !partitions.is_empty() {
                     write!(f, "PARTITION ({})", display_comma_separated(partitions))?;
                 }
                 if let Some(args) = args {
-                    write!(f, "({})", display_comma_separated(args))?;
+                    write!(f, "(")?;
+                    write!(f, "{}", display_comma_separated(&args.args))?;
+                    if let Some(ref settings) = args.settings {
+                        if !args.args.is_empty() {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "SETTINGS {}", display_comma_separated(settings))?;
+                    }
+                    write!(f, ")")?;
+                }
+                if *with_ordinality {
+                    write!(f, " WITH ORDINALITY")?;
                 }
                 if let Some(alias) = alias {
                     write!(f, " AS {alias}")?;
@@ -861,8 +1411,13 @@ impl fmt::Display for TableFactor {
                 array_exprs,
                 with_offset,
                 with_offset_alias,
+                with_ordinality,
             } => {
                 write!(f, "UNNEST({})", display_comma_separated(array_exprs))?;
+
+                if *with_ordinality {
+                    write!(f, " WITH ORDINALITY")?;
+                }
 
                 if let Some(alias) = alias {
                     write!(f, " AS {alias}")?;
@@ -903,19 +1458,22 @@ impl fmt::Display for TableFactor {
             }
             TableFactor::Pivot {
                 table,
-                aggregate_function,
+                aggregate_functions,
                 value_column,
-                pivot_values,
+                value_source,
+                default_on_null,
                 alias,
             } => {
                 write!(
                     f,
-                    "{} PIVOT({} FOR {} IN ({}))",
-                    table,
-                    aggregate_function,
+                    "{table} PIVOT({} FOR {} IN ({value_source})",
+                    display_comma_separated(aggregate_functions),
                     Expr::CompoundIdentifier(value_column.to_vec()),
-                    display_comma_separated(pivot_values)
                 )?;
+                if let Some(expr) = default_on_null {
+                    write!(f, " DEFAULT ON NULL ({expr})")?;
+                }
+                write!(f, ")")?;
                 if alias.is_some() {
                     write!(f, " AS {}", alias.as_ref().unwrap())?;
                 }
@@ -936,6 +1494,40 @@ impl fmt::Display for TableFactor {
                     name,
                     display_comma_separated(columns)
                 )?;
+                if alias.is_some() {
+                    write!(f, " AS {}", alias.as_ref().unwrap())?;
+                }
+                Ok(())
+            }
+            TableFactor::MatchRecognize {
+                table,
+                partition_by,
+                order_by,
+                measures,
+                rows_per_match,
+                after_match_skip,
+                pattern,
+                symbols,
+                alias,
+            } => {
+                write!(f, "{table} MATCH_RECOGNIZE(")?;
+                if !partition_by.is_empty() {
+                    write!(f, "PARTITION BY {} ", display_comma_separated(partition_by))?;
+                }
+                if !order_by.is_empty() {
+                    write!(f, "ORDER BY {} ", display_comma_separated(order_by))?;
+                }
+                if !measures.is_empty() {
+                    write!(f, "MEASURES {} ", display_comma_separated(measures))?;
+                }
+                if let Some(rows_per_match) = rows_per_match {
+                    write!(f, "{rows_per_match} ")?;
+                }
+                if let Some(after_match_skip) = after_match_skip {
+                    write!(f, "{after_match_skip} ")?;
+                }
+                write!(f, "PATTERN ({pattern}) ")?;
+                write!(f, "DEFINE {})", display_comma_separated(symbols))?;
                 if alias.is_some() {
                     write!(f, " AS {}", alias.as_ref().unwrap())?;
                 }
@@ -984,6 +1576,9 @@ impl Display for TableVersion {
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub struct Join {
     pub relation: TableFactor,
+    /// ClickHouse supports the optional `GLOBAL` keyword before the join operator.
+    /// See [ClickHouse](https://clickhouse.com/docs/en/sql-reference/statements/select/join)
+    pub global: bool,
     pub join_operator: JoinOperator,
 }
 
@@ -1010,6 +1605,10 @@ impl fmt::Display for Join {
             }
             Suffix(constraint)
         }
+        if self.global {
+            write!(f, " GLOBAL")?;
+        }
+
         match &self.join_operator {
             JoinOperator::Inner(constraint) => write!(
                 f,
@@ -1070,6 +1669,15 @@ impl fmt::Display for Join {
             ),
             JoinOperator::CrossApply => write!(f, " CROSS APPLY {}", self.relation),
             JoinOperator::OuterApply => write!(f, " OUTER APPLY {}", self.relation),
+            JoinOperator::AsOf {
+                match_condition,
+                constraint,
+            } => write!(
+                f,
+                " ASOF JOIN {} MATCH_CONDITION ({match_condition}){}",
+                self.relation,
+                suffix(constraint)
+            ),
         }
     }
 }
@@ -1095,6 +1703,14 @@ pub enum JoinOperator {
     CrossApply,
     /// OUTER APPLY (non-standard)
     OuterApply,
+    /// `ASOF` joins are used for joining tables containing time-series data
+    /// whose timestamp columns do not match exactly.
+    ///
+    /// See <https://docs.snowflake.com/en/sql-reference/constructs/asof-join>.
+    AsOf {
+        match_condition: Expr,
+        constraint: JoinConstraint,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
@@ -1107,6 +1723,34 @@ pub enum JoinConstraint {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct OrderBy {
+    pub exprs: Vec<OrderByExpr>,
+    /// Optional: `INTERPOLATE`
+    /// Supported by [ClickHouse syntax]
+    ///
+    /// [ClickHouse syntax]: <https://clickhouse.com/docs/en/sql-reference/statements/select/order-by#order-by-expr-with-fill-modifier>
+    pub interpolate: Option<Interpolate>,
+}
+
+impl fmt::Display for OrderBy {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ORDER BY")?;
+        if !self.exprs.is_empty() {
+            write!(f, " {}", display_comma_separated(&self.exprs))?;
+        }
+        if let Some(ref interpolate) = self.interpolate {
+            match &interpolate.exprs {
+                Some(exprs) => write!(f, " INTERPOLATE ({})", display_comma_separated(exprs))?,
+                None => write!(f, " INTERPOLATE")?,
+            }
+        }
+        Ok(())
+    }
+}
+
 /// An `ORDER BY` expression
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -1117,6 +1761,9 @@ pub struct OrderByExpr {
     pub asc: Option<bool>,
     /// Optional `NULLS FIRST` or `NULLS LAST`
     pub nulls_first: Option<bool>,
+    /// Optional: `WITH FILL`
+    /// Supported by [ClickHouse syntax]: <https://clickhouse.com/docs/en/sql-reference/statements/select/order-by#order-by-expr-with-fill-modifier>
+    pub with_fill: Option<WithFill>,
 }
 
 impl fmt::Display for OrderByExpr {
@@ -1131,6 +1778,67 @@ impl fmt::Display for OrderByExpr {
             Some(true) => write!(f, " NULLS FIRST")?,
             Some(false) => write!(f, " NULLS LAST")?,
             None => (),
+        }
+        if let Some(ref with_fill) = self.with_fill {
+            write!(f, " {}", with_fill)?
+        }
+        Ok(())
+    }
+}
+
+/// ClickHouse `WITH FILL` modifier for `ORDER BY` clause.
+/// Supported by [ClickHouse syntax]
+///
+/// [ClickHouse syntax]: <https://clickhouse.com/docs/en/sql-reference/statements/select/order-by#order-by-expr-with-fill-modifier>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct WithFill {
+    pub from: Option<Expr>,
+    pub to: Option<Expr>,
+    pub step: Option<Expr>,
+}
+
+impl fmt::Display for WithFill {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "WITH FILL")?;
+        if let Some(ref from) = self.from {
+            write!(f, " FROM {}", from)?;
+        }
+        if let Some(ref to) = self.to {
+            write!(f, " TO {}", to)?;
+        }
+        if let Some(ref step) = self.step {
+            write!(f, " STEP {}", step)?;
+        }
+        Ok(())
+    }
+}
+
+/// ClickHouse `INTERPOLATE` clause for use in `ORDER BY` clause when using `WITH FILL` modifier.
+/// Supported by [ClickHouse syntax]
+///
+/// [ClickHouse syntax]: <https://clickhouse.com/docs/en/sql-reference/statements/select/order-by#order-by-expr-with-fill-modifier>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct InterpolateExpr {
+    pub column: Ident,
+    pub expr: Option<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub struct Interpolate {
+    pub exprs: Option<Vec<InterpolateExpr>>,
+}
+
+impl fmt::Display for InterpolateExpr {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.column)?;
+        if let Some(ref expr) = self.expr {
+            write!(f, " AS {}", expr)?;
         }
         Ok(())
     }
@@ -1356,28 +2064,86 @@ impl fmt::Display for SelectInto {
     }
 }
 
+/// ClickHouse supports GROUP BY WITH modifiers(includes ROLLUP|CUBE|TOTALS).
+/// e.g. GROUP BY year WITH ROLLUP WITH TOTALS
+///
+/// [ClickHouse]: <https://clickhouse.com/docs/en/sql-reference/statements/select/group-by#rollup-modifier>
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum GroupByWithModifier {
+    Rollup,
+    Cube,
+    Totals,
+}
+
+impl fmt::Display for GroupByWithModifier {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            GroupByWithModifier::Rollup => write!(f, "WITH ROLLUP"),
+            GroupByWithModifier::Cube => write!(f, "WITH CUBE"),
+            GroupByWithModifier::Totals => write!(f, "WITH TOTALS"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum GroupByExpr {
-    /// ALL syntax of [Snowflake], and [DuckDB]
+    /// ALL syntax of [Snowflake], [DuckDB] and [ClickHouse].
     ///
     /// [Snowflake]: <https://docs.snowflake.com/en/sql-reference/constructs/group-by#label-group-by-all-columns>
     /// [DuckDB]:  <https://duckdb.org/docs/sql/query_syntax/groupby.html>
-    All,
+    /// [ClickHouse]: <https://clickhouse.com/docs/en/sql-reference/statements/select/group-by#group-by-all>
+    ///
+    /// ClickHouse also supports WITH modifiers after GROUP BY ALL and expressions.
+    ///
+    /// [ClickHouse]: <https://clickhouse.com/docs/en/sql-reference/statements/select/group-by#rollup-modifier>
+    All(Vec<GroupByWithModifier>),
 
     /// Expressions
-    Expressions(Vec<Expr>),
+    Expressions(Vec<Expr>, Vec<GroupByWithModifier>),
 }
 
 impl fmt::Display for GroupByExpr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            GroupByExpr::All => write!(f, "GROUP BY ALL"),
-            GroupByExpr::Expressions(col_names) => {
-                let col_names = display_comma_separated(col_names);
-                write!(f, "GROUP BY ({col_names})")
+            GroupByExpr::All(modifiers) => {
+                write!(f, "GROUP BY ALL")?;
+                if !modifiers.is_empty() {
+                    write!(f, " {}", display_separated(modifiers, " "))?;
+                }
+                Ok(())
             }
+            GroupByExpr::Expressions(col_names, modifiers) => {
+                let col_names = display_comma_separated(col_names);
+                write!(f, "GROUP BY {col_names}")?;
+                if !modifiers.is_empty() {
+                    write!(f, " {}", display_separated(modifiers, " "))?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+/// FORMAT identifier or FORMAT NULL clause, specific to ClickHouse.
+///
+/// [ClickHouse]: <https://clickhouse.com/docs/en/sql-reference/statements/select/format>
+#[derive(Debug, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum FormatClause {
+    Identifier(Ident),
+    Null,
+}
+
+impl fmt::Display for FormatClause {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            FormatClause::Identifier(ident) => write!(f, "FORMAT {}", ident),
+            FormatClause::Null => write!(f, "FORMAT NULL"),
         }
     }
 }
@@ -1571,6 +2337,27 @@ impl fmt::Display for JsonTableColumnErrorHandling {
                 write!(f, "DEFAULT {}", json_string)
             }
             JsonTableColumnErrorHandling::Error => write!(f, "ERROR"),
+        }
+    }
+}
+
+/// BigQuery supports ValueTables which have 2 modes:
+/// `SELECT AS STRUCT`
+/// `SELECT AS VALUE`
+/// <https://cloud.google.com/bigquery/docs/reference/standard-sql/query-syntax#value_tables>
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
+pub enum ValueTableMode {
+    AsStruct,
+    AsValue,
+}
+
+impl fmt::Display for ValueTableMode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            ValueTableMode::AsStruct => write!(f, "AS STRUCT"),
+            ValueTableMode::AsValue => write!(f, "AS VALUE"),
         }
     }
 }

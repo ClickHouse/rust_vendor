@@ -1,40 +1,39 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
-use once_cell::sync::Lazy;
-
-use prqlc_ast::expr::*;
-use prqlc_ast::stmt::*;
 use regex::Regex;
 
-use crate::codegen::SeparatedExprs;
-
 use super::{WriteOpt, WriteSource};
+use crate::codegen::SeparatedExprs;
+use crate::pr;
 
-pub(crate) fn write_expr(expr: &Expr) -> String {
+pub(crate) fn write_expr(expr: &pr::Expr) -> String {
     expr.write(WriteOpt::new_width(u16::MAX)).unwrap()
 }
 
-fn write_within<T: WriteSource>(node: &T, parent: &ExprKind, mut opt: WriteOpt) -> Option<String> {
+fn write_within<T: WriteSource>(
+    node: &T,
+    parent: &pr::ExprKind,
+    mut opt: WriteOpt,
+) -> Option<String> {
     let parent_strength = binding_strength(parent);
     opt.context_strength = opt.context_strength.max(parent_strength);
 
     node.write(opt)
 }
 
-impl WriteSource for Expr {
+impl WriteSource for pr::Expr {
     fn write(&self, mut opt: WriteOpt) -> Option<String> {
         let mut r = String::new();
 
         if let Some(alias) = &self.alias {
-            r += opt.consume(alias)?;
+            r += opt.consume(&write_ident_part(alias))?;
             r += opt.consume(" = ")?;
             opt.unbound_expr = false;
         }
 
-        let needs_parenthesis = (opt.unbound_expr && can_bind_left(&self.kind))
-            || (opt.context_strength >= binding_strength(&self.kind));
-
-        if !needs_parenthesis {
+        if !needs_parenthesis(self, &opt) {
             r += &self.kind.write(opt.clone())?;
         } else {
             let value = self.kind.write_between("(", ")", opt.clone());
@@ -49,12 +48,67 @@ impl WriteSource for Expr {
     }
 }
 
-impl WriteSource for ExprKind {
+fn needs_parenthesis(this: &pr::Expr, opt: &WriteOpt) -> bool {
+    if opt.unbound_expr && can_bind_left(&this.kind) {
+        return true;
+    }
+
+    let binding_strength = binding_strength(&this.kind);
+    if opt.context_strength > binding_strength {
+        // parent has higher binding strength, which means it would "steal" operand of this expr
+        // => parenthesis are needed
+        return true;
+    }
+
+    if opt.context_strength < binding_strength {
+        // parent has higher binding strength, which means it would "steal" operand of this expr
+        // => parenthesis are needed
+        return false;
+    }
+
+    // parent has equal binding strength, which means that now associativity of this expr counts
+    // for example:
+    //   this=(a + b), parent=(a + b) + c
+    //   asoc of + is left
+    //   this is the left operand of parent
+    //   => assoc_matches=true => we don't need parenthesis
+
+    //   this=(a + b), parent=c + (a + b)
+    //   asoc of + is left
+    //   this is the right operand of parent
+    //   => assoc_matches=false => we need parenthesis
+    let assoc_matches = match opt.binary_position {
+        super::Position::Left => associativity(&this.kind) == super::Position::Left,
+        super::Position::Right => associativity(&this.kind) == super::Position::Right,
+        super::Position::Unspecified => false,
+    };
+
+    !assoc_matches
+}
+
+impl WriteSource for pr::ExprKind {
     fn write(&self, mut opt: WriteOpt) -> Option<String> {
-        use ExprKind::*;
+        use pr::ExprKind::*;
 
         match &self {
-            Ident(ident) => ident.write(opt),
+            Ident(ident) => Some(write_ident_part(ident).into_owned()),
+            Indirection { base, field } => {
+                let mut r = base.write(opt.clone())?;
+                opt.consume_width(r.len() as u16)?;
+
+                r += opt.consume(".")?;
+                match field {
+                    pr::IndirectionKind::Name(n) => {
+                        r += opt.consume(n)?;
+                    }
+                    pr::IndirectionKind::Position(i) => {
+                        r += &opt.consume(i.to_string())?;
+                    }
+                    pr::IndirectionKind::Star => r += "*",
+                }
+                Some(r)
+            }
+
             Pipeline(pipeline) => SeparatedExprs {
                 inline: " | ",
                 line_end: "",
@@ -90,20 +144,24 @@ impl WriteSource for ExprKind {
                 }
                 Some(r)
             }
-            Binary(BinaryExpr { op, left, right }) => {
+            Binary(pr::BinaryExpr { op, left, right }) => {
                 let mut r = String::new();
 
-                let left = write_within(left.as_ref(), self, opt.clone())?;
+                let mut opt_left = opt.clone();
+                opt_left.binary_position = super::Position::Left;
+                let left = write_within(left.as_ref(), self, opt_left)?;
                 r += opt.consume(&left)?;
 
                 r += opt.consume(" ")?;
                 r += opt.consume(&op.to_string())?;
                 r += opt.consume(" ")?;
 
-                r += &write_within(right.as_ref(), self, opt)?;
+                let mut opt_right = opt;
+                opt_right.binary_position = super::Position::Right;
+                r += &write_within(right.as_ref(), self, opt_right)?;
                 Some(r)
             }
-            Unary(UnaryExpr { op, expr }) => {
+            Unary(pr::UnaryExpr { op, expr }) => {
                 let mut r = String::new();
 
                 r += opt.consume(&op.to_string())?;
@@ -219,58 +277,76 @@ fn break_line_within_parenthesis<T: WriteSource>(expr: &T, mut opt: WriteOpt) ->
     Some(r)
 }
 
-fn binding_strength(expr: &ExprKind) -> u8 {
+fn binding_strength(expr: &pr::ExprKind) -> u8 {
     match expr {
         // For example, if it's an Ident, it's basically infinite — a simple
         // ident never needs parentheses around it.
-        ExprKind::Ident(_) => 100,
+        pr::ExprKind::Ident(_) => 100,
 
         // Stronger than a range, since `-1..2` is `(-1)..2`
         // Stronger than binary op, since `-x == y` is `(-x) == y`
         // Stronger than a func call, since `exists !y` is `exists (!y)`
-        ExprKind::Unary(..) => 20,
+        pr::ExprKind::Unary(..) => 20,
 
-        ExprKind::Range(_) => 19,
+        pr::ExprKind::Range(_) => 19,
 
-        ExprKind::Binary(BinaryExpr { op, .. }) => match op {
-            BinOp::Pow => 19,
-            BinOp::Mul | BinOp::DivInt | BinOp::DivFloat | BinOp::Mod => 18,
-            BinOp::Add | BinOp::Sub => 17,
-            BinOp::Eq
-            | BinOp::Ne
-            | BinOp::Gt
-            | BinOp::Lt
-            | BinOp::Gte
-            | BinOp::Lte
-            | BinOp::RegexSearch => 16,
-            BinOp::Coalesce => 15,
-            BinOp::And => 14,
-            BinOp::Or => 13,
+        pr::ExprKind::Binary(pr::BinaryExpr { op, .. }) => match op {
+            pr::BinOp::Pow => 19,
+            pr::BinOp::Mul | pr::BinOp::DivInt | pr::BinOp::DivFloat | pr::BinOp::Mod => 18,
+            pr::BinOp::Add | pr::BinOp::Sub => 17,
+            pr::BinOp::Eq
+            | pr::BinOp::Ne
+            | pr::BinOp::Gt
+            | pr::BinOp::Lt
+            | pr::BinOp::Gte
+            | pr::BinOp::Lte
+            | pr::BinOp::RegexSearch => 16,
+            pr::BinOp::Coalesce => 15,
+            pr::BinOp::And => 14,
+            pr::BinOp::Or => 13,
         },
 
         // Weaker than a child assign, since `select x = 1`
         // Weaker than a binary operator, since `filter x == 1`
-        ExprKind::FuncCall(_) => 10,
+        pr::ExprKind::FuncCall(_) => 10,
         // ExprKind::FuncCall(_) if !is_parent => 2,
-        ExprKind::Func(_) => 7,
+        pr::ExprKind::Func(_) => 7,
 
         // other nodes should not contain any inner exprs
         _ => 100,
     }
 }
 
+fn associativity(expr: &pr::ExprKind) -> super::Position {
+    match expr {
+        pr::ExprKind::Binary(pr::BinaryExpr { op, .. }) => match op {
+            pr::BinOp::Pow => super::Position::Right,
+            pr::BinOp::Eq
+            | pr::BinOp::Ne
+            | pr::BinOp::Gt
+            | pr::BinOp::Lt
+            | pr::BinOp::Gte
+            | pr::BinOp::Lte
+            | pr::BinOp::RegexSearch => super::Position::Unspecified,
+            _ => super::Position::Left,
+        },
+
+        _ => super::Position::Unspecified,
+    }
+}
+
 /// True if this expression could be mistakenly bound with an expression on the left.
-fn can_bind_left(expr: &ExprKind) -> bool {
+fn can_bind_left(expr: &pr::ExprKind) -> bool {
     matches!(
         expr,
-        ExprKind::Unary(UnaryExpr {
-            op: UnOp::EqSelf | UnOp::Add | UnOp::Neg,
+        pr::ExprKind::Unary(pr::UnaryExpr {
+            op: pr::UnOp::EqSelf | pr::UnOp::Add | pr::UnOp::Neg,
             ..
         })
     )
 }
 
-impl WriteSource for Ident {
+impl WriteSource for pr::Ident {
     fn write(&self, mut opt: WriteOpt) -> Option<String> {
         let width = self.path.iter().map(|p| p.len() + 1).sum::<usize>() + self.name.len();
         opt.consume_width(width as u16)?;
@@ -285,27 +361,33 @@ impl WriteSource for Ident {
     }
 }
 
-pub static KEYWORDS: Lazy<HashSet<&str>> = Lazy::new(|| {
-    HashSet::from_iter([
-        "let", "into", "case", "prql", "type", "module", "internal", "func",
-    ])
-});
+fn keywords() -> &'static HashSet<&'static str> {
+    static KEYWORDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
+    KEYWORDS.get_or_init(|| {
+        HashSet::from_iter([
+            "let", "into", "case", "prql", "type", "module", "internal", "func",
+        ])
+    })
+}
 
-pub static VALID_PRQL_IDENT: Lazy<Regex> = Lazy::new(|| {
-    // Pomsky expression (regex is to Pomsky what SQL is to PRQL):
-    // ^ ('*' | [ascii_alpha '_$'] [ascii_alpha ascii_digit '_$']* ) $
-    Regex::new(r"^(?:\*|[a-zA-Z_$][a-zA-Z0-9_$]*)$").unwrap()
-});
+fn valid_prql_ident() -> &'static Regex {
+    static VALID_PRQL_IDENT: OnceLock<Regex> = OnceLock::new();
+    VALID_PRQL_IDENT.get_or_init(|| {
+        // Pomsky expression (regex is to Pomsky what SQL is to PRQL):
+        // ^ ('*' | [ascii_alpha '_$'] [ascii_alpha ascii_digit '_$']* ) $
+        Regex::new(r"^(?:\*|[a-zA-Z_$][a-zA-Z0-9_$]*)$").unwrap()
+    })
+}
 
-pub fn write_ident_part(s: &str) -> String {
-    if VALID_PRQL_IDENT.is_match(s) && !KEYWORDS.contains(s) {
-        s.to_string()
+pub fn write_ident_part(s: &str) -> Cow<str> {
+    if valid_prql_ident().is_match(s) && !keywords().contains(s) {
+        s.into()
     } else {
-        format!("`{}`", s)
+        format!("`{}`", s).into()
     }
 }
 
-impl WriteSource for Vec<Stmt> {
+impl WriteSource for Vec<pr::Stmt> {
     fn write(&self, mut opt: WriteOpt) -> Option<String> {
         opt.reset_line()?;
 
@@ -322,7 +404,7 @@ impl WriteSource for Vec<Stmt> {
     }
 }
 
-impl WriteSource for Stmt {
+impl WriteSource for pr::Stmt {
     fn write(&self, mut opt: WriteOpt) -> Option<String> {
         let mut r = String::new();
 
@@ -335,7 +417,7 @@ impl WriteSource for Stmt {
         }
 
         match &self.kind {
-            StmtKind::QueryDef(query) => {
+            pr::StmtKind::QueryDef(query) => {
                 r += "prql";
                 if let Some(version) = &query.version {
                     r += &format!(r#" version:"{}""#, version);
@@ -345,7 +427,7 @@ impl WriteSource for Stmt {
                 }
                 r += "\n";
             }
-            StmtKind::VarDef(var_def) => match var_def.kind {
+            pr::StmtKind::VarDef(var_def) => match var_def.kind {
                 _ if var_def.value.is_none() || var_def.ty.is_some() => {
                     let typ = if let Some(ty) = &var_def.ty {
                         format!("<{}> ", ty.write(opt.clone())?)
@@ -362,16 +444,16 @@ impl WriteSource for Stmt {
                     r += "\n";
                 }
 
-                VarDefKind::Let => {
+                pr::VarDefKind::Let => {
                     r += opt.consume(&format!("let {} = ", var_def.name))?;
 
                     r += &var_def.value.as_ref().unwrap().write(opt)?;
                     r += "\n";
                 }
-                VarDefKind::Into | VarDefKind::Main => {
+                pr::VarDefKind::Into | pr::VarDefKind::Main => {
                     let val = var_def.value.as_ref().unwrap();
                     match &val.kind {
-                        ExprKind::Pipeline(pipeline) => {
+                        pr::ExprKind::Pipeline(pipeline) => {
                             for expr in &pipeline.exprs {
                                 r += &expr.write(opt.clone())?;
                                 r += "\n";
@@ -383,13 +465,13 @@ impl WriteSource for Stmt {
                         }
                     }
 
-                    if var_def.kind == VarDefKind::Into {
+                    if var_def.kind == pr::VarDefKind::Into {
                         r += &format!("into {}", var_def.name);
                         r += "\n";
                     }
                 }
             },
-            StmtKind::TypeDef(type_def) => {
+            pr::StmtKind::TypeDef(type_def) => {
                 r += opt.consume(&format!("type {}", type_def.name))?;
 
                 if let Some(ty) = &type_def.value {
@@ -398,7 +480,7 @@ impl WriteSource for Stmt {
                 }
                 r += "\n";
             }
-            StmtKind::ModuleDef(module_def) => {
+            pr::StmtKind::ModuleDef(module_def) => {
                 r += &format!("module {} {{\n", module_def.name);
                 opt.indent += 1;
 
@@ -408,20 +490,33 @@ impl WriteSource for Stmt {
                 r += &opt.write_indent();
                 r += "}\n";
             }
+            pr::StmtKind::ImportDef(import_def) => {
+                r += "import ";
+                if let Some(alias) = &import_def.alias {
+                    r += &write_ident_part(alias);
+                    r += " = ";
+                }
+                r += &import_def.name.write(opt)?;
+                r += "\n";
+            }
         }
         Some(r)
     }
 }
 
-fn display_interpolation(prefix: &str, parts: &[InterpolateItem], opt: WriteOpt) -> Option<String> {
+fn display_interpolation(
+    prefix: &str,
+    parts: &[pr::InterpolateItem],
+    opt: WriteOpt,
+) -> Option<String> {
     let mut r = String::new();
     r += prefix;
     r += "\"";
     for part in parts {
         match &part {
             // We use double braces to escape braces
-            InterpolateItem::String(s) => r += s.replace('{', "{{").replace('}', "}}").as_str(),
-            InterpolateItem::Expr { expr, .. } => {
+            pr::InterpolateItem::String(s) => r += s.replace('{', "{{").replace('}', "}}").as_str(),
+            pr::InterpolateItem::Expr { expr, .. } => {
                 r += "{";
                 r += &expr.write(opt.clone())?;
                 r += "}"
@@ -432,7 +527,7 @@ fn display_interpolation(prefix: &str, parts: &[InterpolateItem], opt: WriteOpt)
     Some(r)
 }
 
-impl WriteSource for SwitchCase {
+impl WriteSource for pr::SwitchCase {
     fn write(&self, opt: WriteOpt) -> Option<String> {
         let mut r = String::new();
         r += &self.condition.write(opt.clone())?;
@@ -458,6 +553,7 @@ mod test {
         use itertools::Itertools;
         let stmt = crate::prql_to_pl(query)
             .unwrap()
+            .stmts
             .into_iter()
             .exactly_one()
             .unwrap();
@@ -466,12 +562,10 @@ mod test {
 
     #[test]
     fn test_pipeline() {
-        let short = Expr::new(ExprKind::Ident(Ident::from_path(vec!["short"])));
-        let long = Expr::new(ExprKind::Ident(Ident::from_path(vec![
-            "some_module",
-            "submodule",
-            "a_really_long_name",
-        ])));
+        let short = pr::Expr::new(pr::ExprKind::Ident("short".to_string()));
+        let long = pr::Expr::new(pr::ExprKind::Ident(
+            "some_really_long_and_really_long_name".to_string(),
+        ));
 
         let mut opt = WriteOpt {
             indent: 1,
@@ -479,29 +573,29 @@ mod test {
         };
 
         // short pipelines should be inlined
-        let pipeline = Expr::new(ExprKind::Pipeline(Pipeline {
+        let pipeline = pr::Expr::new(pr::ExprKind::Pipeline(pr::Pipeline {
             exprs: vec![short.clone(), short.clone(), short.clone()],
         }));
         assert_snapshot!(pipeline.write(opt.clone()).unwrap(), @"(short | short | short)");
 
         // long pipelines should be indented
-        let pipeline = Expr::new(ExprKind::Pipeline(Pipeline {
+        let pipeline = pr::Expr::new(pr::ExprKind::Pipeline(pr::Pipeline {
             exprs: vec![short.clone(), long.clone(), long, short.clone()],
         }));
         // colons are a workaround to avoid trimming
-        assert_snapshot!(pipeline.write(opt.clone()).unwrap(), @r###"
+        assert_snapshot!(pipeline.write(opt.clone()).unwrap(), @r"
         (
             short
-            some_module.submodule.a_really_long_name
-            some_module.submodule.a_really_long_name
+            some_really_long_and_really_long_name
+            some_really_long_and_really_long_name
             short
           )
-        "###);
+        ");
 
         // sometimes, there is just not enough space
         opt.rem_width = 4;
         opt.indent = 100;
-        let pipeline = Expr::new(ExprKind::Pipeline(Pipeline { exprs: vec![short] }));
+        let pipeline = pr::Expr::new(pr::ExprKind::Pipeline(pr::Pipeline { exprs: vec![short] }));
         assert!(pipeline.write(opt).is_none());
     }
 
@@ -527,10 +621,13 @@ mod test {
 
     #[test]
     fn test_binary() {
-        assert_is_formatted(r#"let a = 5 * (4 + 3) ?? (5 / 2) // 2 == 1 and true"#);
+        assert_is_formatted(r#"let a = 5 * (4 + 3) ?? 5 / 2 // 2 == 1 and true"#);
 
-        // TODO: associativity is not handled correctly
-        // assert_is_formatted(r#"let a = 5 / 2 / 2"#);
+        assert_is_formatted(r#"let a = 5 / 2 / 2"#);
+        assert_is_formatted(r#"let a = 5 / (2 / 2)"#);
+
+        assert_is_formatted(r#"let a = (5 ** 2) ** 2"#);
+        assert_is_formatted(r#"let a = 5 ** 2 ** 2"#);
     }
 
     #[test]
@@ -545,6 +642,15 @@ mod test {
 aggregate average_country_salary = (
   average salary
 )"#,
+        );
+    }
+
+    #[test]
+    fn test_alias() {
+        assert_is_formatted(
+            r#"
+from artists
+select {`customer name` = foo, x = bar.baz}"#,
         );
     }
 

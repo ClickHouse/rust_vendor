@@ -12,6 +12,7 @@
 
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
+
 use core::fmt;
 
 #[cfg(feature = "bigdecimal")]
@@ -20,6 +21,7 @@ use bigdecimal::BigDecimal;
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use crate::ast::Ident;
 #[cfg(feature = "visitor")]
 use sqlparser_derive::{Visit, VisitMut};
 
@@ -40,17 +42,42 @@ pub enum Value {
     SingleQuotedString(String),
     // $<tag_name>$string value$<tag_name>$ (postgres syntax)
     DollarQuotedString(DollarQuotedString),
+    /// Triple single quoted strings: Example '''abc'''
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    TripleSingleQuotedString(String),
+    /// Triple double quoted strings: Example """abc"""
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    TripleDoubleQuotedString(String),
     /// e'string value' (postgres extension)
     /// See [Postgres docs](https://www.postgresql.org/docs/8.3/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS)
     /// for more details.
     EscapedStringLiteral(String),
+    /// u&'string value' (postgres extension)
+    /// See [Postgres docs](https://www.postgresql.org/docs/current/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS-UESCAPE)
+    /// for more details.
+    UnicodeStringLiteral(String),
     /// B'string value'
     SingleQuotedByteStringLiteral(String),
     /// B"string value"
     DoubleQuotedByteStringLiteral(String),
-    /// R'string value' or r'string value' or r"string value"
-    /// <https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals>
-    RawStringLiteral(String),
+    /// Triple single quoted literal with byte string prefix. Example `B'''abc'''`
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    TripleSingleQuotedByteStringLiteral(String),
+    /// Triple double quoted literal with byte string prefix. Example `B"""abc"""`
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    TripleDoubleQuotedByteStringLiteral(String),
+    /// Single quoted literal with raw string prefix. Example `R'abc'`
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    SingleQuotedRawStringLiteral(String),
+    /// Double quoted literal with raw string prefix. Example `R"abc"`
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    DoubleQuotedRawStringLiteral(String),
+    /// Triple single quoted literal with raw string prefix. Example `R'''abc'''`
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    TripleSingleQuotedRawStringLiteral(String),
+    /// Triple double quoted literal with raw string prefix. Example `R"""abc"""`
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/lexical#quoted_literals)
+    TripleDoubleQuotedRawStringLiteral(String),
     /// N'string value'
     NationalStringLiteral(String),
     /// X'hex value'
@@ -63,8 +90,6 @@ pub enum Value {
     Null,
     /// `?` or `$` Prepared statement arg placeholder
     Placeholder(String),
-    /// Add support of snowflake field:key - key should be a value
-    UnQuotedString(String),
 }
 
 impl fmt::Display for Value {
@@ -73,17 +98,28 @@ impl fmt::Display for Value {
             Value::Number(v, l) => write!(f, "{}{long}", v, long = if *l { "L" } else { "" }),
             Value::DoubleQuotedString(v) => write!(f, "\"{}\"", escape_double_quote_string(v)),
             Value::SingleQuotedString(v) => write!(f, "'{}'", escape_single_quote_string(v)),
+            Value::TripleSingleQuotedString(v) => {
+                write!(f, "'''{v}'''")
+            }
+            Value::TripleDoubleQuotedString(v) => {
+                write!(f, r#""""{v}""""#)
+            }
             Value::DollarQuotedString(v) => write!(f, "{v}"),
             Value::EscapedStringLiteral(v) => write!(f, "E'{}'", escape_escaped_string(v)),
+            Value::UnicodeStringLiteral(v) => write!(f, "U&'{}'", escape_unicode_string(v)),
             Value::NationalStringLiteral(v) => write!(f, "N'{v}'"),
             Value::HexStringLiteral(v) => write!(f, "X'{v}'"),
             Value::Boolean(v) => write!(f, "{v}"),
             Value::SingleQuotedByteStringLiteral(v) => write!(f, "B'{v}'"),
             Value::DoubleQuotedByteStringLiteral(v) => write!(f, "B\"{v}\""),
-            Value::RawStringLiteral(v) => write!(f, "R'{v}'"),
+            Value::TripleSingleQuotedByteStringLiteral(v) => write!(f, "B'''{v}'''"),
+            Value::TripleDoubleQuotedByteStringLiteral(v) => write!(f, r#"B"""{v}""""#),
+            Value::SingleQuotedRawStringLiteral(v) => write!(f, "R'{v}'"),
+            Value::DoubleQuotedRawStringLiteral(v) => write!(f, "R\"{v}\""),
+            Value::TripleSingleQuotedRawStringLiteral(v) => write!(f, "R'''{v}'''"),
+            Value::TripleDoubleQuotedRawStringLiteral(v) => write!(f, r#"R"""{v}""""#),
             Value::Null => write!(f, "NULL"),
             Value::Placeholder(v) => write!(f, "{v}"),
-            Value::UnQuotedString(v) => write!(f, "{v}"),
         }
     }
 }
@@ -109,17 +145,25 @@ impl fmt::Display for DollarQuotedString {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[cfg_attr(feature = "visitor", derive(Visit, VisitMut))]
 pub enum DateTimeField {
     Year,
     Month,
-    Week,
+    /// Week optionally followed by a WEEKDAY.
+    ///
+    /// ```sql
+    /// WEEK(MONDAY)
+    /// ```
+    ///
+    /// [BigQuery](https://cloud.google.com/bigquery/docs/reference/standard-sql/date_functions#extract)
+    Week(Option<Ident>),
     Day,
     DayOfWeek,
     DayOfYear,
     Date,
+    Datetime,
     Hour,
     Minute,
     Second,
@@ -148,47 +192,62 @@ pub enum DateTimeField {
     TimezoneMinute,
     TimezoneRegion,
     NoDateTime,
+    /// Arbitrary abbreviation or custom date-time part.
+    ///
+    /// ```sql
+    /// EXTRACT(q FROM CURRENT_TIMESTAMP)
+    /// ```
+    /// [Snowflake](https://docs.snowflake.com/en/sql-reference/functions-date-time#supported-date-and-time-parts)
+    Custom(Ident),
 }
 
 impl fmt::Display for DateTimeField {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(match self {
-            DateTimeField::Year => "YEAR",
-            DateTimeField::Month => "MONTH",
-            DateTimeField::Week => "WEEK",
-            DateTimeField::Day => "DAY",
-            DateTimeField::DayOfWeek => "DAYOFWEEK",
-            DateTimeField::DayOfYear => "DAYOFYEAR",
-            DateTimeField::Date => "DATE",
-            DateTimeField::Hour => "HOUR",
-            DateTimeField::Minute => "MINUTE",
-            DateTimeField::Second => "SECOND",
-            DateTimeField::Century => "CENTURY",
-            DateTimeField::Decade => "DECADE",
-            DateTimeField::Dow => "DOW",
-            DateTimeField::Doy => "DOY",
-            DateTimeField::Epoch => "EPOCH",
-            DateTimeField::Isodow => "ISODOW",
-            DateTimeField::Isoyear => "ISOYEAR",
-            DateTimeField::IsoWeek => "ISOWEEK",
-            DateTimeField::Julian => "JULIAN",
-            DateTimeField::Microsecond => "MICROSECOND",
-            DateTimeField::Microseconds => "MICROSECONDS",
-            DateTimeField::Millenium => "MILLENIUM",
-            DateTimeField::Millennium => "MILLENNIUM",
-            DateTimeField::Millisecond => "MILLISECOND",
-            DateTimeField::Milliseconds => "MILLISECONDS",
-            DateTimeField::Nanosecond => "NANOSECOND",
-            DateTimeField::Nanoseconds => "NANOSECONDS",
-            DateTimeField::Quarter => "QUARTER",
-            DateTimeField::Time => "TIME",
-            DateTimeField::Timezone => "TIMEZONE",
-            DateTimeField::TimezoneAbbr => "TIMEZONE_ABBR",
-            DateTimeField::TimezoneHour => "TIMEZONE_HOUR",
-            DateTimeField::TimezoneMinute => "TIMEZONE_MINUTE",
-            DateTimeField::TimezoneRegion => "TIMEZONE_REGION",
-            DateTimeField::NoDateTime => "NODATETIME",
-        })
+        match self {
+            DateTimeField::Year => write!(f, "YEAR"),
+            DateTimeField::Month => write!(f, "MONTH"),
+            DateTimeField::Week(week_day) => {
+                write!(f, "WEEK")?;
+                if let Some(week_day) = week_day {
+                    write!(f, "({week_day})")?
+                }
+                Ok(())
+            }
+            DateTimeField::Day => write!(f, "DAY"),
+            DateTimeField::DayOfWeek => write!(f, "DAYOFWEEK"),
+            DateTimeField::DayOfYear => write!(f, "DAYOFYEAR"),
+            DateTimeField::Date => write!(f, "DATE"),
+            DateTimeField::Datetime => write!(f, "DATETIME"),
+            DateTimeField::Hour => write!(f, "HOUR"),
+            DateTimeField::Minute => write!(f, "MINUTE"),
+            DateTimeField::Second => write!(f, "SECOND"),
+            DateTimeField::Century => write!(f, "CENTURY"),
+            DateTimeField::Decade => write!(f, "DECADE"),
+            DateTimeField::Dow => write!(f, "DOW"),
+            DateTimeField::Doy => write!(f, "DOY"),
+            DateTimeField::Epoch => write!(f, "EPOCH"),
+            DateTimeField::Isodow => write!(f, "ISODOW"),
+            DateTimeField::Isoyear => write!(f, "ISOYEAR"),
+            DateTimeField::IsoWeek => write!(f, "ISOWEEK"),
+            DateTimeField::Julian => write!(f, "JULIAN"),
+            DateTimeField::Microsecond => write!(f, "MICROSECOND"),
+            DateTimeField::Microseconds => write!(f, "MICROSECONDS"),
+            DateTimeField::Millenium => write!(f, "MILLENIUM"),
+            DateTimeField::Millennium => write!(f, "MILLENNIUM"),
+            DateTimeField::Millisecond => write!(f, "MILLISECOND"),
+            DateTimeField::Milliseconds => write!(f, "MILLISECONDS"),
+            DateTimeField::Nanosecond => write!(f, "NANOSECOND"),
+            DateTimeField::Nanoseconds => write!(f, "NANOSECONDS"),
+            DateTimeField::Quarter => write!(f, "QUARTER"),
+            DateTimeField::Time => write!(f, "TIME"),
+            DateTimeField::Timezone => write!(f, "TIMEZONE"),
+            DateTimeField::TimezoneAbbr => write!(f, "TIMEZONE_ABBR"),
+            DateTimeField::TimezoneHour => write!(f, "TIMEZONE_HOUR"),
+            DateTimeField::TimezoneMinute => write!(f, "TIMEZONE_MINUTE"),
+            DateTimeField::TimezoneRegion => write!(f, "TIMEZONE_REGION"),
+            DateTimeField::NoDateTime => write!(f, "NODATETIME"),
+            DateTimeField::Custom(custom) => write!(f, "{custom}"),
+        }
     }
 }
 
@@ -291,6 +350,41 @@ impl<'a> fmt::Display for EscapeEscapedStringLiteral<'a> {
 
 pub fn escape_escaped_string(s: &str) -> EscapeEscapedStringLiteral<'_> {
     EscapeEscapedStringLiteral(s)
+}
+
+pub struct EscapeUnicodeStringLiteral<'a>(&'a str);
+
+impl<'a> fmt::Display for EscapeUnicodeStringLiteral<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for c in self.0.chars() {
+            match c {
+                '\'' => {
+                    write!(f, "''")?;
+                }
+                '\\' => {
+                    write!(f, r#"\\"#)?;
+                }
+                x if x.is_ascii() => {
+                    write!(f, "{}", c)?;
+                }
+                _ => {
+                    let codepoint = c as u32;
+                    // if the character fits in 32 bits, we can use the \XXXX format
+                    // otherwise, we need to use the \+XXXXXX format
+                    if codepoint <= 0xFFFF {
+                        write!(f, "\\{:04X}", codepoint)?;
+                    } else {
+                        write!(f, "\\+{:06X}", codepoint)?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn escape_unicode_string(s: &str) -> EscapeUnicodeStringLiteral<'_> {
+    EscapeUnicodeStringLiteral(s)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

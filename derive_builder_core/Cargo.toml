@@ -10,28 +10,47 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
+edition = "2018"
 name = "derive_builder_core"
-version = "0.11.2"
-authors = ["Colin Kiegel <kiegel@gmx.de>", "Pascal Hertleif <killercup@gmail.com>", "Jan-Erik Rediger <janerik@fnordig.de>", "Ted Driggs <ted.driggs@outlook.com>"]
+version = "0.20.2"
+authors = [
+    "Colin Kiegel <kiegel@gmx.de>",
+    "Pascal Hertleif <killercup@gmail.com>",
+    "Jan-Erik Rediger <janerik@fnordig.de>",
+    "Ted Driggs <ted.driggs@outlook.com>",
+]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Internal helper library for the derive_builder crate."
 documentation = "https://docs.rs/derive_builder_core"
 readme = "README.md"
-license = "MIT/Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/colin-kiegel/rust-derive-builder"
+
+[lib]
+name = "derive_builder_core"
+path = "src/lib.rs"
+
 [dependencies.darling]
-version = "0.14.0"
+version = "0.20.10"
 
 [dependencies.proc-macro2]
 version = "1.0.37"
 
 [dependencies.quote]
-version = "1.0.18"
+version = "1.0.35"
 
 [dependencies.syn]
-version = "1.0.91"
-features = ["full", "extra-traits"]
-[dev-dependencies.pretty_assertions]
-version = "0.6.1"
+version = "2.0.15"
+features = [
+    "full",
+    "extra-traits",
+]
 
 [features]
+alloc = []
 clippy = []
+lib_has_std = []

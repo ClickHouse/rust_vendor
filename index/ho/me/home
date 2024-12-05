@@ -1,0 +1,1 @@
+{"name":"home","vers":"0.5.9","deps":[{"name":"windows-sys","req":"^0.52","features":["Win32_Foundation","Win32_UI_Shell","Win32_System_Com"],"optional":false,"default_features":true,"target":"cfg(windows)","kind":null,"package":null}],"cksum":"e3d1354bf6b7235cb4a0576c2619fd4ed18183f689b12b006a0ee7329eeff9a5","features":{},"yanked":false}

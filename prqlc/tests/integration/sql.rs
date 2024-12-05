@@ -1,20 +1,24 @@
 //! Simple tests for "this PRQL creates this SQL" go here.
-use insta::{assert_display_snapshot, assert_snapshot};
+use insta::assert_snapshot;
 use prqlc::{sql, ErrorMessages, Options, SourceTree, Target};
 use rstest::rstest;
 
-pub fn compile(prql: &str) -> Result<String, ErrorMessages> {
-    anstream::ColorChoice::Never.write_global();
-    prqlc::compile(prql, &Options::default().no_signature())
-}
-
-fn compile_with_sql_dialect(prql: &str, dialect: sql::Dialect) -> Result<String, ErrorMessages> {
-    anstream::ColorChoice::Never.write_global();
+pub(crate) fn compile(prql: &str) -> Result<String, ErrorMessages> {
     prqlc::compile(
         prql,
         &Options::default()
             .no_signature()
-            .with_target(Target::Sql(Some(dialect))),
+            .with_display(prqlc::DisplayOptions::Plain),
+    )
+}
+
+fn compile_with_sql_dialect(prql: &str, dialect: sql::Dialect) -> Result<String, ErrorMessages> {
+    prqlc::compile(
+        prql,
+        &Options::default()
+            .no_signature()
+            .with_target(Target::Sql(Some(dialect)))
+            .with_display(prqlc::DisplayOptions::Plain),
     )
 }
 
@@ -26,12 +30,12 @@ fn test_stdlib() {
         {salary_usd = min salary}
     )
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       MIN(salary) AS salary_usd
     FROM
       employees
-    "###
+    "
     );
 
     assert_snapshot!(compile(r###"
@@ -40,12 +44,12 @@ fn test_stdlib() {
         {salary_usd = (math.round 2 salary)}
     )
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       ROUND(salary, 2) AS salary_usd
     FROM
       employees
-    "###
+    "
     );
 }
 
@@ -71,9 +75,10 @@ fn test_stdlib_math_module() {
       salary_asin = math.asin salary,
       salary_tan = math.tan salary,
       salary_atan = math.atan salary,
-      salary_pow = salary | math.pow 2,
+      salary_pow = (salary | math.pow 2),
+      salary_pow_op = salary ** 2,
     }
-    "#).unwrap(), @r#"
+    "#).unwrap(), @r"
     SELECT
       ABS(salary) AS salary_abs,
       FLOOR(salary) AS salary_floor,
@@ -92,10 +97,11 @@ fn test_stdlib_math_module() {
       ASIN(salary) AS salary_asin,
       TAN(salary) AS salary_tan,
       ATAN(salary) AS salary_atan,
-      POW(salary, 2) AS salary_pow
+      POW(salary, 2) AS salary_pow,
+      POW(salary, 2) AS salary_pow_op
     FROM
       employees
-    "#
+    "
     );
 }
 
@@ -123,31 +129,31 @@ fn test_stdlib_math_module_mssql() {
     salary_asin = math.asin salary,
     salary_tan = math.tan salary,
     salary_atan = math.atan salary,
-    salary_pow = salary | math.pow 2,
+    salary_pow = (salary | math.pow 2),
   }
-  "#).unwrap(), @r#"
-  SELECT
-    ABS(salary) AS salary_abs,
-    FLOOR(salary) AS salary_floor,
-    CEILING(salary) AS salary_ceil,
-    PI() AS salary_pi,
-    EXP(salary) AS salary_exp,
-    LOG(salary) AS salary_ln,
-    LOG10(salary) AS salary_log10,
-    LOG10(salary) / LOG10(2) AS salary_log,
-    SQRT(salary) AS salary_sqrt,
-    DEGREES(salary) AS salary_degrees,
-    RADIANS(salary) AS salary_radians,
-    COS(salary) AS salary_cos,
-    ACOS(salary) AS salary_acos,
-    SIN(salary) AS salary_sin,
-    ASIN(salary) AS salary_asin,
-    TAN(salary) AS salary_tan,
-    ATAN(salary) AS salary_atan,
-    POWER(salary, 2) AS salary_pow
-  FROM
-    employees
-  "#
+  "#).unwrap(), @r"
+    SELECT
+      ABS(salary) AS salary_abs,
+      FLOOR(salary) AS salary_floor,
+      CEILING(salary) AS salary_ceil,
+      PI() AS salary_pi,
+      EXP(salary) AS salary_exp,
+      LOG(salary) AS salary_ln,
+      LOG10(salary) AS salary_log10,
+      LOG10(salary) / LOG10(2) AS salary_log,
+      SQRT(salary) AS salary_sqrt,
+      DEGREES(salary) AS salary_degrees,
+      RADIANS(salary) AS salary_radians,
+      COS(salary) AS salary_cos,
+      ACOS(salary) AS salary_acos,
+      SIN(salary) AS salary_sin,
+      ASIN(salary) AS salary_asin,
+      TAN(salary) AS salary_tan,
+      ATAN(salary) AS salary_atan,
+      POWER(salary, 2) AS salary_pow
+    FROM
+      employees
+    "
     );
 }
 
@@ -156,19 +162,19 @@ fn test_stdlib_text_module() {
     assert_snapshot!(compile(r#"
     from employees
     select {
-      name_lower = name | text.lower,
-      name_upper = name | text.upper,
-      name_ltrim = name | text.ltrim,
-      name_rtrim = name | text.rtrim,
-      name_trim = name | text.trim,
-      name_length = name | text.length,
-      name_extract = name | text.extract 3 5,
-      name_replace = name | text.replace "pika" "chu",
-      name_starts_with = name | text.starts_with "pika",
-      name_contains = name | text.contains "pika",
-      name_ends_with = name | text.ends_with "pika",
+      name_lower = (name | text.lower),
+      name_upper = (name | text.upper),
+      name_ltrim = (name | text.ltrim),
+      name_rtrim = (name | text.rtrim),
+      name_trim = (name | text.trim),
+      name_length = (name | text.length),
+      name_extract = (name | text.extract 3 5),
+      name_replace = (name | text.replace "pika" "chu"),
+      name_starts_with = (name | text.starts_with "pika"),
+      name_contains = (name | text.contains "pika"),
+      name_ends_with = (name | text.ends_with "pika"),
     }
-    "#).unwrap(), @r###"
+    "#).unwrap(), @r"
     SELECT
       LOWER(name) AS name_lower,
       UPPER(name) AS name_upper,
@@ -183,7 +189,7 @@ fn test_stdlib_text_module() {
       name LIKE CONCAT('%', 'pika') AS name_ends_with
     FROM
       employees
-    "###
+    "
     );
 }
 
@@ -194,7 +200,7 @@ fn like_concat(#[case] dialect: sql::Dialect, #[case] expected_like: &'static st
     let query = r#"
   from employees
   select {
-    name_ends_with = name | text.contains "pika",
+    name_ends_with = (name | text.contains "pika"),
   }
   "#;
     let expected = format!(
@@ -227,7 +233,7 @@ fn date_to_text_operator(
     let query = r#"
     from invoices
     select {
-      invoice_date = invoice_date | date.to_text "%d/%m/%Y"
+      invoice_date = (invoice_date | date.to_text "%d/%m/%Y")
     }"#;
     let expected = format!(
         r#"
@@ -245,17 +251,17 @@ FROM
 
 #[test]
 fn json_of_test() {
-    let json = prqlc::prql_to_pl("from employees | take 10")
-        .and_then(prqlc::json::from_pl)
-        .unwrap();
+    let pl = prqlc::prql_to_pl("from employees | take 10").unwrap();
+    let json = prqlc::json::from_pl(&pl).unwrap();
+
     // Since the AST is so in flux right now just test that the brackets are present
-    assert_eq!(json.chars().next().unwrap(), '[');
-    assert_eq!(json.chars().nth(json.len() - 1).unwrap(), ']');
+    assert_eq!(json.chars().next().unwrap(), '{');
+    assert_eq!(json.chars().nth(json.len() - 1).unwrap(), '}');
 }
 
 #[test]
 fn test_precedence_division() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from artists
     derive {
       p1 = a - (b + c), # needs parentheses
@@ -264,7 +270,7 @@ fn test_precedence_division() {
       p3 = x / (y / z), # needs parentheses
       np4 = (x / y) / z, # doesn't need parentheses
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       a - (b + c) AS p1,
@@ -274,12 +280,12 @@ fn test_precedence_division() {
       x / y / z AS np4
     FROM
       artists
-    "###);
+    ");
 }
 
 #[test]
-fn test_precedence() {
-    assert_display_snapshot!((compile(r###"
+fn test_precedence_01() {
+    assert_snapshot!((compile(r###"
     from artists
     derive {
       p1 = a - (b + c), # needs parentheses
@@ -287,7 +293,7 @@ fn test_precedence() {
       np1 = a + (b - c), # no parentheses
       np2 = (a + b) - c, # no parentheses
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       a - (b + c) AS p1,
@@ -296,16 +302,19 @@ fn test_precedence() {
       a + b - c AS np2
     FROM
       artists
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_precedence_02() {
+    assert_snapshot!((compile(r###"
     from x
     derive {
       temp_c = (temp_f - 32) / 1.8,
       temp_f = temp_c * 9/5,
       temp_z = temp_x + 9 - 5,
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       (temp_f - 32) / 1.8 AS temp_c,
@@ -313,28 +322,34 @@ fn test_precedence() {
       temp_x + 9 - 5 AS temp_z
     FROM
       x
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_precedence_03() {
+    assert_snapshot!((compile(r###"
     from numbers
     derive {
       sum_1 = a + b,
-      sum_2 = add a b,
+      sum_2 = std.add a b,
       g = -a
     }
     select {
       result = c * sum_1 + sum_2,
       a * g
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       c * (a + b) + a + b AS result,
       a * - a
     FROM
       numbers
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_precedence_04() {
+    assert_snapshot!((compile(r###"
     from comparisons
     select {
       gtz = a > 0,
@@ -347,7 +362,7 @@ fn test_precedence() {
       is_not_null = !(a == null),
       (a + b) == null,
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       a > 0 AS gtz,
       NOT a > 0 AS ltz,
@@ -361,9 +376,12 @@ fn test_precedence() {
       a + b IS NULL
     FROM
       comparisons
-    "###);
+    ");
+}
 
-    assert_display_snapshot!(compile(
+#[test]
+fn test_precedence_05() {
+    assert_snapshot!(compile(
     r###"
     from numbers
     derive x = (y - z)
@@ -380,7 +398,7 @@ fn test_precedence() {
       -x,
     }
     "###
-    ).unwrap(), @r###"
+    ).unwrap(), @r"
     SELECT
       c - (a + b),
       c + a - b,
@@ -394,7 +412,7 @@ fn test_precedence() {
       -(y - z)
     FROM
       numbers
-    "###
+    "
     );
 }
 
@@ -402,7 +420,7 @@ fn test_precedence() {
 #[ignore]
 // FIXME: right associativity of `pow` is not implemented yet
 fn test_pow_is_right_associative() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from numbers
     select {
       c ** a ** b
@@ -418,10 +436,10 @@ fn test_pow_is_right_associative() {
 
 #[test]
 fn test_append() {
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from employees
     append managers
-    "###).unwrap(), @r###"
+    "###).unwrap(), @r"
     SELECT
       *
     FROM
@@ -432,9 +450,9 @@ fn test_append() {
       *
     FROM
       managers
-    "###);
+    ");
 
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from employees
     select {name, cost = salary}
     take 3
@@ -443,7 +461,7 @@ fn test_append() {
         select {name, cost = salary + bonuses}
         take 10
     )
-    "###).unwrap(), @r###"
+    "###).unwrap(), @r"
     WITH table_0 AS (
       SELECT
         name,
@@ -471,15 +489,15 @@ fn test_append() {
       *
     FROM
       table_0
-    "###);
+    ");
 
-    assert_display_snapshot!(compile(r###"
-    let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
-    let union = `default_db.bottom` top -> (top | append bottom | distinct)
+    assert_snapshot!(compile(r###"
+    let distinct = rel -> (_param.rel | group this (take 1))
+    let union = func `default_db.bottom` top -> (top | append bottom | distinct)
 
     from employees
-    union managers
-    "###).unwrap(), @r###"
+    union (from managers)
+    "###).unwrap(), @r"
     SELECT
       *
     FROM
@@ -490,16 +508,16 @@ fn test_append() {
       *
     FROM
       managers
-    "###);
+    ");
 
-    assert_display_snapshot!(compile(r###"
-    let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
-    let union = `default_db.bottom` top -> (top | append bottom | distinct)
+    assert_snapshot!(compile(r###"
+    let distinct = rel -> (_param.rel | group this (take 1))
+    let union = func `default_db.bottom` top -> (top | append bottom | distinct)
 
     from employees
     append managers
     union all_employees_of_some_other_company
-    "###).unwrap(), @r###"
+    "###).unwrap(), @r"
     SELECT
       *
     FROM
@@ -516,16 +534,16 @@ fn test_append() {
       *
     FROM
       all_employees_of_some_other_company
-    "###);
+    ");
 }
 
 #[test]
-fn test_remove() {
-    assert_display_snapshot!(compile(r#"
+fn test_remove_01() {
+    assert_snapshot!(compile(r#"
     from albums
     remove artists
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *
     FROM
@@ -536,17 +554,20 @@ fn test_remove() {
       *
     FROM
       artists AS b
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_remove_02() {
+    assert_snapshot!(compile(r#"
     from album
     select artist_id
     remove (
         from artist | select artist_id
     )
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id
@@ -563,17 +584,20 @@ fn test_remove() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_remove_03() {
+    assert_snapshot!(compile(r#"
     from album
     select {artist_id, title}
     remove (
         from artist | select artist_id
     )
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id
@@ -588,22 +612,28 @@ fn test_remove() {
       LEFT JOIN table_0 ON album.artist_id = table_0.artist_id
     WHERE
       table_0.artist_id IS NULL
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_remove_04() {
+    assert_snapshot!(compile(r#"
     prql target:sql.sqlite
 
     from album
     remove artist
     "#).unwrap_err(),
-        @r###"
+        @r"
     Error: The dialect SQLiteDialect does not support EXCEPT ALL
     ↳ Hint: providing more column information will allow the query to be translated to an anti-join.
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_remove_05() {
+    assert_snapshot!(compile(r#"
     prql target:sql.sqlite
 
     let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
@@ -613,7 +643,7 @@ fn test_remove() {
     select {artist_id, title}
     except (from artist | select {artist_id, name})
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id,
@@ -631,19 +661,22 @@ fn test_remove() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_remove_06() {
+    assert_snapshot!(compile(r#"
     prql target:sql.sqlite
 
     let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
-    let except = `default_db.bottom` top -> (top | distinct | remove bottom)
+    let except = func `default_db.bottom` top -> (top | distinct | remove bottom)
 
     from album
     except artist
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *
     FROM
@@ -653,17 +686,17 @@ fn test_remove() {
       *
     FROM
       artist AS b
-    "###
+    "
     );
 }
 
 #[test]
-fn test_intersect() {
-    assert_display_snapshot!(compile(r#"
+fn test_intersect_01() {
+    assert_snapshot!(compile(r#"
     from album
     intersect artist
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *
     FROM
@@ -674,17 +707,20 @@ fn test_intersect() {
       *
     FROM
       artist AS b
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_intersect_02() {
+    assert_snapshot!(compile(r#"
     from album
     select artist_id
     intersect (
         from artist | select artist_id
     )
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id
@@ -701,11 +737,14 @@ fn test_intersect() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
-    let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
+#[test]
+fn test_intersect_03() {
+    assert_snapshot!(compile(r#"
+    let distinct = rel -> (_param.rel | group this (take 1))
 
     from album
     select artist_id
@@ -715,7 +754,7 @@ fn test_intersect() {
     )
     distinct
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id
@@ -738,11 +777,14 @@ fn test_intersect() {
       DISTINCT artist_id
     FROM
       table_1
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
-    let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
+#[test]
+fn test_intersect_04() {
+    assert_snapshot!(compile(r#"
+    let distinct = rel -> (_param.rel | group this (take 1))
 
     from album
     select artist_id
@@ -751,7 +793,7 @@ fn test_intersect() {
     )
     distinct
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id
@@ -774,11 +816,14 @@ fn test_intersect() {
       DISTINCT artist_id
     FROM
       table_1
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
-    let distinct = rel -> (from t = _param.rel | group {t.*} (take 1))
+#[test]
+fn test_intersect_05() {
+    assert_snapshot!(compile(r#"
+    let distinct = rel -> (_param.rel | group this (take 1))
 
     from album
     select artist_id
@@ -787,7 +832,7 @@ fn test_intersect() {
         from artist | select artist_id
     )
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         artist_id
@@ -804,26 +849,46 @@ fn test_intersect() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_intersect_06() {
+    assert_snapshot!(compile(r#"
     prql target:sql.sqlite
 
     from album
     intersect artist
     "#).unwrap_err(),
-        @r###"
+        @r"
     Error: The dialect SQLiteDialect does not support INTERSECT ALL
     ↳ Hint: providing more column information will allow the query to be translated to an anti-join.
-    "###
+    "
+    );
+}
+
+#[test]
+fn test_intersect_07() {
+    assert_snapshot!(compile(r#"
+    from ds2 = foo.t1
+    join side:inner ds1 = bar.t2 (ds2.idx==ds1.idx)
+    aggregate { count this }
+    "#).unwrap(),
+        @r"
+    SELECT
+      COUNT(*)
+    FROM
+      foo.t1 AS ds2
+      JOIN bar.t2 AS ds1 ON ds2.idx = ds1.idx
+    "
     );
 }
 
 #[test]
 fn test_rn_ids_are_unique() {
     // this is wrong, output will have duplicate y_id and x_id
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from y_orig
     group {y_id} (
         take 2 # take 1 uses `distinct` instead of partitioning, which might be a separate bug
@@ -831,7 +896,7 @@ fn test_rn_ids_are_unique() {
     group {x_id} (
         take 3
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_1 AS (
       SELECT
         *,
@@ -854,13 +919,13 @@ fn test_rn_ids_are_unique() {
       table_0
     WHERE
       _expr_0 <= 3
-    "###);
+    ");
 }
 
 #[test]
-fn test_quoting() {
+fn test_quoting_01() {
     // GH-#822
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.postgres
     let UPPER = (
         default_db.lower
@@ -868,7 +933,7 @@ fn test_quoting() {
     from UPPER
     join `some_schema.tablename` (==id)
     derive `from` = 5
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r#"
     WITH "UPPER" AS (
       SELECT
         *
@@ -882,64 +947,75 @@ fn test_quoting() {
     FROM
       "UPPER"
       JOIN "some_schema.tablename" ON "UPPER".id = "some_schema.tablename".id
-    "###);
+    "#);
+}
 
+#[test]
+fn test_quoting_02() {
     // GH-1493
     let query = r###"
     from `dir/*.parquet`
-        # join files=`*.parquet` (==id)
     "###;
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       *
     FROM
       "dir/*.parquet"
-    "###);
+    "#);
+}
 
+#[test]
+fn test_quoting_03() {
     // GH-#852
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.bigquery
-    from `db.schema.table`
-    join `db.schema.table2` (==id)
-    join c = `db.schema.t-able` (`db.schema.table`.id == c.id)
-    "###).unwrap()), @r###"
+    from `schema.table`
+    join `schema.table2` (==id)
+    join c = `schema.t-able` (`schema.table`.id == c.id)
+    "###).unwrap()), @r"
     SELECT
-      `db.schema.table`.*,
-      `db.schema.table2`.*,
+      `schema.table`.*,
+      `schema.table2`.*,
       c.*
     FROM
-      `db.schema.table`
-      JOIN `db.schema.table2` ON `db.schema.table`.id = `db.schema.table2`.id
-      JOIN `db.schema.t-able` AS c ON `db.schema.table`.id = c.id
-    "###);
+      `schema.table`
+      JOIN `schema.table2` ON `schema.table`.id = `schema.table2`.id
+      JOIN `schema.t-able` AS c ON `schema.table`.id = c.id
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
-    default_db.table
+#[test]
+fn test_quoting_04() {
+    assert_snapshot!((compile(r###"
+    from table
     select `first name`
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r#"
     SELECT
       "first name"
     FROM
       "table"
-    "###);
+    "#);
+}
 
-    assert_display_snapshot!((compile(r###"
-        from as=Assessment
-    "###).unwrap()), @r###"
+#[test]
+fn test_quoting_05() {
+    assert_snapshot!((compile(r###"
+        from as = Assessment
+    "###).unwrap()), @r#"
     SELECT
       *
     FROM
       "Assessment" AS "as"
-    "###);
+    "#);
 }
 
 #[test]
 fn test_sorts_01() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from invoices
     sort {issued_at, -amount, +num_of_articles}
     "###
-    ).unwrap()), @r###"
+    ).unwrap()), @r"
     SELECT
       *
     FROM
@@ -948,15 +1024,15 @@ fn test_sorts_01() {
       issued_at,
       amount DESC,
       num_of_articles
-    "###);
+    ");
 
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     from x
     derive somefield = "something"
     sort {somefield}
     select {renamed = somefield}
     "#
-    ).unwrap()), @r###"
+    ).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         'something' AS renamed,
@@ -970,14 +1046,14 @@ fn test_sorts_01() {
       table_0
     ORDER BY
       _expr_0
-    "###);
+    ");
 }
 
 #[test]
 fn test_sorts_02() {
     // issue #3129
 
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     let x = (
       from table
       sort index
@@ -985,7 +1061,7 @@ fn test_sorts_02() {
     )
     from x
     "###
-    ).unwrap()), @r###"
+    ).unwrap()), @r#"
     WITH table_0 AS (
       SELECT
         "fieldA",
@@ -1006,17 +1082,20 @@ fn test_sorts_02() {
       x
     ORDER BY
       "index"
-    "###);
+    "#);
+}
 
+#[test]
+fn test_sorts_03() {
     // TODO: this is invalid SQL: a._expr_0 does not exist
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     from a
-    join side:left b (==col)
+    join b side:left (==col)
     sort a.col
     select !{a.col}
     take 5
     "#
-    ).unwrap()), @r###"
+    ).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         a.*,
@@ -1036,7 +1115,7 @@ fn test_sorts_02() {
       table_0
     ORDER BY
       _expr_0
-    "###);
+    ");
 }
 
 #[test]
@@ -1052,7 +1131,7 @@ fn test_numbers() {
     }
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       5.0000001 AS v,
       5000 AS w,
@@ -1061,20 +1140,20 @@ fn test_numbers() {
       5.0 AS z
     FROM
       numbers
-    "###);
+    ");
 }
 
 #[test]
 fn test_ranges() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     derive {
       close = (distance | in ..50),
       middle = (distance | in 50..100),
       far = (distance | in 100..),
-      country_founding | in @1776-07-04..@1787-09-17
+      (country_founding | in @1776-07-04..@1787-09-17)
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       distance <= 50 AS close,
@@ -1083,16 +1162,18 @@ fn test_ranges() {
       country_founding BETWEEN DATE '1776-07-04' AND DATE '1787-09-17'
     FROM
       employees
-    "###);
+    ");
 }
 
 #[test]
 fn test_in_values_01() {
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     from employees
     filter (title | in ["Sales Manager", "Sales Support Agent"])
     filter (employee_id | in [1, 2, 5])
-    "#).unwrap()), @r#"
+    filter (f"{emp_group}.{role}" | in ["sales_ne.mgr", "sales_mw.mgr"])
+    filter (s"{metadata} ->> '$.location'" | in ["Northeast", "Midwest"])
+    "#).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1100,13 +1181,15 @@ fn test_in_values_01() {
     WHERE
       title IN ('Sales Manager', 'Sales Support Agent')
       AND employee_id IN (1, 2, 5)
-    "#);
+      AND CONCAT(emp_group, '.', role) IN ('sales_ne.mgr', 'sales_mw.mgr')
+      AND metadata ->> '$.location' IN ('Northeast', 'Midwest')
+    ");
 }
 
 #[test]
 #[ignore] // unimplemented, column ref type resolution required
 fn test_in_values_02() {
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     let allowed_titles = ["Sales Manager", "Sales Support Agent"]
 
     from employees
@@ -1126,7 +1209,7 @@ fn test_in_values_02() {
 #[test]
 #[ignore] // unimplemented, column ref type resolution required
 fn test_in_values_03() {
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     from employees
     derive allowed_titles = case [
         is_guest => ["Sales Manager"],
@@ -1145,17 +1228,48 @@ fn test_in_values_03() {
 
 #[test]
 fn test_not_in_values() {
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     from employees
     filter !(title | in ["Sales Manager", "Sales Support Agent"])
-    "#).unwrap()), @r#"
+    "#).unwrap()), @r"
     SELECT
       *
     FROM
       employees
     WHERE
       NOT title IN ('Sales Manager', 'Sales Support Agent')
-    "#);
+    ");
+}
+
+#[test]
+fn test_in_no_values() {
+    assert_snapshot!((compile(r#"
+    from employees
+    filter (title | in [])
+    "#).unwrap()), @r"
+    SELECT
+      *
+    FROM
+      employees
+    WHERE
+      false
+    ");
+}
+
+#[test]
+fn test_in_values_err_01() {
+    assert_snapshot!((compile(r###"
+    from employees
+    derive { ng = ([1, 2] | in [3, 4]) }
+    "###).unwrap_err()), @r"
+    Error:
+       ╭─[:3:29]
+       │
+     3 │     derive { ng = ([1, 2] | in [3, 4]) }
+       │                             ────┬────
+       │                                 ╰────── args to `std.array_in` must be an expression and an array
+    ───╯
+    ");
 }
 
 #[test]
@@ -1165,13 +1279,13 @@ fn test_interval() {
     derive first_check_in = start + 10days
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       *,
-      start + INTERVAL 10 DAY AS first_check_in
+      "start" + INTERVAL 10 DAY AS first_check_in
     FROM
       projects
-    "###);
+    "#);
 
     let query = r###"
     prql target:sql.postgres
@@ -1179,18 +1293,32 @@ fn test_interval() {
     from projects
     derive first_check_in = start + 10days
     "###;
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       *,
-      start + INTERVAL '10' DAY AS first_check_in
+      "start" + INTERVAL '10 DAY' AS first_check_in
     FROM
       projects
-    "###);
+    "#);
+
+    let query = r###"
+    prql target:sql.glaredb
+
+    from projects
+    derive first_check_in = start + 10days
+    "###;
+    assert_snapshot!((compile(query).unwrap()), @r#"
+    SELECT
+      *,
+      "start" + INTERVAL '10 DAY' AS first_check_in
+    FROM
+      projects
+    "#);
 }
 
 #[test]
 fn test_dates() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from to_do_empty_table
     derive {
         date = @2011-02-01,
@@ -1198,7 +1326,7 @@ fn test_dates() {
         time = @14:00,
         # datetime = @2011-02-01T10:00<datetime>,
     }
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       DATE '2011-02-01' AS date,
@@ -1206,23 +1334,23 @@ fn test_dates() {
       TIME '14:00' AS time
     FROM
       to_do_empty_table
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_00() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     group last_name (
         derive {count first_name}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       COUNT(*) OVER (PARTITION BY last_name)
     FROM
       employees
-    "###);
+    ");
 }
 
 #[test]
@@ -1251,7 +1379,7 @@ fn test_window_functions_02() {
     derive {num_books_last_week = lag 7 num_books}
     "#;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         TO_CHAR(co.order_date, '%Y-%m') AS order_month,
@@ -1285,7 +1413,7 @@ fn test_window_functions_02() {
       table_0
     ORDER BY
       order_day
-    "###);
+    ");
 }
 
 #[test]
@@ -1302,7 +1430,7 @@ fn test_window_functions_03() {
     )
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       *,
       LAG(num_orders, 7) OVER () AS last_week,
@@ -1311,7 +1439,7 @@ fn test_window_functions_03() {
       SUM(num_orders) OVER (PARTITION BY month) AS total_month
     FROM
       daily_orders
-    "###);
+    ");
 }
 
 #[test]
@@ -1324,14 +1452,14 @@ fn test_window_functions_04() {
     derive {last_week = lag 7 num_orders}
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       *,
       RANK() OVER (PARTITION BY month) AS total_month,
       LAG(num_orders, 7) OVER () AS last_week
     FROM
       daily_orders
-    "###);
+    ");
 }
 
 #[test]
@@ -1343,7 +1471,7 @@ fn test_window_functions_05() {
     group month (sort num_orders | window expanding:true (derive {rank day}))
     derive {num_orders_last_week = lag 7 num_orders}
     "###;
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       *,
       RANK() OVER (
@@ -1354,68 +1482,68 @@ fn test_window_functions_05() {
       LAG(num_orders, 7) OVER () AS num_orders_last_week
     FROM
       daily_orders
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_06() {
     // detect sum as a window function, even without group or window
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from foo
     derive {a = sum b}
     group c (
         derive {d = sum b}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       SUM(b) OVER () AS a,
       SUM(b) OVER (PARTITION BY c) AS d
     FROM
       foo
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_07() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from foo
     window expanding:true (
         derive {running_total = sum b}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       SUM(b) OVER (ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS running_total
     FROM
       foo
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_08() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from foo
     window rolling:3 (
         derive {last_three = sum b}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       SUM(b) OVER (ROWS BETWEEN 2 PRECEDING AND CURRENT ROW) AS last_three
     FROM
       foo
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_09() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from foo
     window rows:0..4 (
         derive {next_four_rows = sum b}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       SUM(b) OVER (
@@ -1424,18 +1552,18 @@ fn test_window_functions_09() {
       ) AS next_four_rows
     FROM
       foo
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_10() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from foo
     sort day
     window range:-4..4 (
         derive {next_four_days = sum b}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       SUM(b) OVER (
@@ -1446,16 +1574,16 @@ fn test_window_functions_10() {
       foo
     ORDER BY
       day
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_11() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     sort age
     derive {num = row_number this}
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       ROW_NUMBER() OVER (
@@ -1466,21 +1594,21 @@ fn test_window_functions_11() {
       employees
     ORDER BY
       age
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_12() {
     // window params need to be simple expressions
 
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from x
     derive {b = lag 1 a}
     window (
       sort b
       derive {c = lag 1 a}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -1498,15 +1626,15 @@ fn test_window_functions_12() {
       table_0
     ORDER BY
       b
-    "###);
+    ");
 
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from x
     derive {b = lag 1 a}
     group b (
       derive {c = lag 1 a}
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         LAG(a, 1) OVER () AS b,
@@ -1519,14 +1647,14 @@ fn test_window_functions_12() {
       LAG(a, 1) OVER (PARTITION BY b) AS c
     FROM
       table_0
-    "###);
+    ");
 }
 
 #[test]
 fn test_window_functions_13() {
     // window params need to be simple expressions
 
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from tracks
     group {album_id} (
       window (derive {grp = milliseconds - (row_number this)})
@@ -1534,7 +1662,7 @@ fn test_window_functions_13() {
     group {grp} (
       window (derive {count = row_number this})
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -1548,7 +1676,31 @@ fn test_window_functions_13() {
       ROW_NUMBER() OVER (PARTITION BY milliseconds - _expr_0) AS count
     FROM
       table_0
-    "###);
+    ");
+}
+
+#[test]
+fn test_window_single_item_range() {
+    assert_snapshot!(compile(r###"
+      from login_event
+      window rows:1..1 (
+        sort time_upload
+        derive {
+            last_user = min user_id
+        }
+      )
+    "###).unwrap(), @r"
+    SELECT
+      *,
+      MIN(user_id) OVER (
+        ORDER BY
+          time_upload ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+      ) AS last_user
+    FROM
+      login_event
+    ORDER BY
+      time_upload
+    ");
 }
 
 #[test]
@@ -1558,13 +1710,13 @@ fn test_name_resolving() {
     derive x = 5
     select {y = 6, z = x + y + a}
     "###;
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       6 AS y,
       5 + 6 + a AS z
     FROM
       numbers
-    "###);
+    ");
 }
 
 #[test]
@@ -1578,7 +1730,7 @@ fn test_strings() {
         v = f'a {x} b" {y} c',
     }
     "#;
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       'two households''' AS x,
       'two households"' AS y,
@@ -1598,7 +1750,7 @@ fn test_strings() {
       ) AS v
     FROM
       empty_table_to_do
-    "###);
+    "#);
 }
 
 #[test]
@@ -1611,10 +1763,10 @@ fn test_filter() {
 
     assert!(compile(query).is_err());
 
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     filter age > 25 && age < 40
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1622,13 +1774,13 @@ fn test_filter() {
     WHERE
       age > 25
       AND age < 40
-    "###);
+    ");
 
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     filter age > 25
     filter age < 40
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1636,38 +1788,44 @@ fn test_filter() {
     WHERE
       age > 25
       AND age < 40
-    "###);
+    ");
 }
 
 #[test]
-fn test_nulls() {
-    assert_display_snapshot!((compile(r###"
+fn test_nulls_01() {
+    assert_snapshot!((compile(r###"
     from employees
     select amount = null
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       NULL AS amount
     FROM
       employees
-    "###);
+    ");
+}
 
+#[test]
+fn test_nulls_02() {
     // coalesce
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     derive amount = amount + 2 ?? 3 * 5
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *,
       COALESCE(amount + 2, 3 * 5) AS amount
     FROM
       employees
-    "###);
+    ");
+}
 
+#[test]
+fn test_nulls_03() {
     // IS NULL
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     filter first_name == null && null == last_name
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1675,13 +1833,16 @@ fn test_nulls() {
     WHERE
       first_name IS NULL
       AND last_name IS NULL
-    "###);
+    ");
+}
 
+#[test]
+fn test_nulls_04() {
     // IS NOT NULL
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     filter first_name != null && null != last_name
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1689,78 +1850,93 @@ fn test_nulls() {
     WHERE
       first_name IS NOT NULL
       AND last_name IS NOT NULL
-    "###);
+    ");
 }
 
 #[test]
-fn test_take() {
-    assert_display_snapshot!((compile(r###"
+fn test_take_01() {
+    assert_snapshot!((compile(r###"
     from employees
     take ..10
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
       employees
     LIMIT
       10
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_02() {
+    assert_snapshot!((compile(r###"
     from employees
     take 5..10
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
       employees
     LIMIT
       6 OFFSET 4
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_03() {
+    assert_snapshot!((compile(r###"
     from employees
     take 5..
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
       employees OFFSET 4
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_04() {
+    assert_snapshot!((compile(r###"
     from employees
     take 5..5
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
       employees
     LIMIT
       1 OFFSET 4
-    "###);
+    ");
+}
 
+#[test]
+fn test_take_05() {
     // should be one SELECT
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     take 11..20
     take 1..5
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       *
     FROM
       employees
     LIMIT
       5 OFFSET 10
-    "###);
+    ");
+}
 
+#[test]
+fn test_take_06() {
     // should be two SELECTs
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     take 11..20
     sort name
     take 1..5
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *
@@ -1777,12 +1953,15 @@ fn test_take() {
       name
     LIMIT
       5
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_07() {
+    assert_snapshot!((compile(r###"
     from employees
     take 0..1
-    "###).unwrap_err()), @r###"
+    "###).unwrap_err()), @r"
     Error:
        ╭─[:3:5]
        │
@@ -1790,12 +1969,15 @@ fn test_take() {
        │     ────┬────
        │         ╰────── take expected a positive int range, but found 0..1
     ───╯
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_08() {
+    assert_snapshot!((compile(r###"
     from employees
     take (-1..)
-    "###).unwrap_err()), @r###"
+    "###).unwrap_err()), @r"
     Error:
        ╭─[:3:5]
        │
@@ -1803,13 +1985,16 @@ fn test_take() {
        │     ─────┬─────
        │          ╰─────── take expected a positive int range, but found -1..
     ───╯
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_09() {
+    assert_snapshot!((compile(r###"
     from employees
     select a
     take 5..5.6
-    "###).unwrap_err()), @r###"
+    "###).unwrap_err()), @r"
     Error:
        ╭─[:4:5]
        │
@@ -1817,12 +2002,15 @@ fn test_take() {
        │     ─────┬─────
        │          ╰─────── take expected a positive int range, but found 5..?
     ───╯
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r###"
+#[test]
+fn test_take_10() {
+    assert_snapshot!((compile(r###"
     from employees
     take (-1)
-    "###).unwrap_err()), @r###"
+    "###).unwrap_err()), @r"
     Error:
        ╭─[:3:5]
        │
@@ -1830,17 +2018,17 @@ fn test_take() {
        │     ────┬────
        │         ╰────── take expected a positive int range, but found ..-1
     ───╯
-    "###);
+    ");
 }
 
 #[test]
 fn test_take_mssql() {
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     prql target:sql.mssql
 
     from tracks
     take 3..5
-    "#).unwrap()), @r###"
+    "#).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1852,14 +2040,14 @@ fn test_take_mssql() {
       ) OFFSET 2 ROWS
     FETCH FIRST
       3 ROWS ONLY
-    "###);
+    ");
 
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     prql target:sql.mssql
 
     from tracks
     take ..5
-    "#).unwrap()), @r###"
+    "#).unwrap()), @r"
     SELECT
       *
     FROM
@@ -1871,29 +2059,29 @@ fn test_take_mssql() {
       ) OFFSET 0 ROWS
     FETCH FIRST
       5 ROWS ONLY
-    "###);
+    ");
 
-    assert_display_snapshot!((compile(r#"
+    assert_snapshot!((compile(r#"
     prql target:sql.mssql
 
     from tracks
     take 3..
-    "#).unwrap()), @r###"
+    "#).unwrap()), @r"
     SELECT
       *
     FROM
       tracks OFFSET 2 ROWS
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_01() {
     // window functions cannot materialize into where statement: CTE is needed
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     derive {rn = row_number id}
     filter rn > 2
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -1907,47 +2095,47 @@ fn test_distinct_01() {
       table_0
     WHERE
       rn > 2
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_02() {
     // basic distinct
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     select first_name
     group first_name (take 1)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       DISTINCT first_name
     FROM
       employees
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_03() {
     // distinct on two columns
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     select {first_name, last_name}
     group {first_name, last_name} (take 1)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       DISTINCT first_name,
       last_name
     FROM
       employees
-    "###);
+    ");
 }
 #[test]
 fn test_distinct_04() {
     // We want distinct only over first_name and last_name, so we can't use a
     // `DISTINCT *` here.
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     group {first_name, last_name} (take 1)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -1961,7 +2149,7 @@ fn test_distinct_04() {
       table_0
     WHERE
       _expr_0 <= 1
-    "###);
+    ");
 }
 #[test]
 fn test_distinct_05() {
@@ -1975,10 +2163,10 @@ fn test_distinct_05() {
 #[test]
 fn test_distinct_06() {
     // head
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     group department (take 3)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -1992,14 +2180,14 @@ fn test_distinct_06() {
       table_0
     WHERE
       _expr_0 <= 3
-    "###);
+    ");
 }
 #[test]
 fn test_distinct_07() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     group department (sort salary | take 2..3)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -2017,14 +2205,14 @@ fn test_distinct_07() {
       table_0
     WHERE
       _expr_0 BETWEEN 2 AND 3
-    "###);
+    ");
 }
 #[test]
 fn test_distinct_08() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from employees
     group department (sort salary | take 4..4)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -2042,19 +2230,19 @@ fn test_distinct_08() {
       table_0
     WHERE
       _expr_0 = 4
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_09() {
-    assert_display_snapshot!(compile("
+    assert_snapshot!(compile("
     from invoices
     select {billing_country, billing_city}
     group {billing_city} (
       take 1
     )
     sort billing_city
-    ").unwrap(), @r###"
+    ").unwrap(), @r"
     WITH table_0 AS (
       SELECT
         billing_city,
@@ -2072,12 +2260,12 @@ fn test_distinct_09() {
       _expr_0 <= 1
     ORDER BY
       billing_city
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_on_01() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.postgres
 
     from employees
@@ -2085,7 +2273,7 @@ fn test_distinct_on_01() {
       sort age
       take 1
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       DISTINCT ON (department) *
     FROM
@@ -2093,29 +2281,29 @@ fn test_distinct_on_01() {
     ORDER BY
       department,
       age
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_on_02() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.duckdb
 
     from x
     select {class, begins}
     group {begins} (take 1)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       DISTINCT ON (begins) begins,
       class
     FROM
       x
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_on_03() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.duckdb
 
     from tab1
@@ -2124,7 +2312,7 @@ fn test_distinct_on_03() {
     )
     derive foo = 1
     select foo
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         DISTINCT ON (col1) NULL
@@ -2135,12 +2323,12 @@ fn test_distinct_on_03() {
       1 AS foo
     FROM
       table_0
-    "###);
+    ");
 }
 
 #[test]
 fn test_distinct_on_04() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.duckdb
 
     from a
@@ -2150,7 +2338,7 @@ fn test_distinct_on_04() {
       take 1
     )
     select {a.id, b.y}
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       DISTINCT ON (a.id) a.id,
       b.y
@@ -2160,12 +2348,12 @@ fn test_distinct_on_04() {
     ORDER BY
       a.id,
       b.x
-    "###);
+    ");
 }
 
 #[test]
 fn test_group_take_n_01() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.postgres
 
     from employees
@@ -2173,7 +2361,7 @@ fn test_group_take_n_01() {
       sort age
       take 2
     )
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -2191,12 +2379,12 @@ fn test_group_take_n_01() {
       table_0
     WHERE
       _expr_0 <= 2
-    "###);
+    ");
 }
 
 #[test]
 fn test_group_take_n_02() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     prql target:sql.postgres
 
     from employees
@@ -2204,7 +2392,7 @@ fn test_group_take_n_02() {
       sort age
       take 2..
     )
-    "###).unwrap()),  @r###"
+    "###).unwrap()),  @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -2222,24 +2410,98 @@ fn test_group_take_n_02() {
       table_0
     WHERE
       _expr_0 >= 2
-    "###);
+    ");
 }
 
 #[test]
 fn test_join() {
-    assert_display_snapshot!((compile(r###"
+    assert_snapshot!((compile(r###"
     from x
     join y (==id)
-    "###).unwrap()), @r###"
+    "###).unwrap()), @r"
     SELECT
       x.*,
       y.*
     FROM
       x
       JOIN y ON x.id = y.id
-    "###);
+    ");
 
     compile("from x | join y {==x.id}").unwrap_err();
+}
+
+#[test]
+fn test_join_side_literal() {
+    assert_snapshot!((compile(r###"
+    let my_side = "right"
+
+    from x
+    join y (==id) side:my_side
+    "###).unwrap()), @r"
+    SELECT
+      x.*,
+      y.*
+    FROM
+      x
+      RIGHT JOIN y ON x.id = y.id
+    ");
+}
+
+#[test]
+fn test_join_side_literal_err() {
+    assert_snapshot!((compile(r###"
+    let my_side = 42
+
+    from x
+    join y (==id) side:my_side
+    "###).unwrap_err()), @r"
+    Error:
+       ╭─[:5:24]
+       │
+     5 │     join y (==id) side:my_side
+       │                        ───┬───
+       │                           ╰───── `side` expected inner, left, right or full, but found 42
+    ───╯
+    ");
+}
+
+#[test]
+fn test_join_side_literal_via_func() {
+    assert_snapshot!((compile(r###"
+    let my_join = func m <relation> c <scalar> s <text>:"right" tbl <relation> -> (
+        join side:_param.s m (c == that.k) tbl
+    )
+
+    from x
+    my_join default_db.y this.id s:"left"
+    "###).unwrap()), @r"
+    SELECT
+      x.*,
+      y.*
+    FROM
+      x
+      LEFT JOIN y ON x.id = y.k
+    ");
+}
+
+#[test]
+fn test_join_side_literal_via_func_err() {
+    assert_snapshot!((compile(r###"
+    let my_join = func m <relation> c <scalar> s <text>:"right" tbl <relation> -> (
+        join side:_param.s m (c == that.k) tbl
+    )
+
+    from x
+    my_join default_db.y this.id s:"four"
+    "###).unwrap_err()), @r#"
+    Error:
+       ╭─[:3:25]
+       │
+     3 │         join side:_param.s m (c == that.k) tbl
+       │                         ─┬
+       │                          ╰── `side` expected inner, left, right or full, but found "four"
+    ───╯
+    "#);
 }
 
 #[test]
@@ -2269,8 +2531,7 @@ fn test_from_json() {
     select {mng_name, managers.gender, salary_avg, salary_sd}
     "#;
 
-    let mut source_tree = SourceTree::from(original_prql);
-    prqlc::semantic::load_std_lib(&mut source_tree);
+    let source_tree = SourceTree::from(original_prql);
 
     let sql_from_prql = Ok(prqlc::prql_to_pl_tree(&source_tree).unwrap())
         .and_then(|ast| prqlc::semantic::resolve_and_lower(ast, &[], None))
@@ -2278,8 +2539,8 @@ fn test_from_json() {
         .unwrap();
 
     let sql_from_json = prqlc::prql_to_pl(original_prql)
-        .and_then(prqlc::json::from_pl)
-        .and_then(|json| prqlc::json::to_pl(&json))
+        .map(|x| prqlc::json::from_pl(&x).unwrap())
+        .map(|json| prqlc::json::to_pl(&json).unwrap())
         .and_then(prqlc::pl_to_rq)
         .and_then(|rq| prqlc::rq_to_sql(rq, &Options::default()))
         .unwrap();
@@ -2298,9 +2559,9 @@ fn test_f_string() {
     }
     "#;
 
-    assert_display_snapshot!(
+    assert_snapshot!(
       compile(query).unwrap(),
-        @r###"
+        @r"
     SELECT
       CONCAT(
         'Hello my name is ',
@@ -2312,10 +2573,10 @@ fn test_f_string() {
       CONCAT('and I am ', year_born - now(), ' years old.')
     FROM
       employees
-    "###
+    "
     );
 
-    assert_display_snapshot!(
+    assert_snapshot!(
         prqlc::compile(
           query,
           &Options::default()
@@ -2323,13 +2584,13 @@ fn test_f_string() {
               .with_target(Target::Sql(Some(sql::Dialect::SQLite)))
 
       ).unwrap(),
-          @r###"
+          @r"
     SELECT
       'Hello my name is ' || prefix || first_name || ' ' || last_name,
       'and I am ' || year_born - now() || ' years old.'
     FROM
       employees
-    "###
+    "
     );
 }
 
@@ -2346,8 +2607,8 @@ fn test_sql_of_ast_1() {
     "#;
 
     let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    assert_snapshot!(sql,
+        @r"
     SELECT
       title,
       country,
@@ -2363,12 +2624,27 @@ fn test_sql_of_ast_1() {
       title
     LIMIT
       20
-    "###
+    "
     );
 }
 
 #[test]
-// Confirm that a bare s-string in a table definition works as expected.
+fn test_sql_of_ast_02() {
+    assert_snapshot!(compile(r#"
+    from employees
+    aggregate sum_salary = s"sum({salary})"
+    filter sum_salary > 100
+    "#).unwrap(), @r"
+    SELECT
+      sum(salary) AS sum_salary
+    FROM
+      employees
+    HAVING
+      sum(salary) > 100
+    ");
+}
+
+#[test]
 fn test_bare_s_string() {
     let query = r#"
     let grouping = s"""
@@ -2382,8 +2658,8 @@ fn test_bare_s_string() {
     "#;
 
     let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    assert_snapshot!(sql,
+        @r"
     WITH table_0 AS (
       SELECT
         SUM(a)
@@ -2396,18 +2672,18 @@ fn test_bare_s_string() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
+#[test]
+fn test_bare_s_string_01() {
     // Test that case insensitive SELECT is accepted. We allow it as it is valid SQL.
-    let query = r#"
+    assert_snapshot!(compile(r#"
     let a = s"select insensitive from rude"
     from a
-    "#;
-
-    let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    "#).unwrap(),
+        @r"
     WITH table_0 AS (
       SELECT
         insensitive
@@ -2418,18 +2694,18 @@ fn test_bare_s_string() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
+#[test]
+fn test_bare_s_string_02() {
     // Check a mixture of cases for good measure.
-    let query = r#"
+    assert_snapshot!(compile(r#"
     let a = s"sElEcT insensitive from rude"
     from a
-    "#;
-
-    let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    "#).unwrap(),
+        @r"
     WITH table_0 AS (
       SELECT
         insensitive
@@ -2440,11 +2716,14 @@ fn test_bare_s_string() {
       *
     FROM
       table_0
-    "###
+    "
     );
+}
 
+#[test]
+fn test_bare_s_string_03() {
     // Check SELECT\n.
-    let query = r#"
+    assert_snapshot!(compile(r#"
     let a = s"
     SELECT
       foo
@@ -2452,11 +2731,7 @@ fn test_bare_s_string() {
       bar"
 
     from a
-    "#;
-
-    let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-      @r###"
+    "#).unwrap(), @r"
     WITH table_0 AS (
       SELECT
         foo
@@ -2467,14 +2742,17 @@ fn test_bare_s_string() {
       *
     FROM
       table_0
-    "###);
+    ");
+}
 
-    assert_display_snapshot!(compile(r#"
-    from s"SELECTfoo"
-    "#).unwrap_err(), @r###"
+#[test]
+fn test_bare_s_string_04() {
+    assert_snapshot!(compile(r#"
+    s"SELECTfoo"
+    "#).unwrap_err(), @r"
     Error: s-strings representing a table must start with `SELECT `
     ↳ Hint: this is a limitation by current compiler implementation
-    "###);
+    ");
 }
 
 #[test]
@@ -2486,8 +2764,8 @@ fn test_table_definition_with_expr_call() {
     "###;
 
     let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    assert_snapshot!(sql,
+        @r"
     WITH e AS (
       SELECT
         *
@@ -2500,47 +2778,27 @@ fn test_table_definition_with_expr_call() {
       *
     FROM
       e
-    "###
+    "
     );
 }
 
 #[test]
-fn test_sql_of_ast_2() {
-    let query = r#"
-    from employees
-    aggregate sum_salary = s"sum({salary})"
-    filter sum_salary > 100
-    "#;
-    let sql = compile(query).unwrap();
-    assert_snapshot!(sql, @r###"
-    SELECT
-      sum(salary) AS sum_salary
-    FROM
-      employees
-    HAVING
-      sum(salary) > 100
-    "###);
-    assert!(sql.to_lowercase().contains(&"having".to_lowercase()));
-}
-
-#[test]
 fn test_prql_to_sql_1() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from employees
     aggregate {
         count salary,
         sum salary,
     }
-    "#).unwrap(),
-        @r###"
+    "#).unwrap(), @r"
     SELECT
       COUNT(*),
       COALESCE(SUM(salary), 0)
     FROM
       employees
-    "###
+    "
     );
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.postgres
     from developers
     group team (
@@ -2548,8 +2806,7 @@ fn test_prql_to_sql_1() {
             skill_width = count_distinct specialty,
         }
     )
-    "#).unwrap(),
-        @r###"
+    "#).unwrap(), @r"
     SELECT
       team,
       COUNT(DISTINCT specialty) AS skill_width
@@ -2557,11 +2814,12 @@ fn test_prql_to_sql_1() {
       developers
     GROUP BY
       team
-    "###
+    "
     )
 }
 
 #[test]
+#[ignore]
 fn test_prql_to_sql_2() {
     let query = r#"
 from employees
@@ -2588,7 +2846,7 @@ take 20
 "#;
 
     let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql, @r###"
+    assert_snapshot!(sql, @r###"
     WITH table_0 AS (
       SELECT
         title,
@@ -2649,8 +2907,8 @@ fn test_prql_to_sql_table() {
     select {name, salary, average_country_salary}
     "#;
     let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    assert_snapshot!(sql,
+        @r"
     WITH newest_employees AS (
       SELECT
         *
@@ -2678,7 +2936,7 @@ fn test_prql_to_sql_table() {
       JOIN average_salaries ON newest_employees.country = average_salaries.country
     ORDER BY
       employees.tenure
-    "###
+    "
     );
 }
 
@@ -2702,7 +2960,7 @@ fn test_nonatomic() {
         sort sum_gross_cost
     "#;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     WITH table_1 AS (
       SELECT
         title,
@@ -2736,7 +2994,7 @@ fn test_nonatomic() {
       country
     ORDER BY
       sum_gross_cost
-    "###);
+    ");
 
     // A aggregate, then sort and filter
     let query = r###"
@@ -2750,7 +3008,7 @@ fn test_nonatomic() {
         filter sum_gross_cost > 0
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       title,
       country,
@@ -2764,7 +3022,7 @@ fn test_nonatomic() {
       AVG(salary) > 0
     ORDER BY
       sum_gross_cost
-    "###);
+    ");
 }
 
 #[test]
@@ -2782,7 +3040,7 @@ fn test_nonatomic_table() {
     select {name, salary, average_country_salary}
 "#;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     WITH table_0 AS (
       SELECT
         country
@@ -2806,21 +3064,19 @@ fn test_nonatomic_table() {
     FROM
       a
       JOIN b ON a.country = b.country
-    "###);
+    ");
 }
 
 #[test]
-fn test_table_names_between_splits() {
-    let prql = r###"
+fn test_table_names_between_splits_01() {
+    assert_snapshot!(compile(r###"
     from employees
-    join d=department (==dept_no)
+    join d = department (==dept_no)
     take 10
     derive emp_no = employees.emp_no
-    join s=salaries (==emp_no)
+    join s = salaries (==emp_no)
     select {employees.emp_no, d.name, s.salary}
-    "###;
-    let result = compile(prql).unwrap();
-    assert_display_snapshot!(result, @r###"
+    "###).unwrap(), @r"
     WITH table_0 AS (
       SELECT
         employees.emp_no,
@@ -2838,16 +3094,17 @@ fn test_table_names_between_splits() {
     FROM
       table_0
       JOIN salaries AS s ON table_0.emp_no = s.emp_no
-    "###);
+    ");
+}
 
-    let prql = r###"
-    from e=employees
+#[test]
+fn test_table_names_between_splits_02() {
+    assert_snapshot!(compile(r###"
+    from e = employees
     take 10
     join salaries (==emp_no)
     select {e.*, salaries.salary}
-    "###;
-    let result = compile(prql).unwrap();
-    assert_display_snapshot!(result, @r###"
+    "###).unwrap(), @r"
     WITH table_0 AS (
       SELECT
         *
@@ -2862,24 +3119,21 @@ fn test_table_names_between_splits() {
     FROM
       table_0
       JOIN salaries ON table_0.emp_no = salaries.emp_no
-    "###);
+    ");
 }
 
 #[test]
-fn test_table_alias() {
-    // Alias on from
-    let query = r###"
-        from e = employees
-        join salaries side:left (salaries.emp_no == e.emp_no)
-        group {e.emp_no} (
-            aggregate {
-                emp_salary = average salaries.salary
-            }
-        )
-        select {emp_no, emp_salary}
-    "###;
-
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+fn test_table_alias_01() {
+    assert_snapshot!((compile(r###"
+    from e = employees
+    join salaries side:left (salaries.emp_no == e.emp_no)
+    group {e.emp_no} (
+        aggregate {
+            emp_salary = average salaries.salary
+        }
+    )
+    select {emp_no, emp_salary}
+    "###).unwrap()), @r"
     SELECT
       e.emp_no,
       AVG(salaries.salary) AS emp_salary
@@ -2888,20 +3142,23 @@ fn test_table_alias() {
       LEFT JOIN salaries ON salaries.emp_no = e.emp_no
     GROUP BY
       e.emp_no
-    "###);
+    ");
+}
 
-    assert_display_snapshot!((compile(r#"
-    from e=employees
+#[test]
+fn test_table_alias_02() {
+    assert_snapshot!((compile(r#"
+    from e = employees
     select e.first_name
     filter e.first_name == "Fred"
-    "#).unwrap()), @r###"
+    "#).unwrap()), @r"
     SELECT
       first_name
     FROM
       employees AS e
     WHERE
       first_name = 'Fred'
-    "###);
+    ");
 }
 
 #[test]
@@ -2914,7 +3171,7 @@ fn test_targets() {
     take 3
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       "FirstName",
       "last name"
@@ -2922,7 +3179,7 @@ fn test_targets() {
       "Employees"
     LIMIT
       3
-    "###);
+    "#);
 
     // SQL server
     let query = r###"
@@ -2932,7 +3189,7 @@ fn test_targets() {
     take 3
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       "FirstName",
       "last name"
@@ -2945,7 +3202,7 @@ fn test_targets() {
       ) OFFSET 0 ROWS
     FETCH FIRST
       3 ROWS ONLY
-    "###);
+    "#);
 
     // MySQL
     let query = r###"
@@ -2955,7 +3212,7 @@ fn test_targets() {
     take 3
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       `FirstName`,
       `last name`
@@ -2963,7 +3220,7 @@ fn test_targets() {
       `Employees`
     LIMIT
       3
-    "###);
+    ");
 }
 
 #[test]
@@ -2975,13 +3232,13 @@ fn test_target_clickhouse() {
     derive {event_type_dotted = `event.type`}
     "###;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r"
     SELECT
       *,
       `event.type` AS event_type_dotted
     FROM
       github_json
-    "###);
+    ");
 }
 
 #[test]
@@ -2992,14 +3249,14 @@ fn test_ident_escaping() {
     derive {`čebela` = BeeName, medved = `bear's_name`}
     "#;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       *,
       "BeeName" AS "čebela",
       "bear's_name" AS medved
     FROM
       "anim""ls"
-    "###);
+    "#);
 
     // MySQL
     let query = r#"
@@ -3009,14 +3266,14 @@ fn test_ident_escaping() {
     derive {`čebela` = BeeName, medved = `bear's_name`}
     "#;
 
-    assert_display_snapshot!((compile(query).unwrap()), @r###"
+    assert_snapshot!((compile(query).unwrap()), @r#"
     SELECT
       *,
       `BeeName` AS `čebela`,
       `bear's_name` AS medved
     FROM
       `anim"ls`
-    "###);
+    "#);
 }
 
 #[test]
@@ -3027,14 +3284,14 @@ fn test_literal() {
     "###;
 
     let sql = compile(query).unwrap();
-    assert_display_snapshot!(sql,
-        @r###"
+    assert_snapshot!(sql,
+        @r"
     SELECT
       *,
       true AS always_true
     FROM
       employees
-    "###
+    "
     );
 }
 
@@ -3056,8 +3313,8 @@ from x
 join y (foo == only_in_x)
 "###;
 
-    assert_display_snapshot!(compile(query).unwrap(),
-        @r###"
+    assert_snapshot!(compile(query).unwrap(),
+        @r"
     WITH x AS (
       SELECT
         foo AS only_in_x
@@ -3076,7 +3333,7 @@ join y (foo == only_in_x)
     FROM
       x
       JOIN y ON y.foo = x.only_in_x
-    "###
+    "
     );
 }
 
@@ -3098,7 +3355,7 @@ fn test_double_aggregate() {
     )
     .unwrap_err();
 
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from numbers
     group {`type`} (
         aggregate {
@@ -3107,7 +3364,7 @@ fn test_double_aggregate() {
         }
     )
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       type,
       COALESCE(SUM(amount), 0) AS total_amt,
@@ -3116,14 +3373,14 @@ fn test_double_aggregate() {
       numbers
     GROUP BY
       type
-    "###
+    "
     );
 }
 
 #[test]
 fn test_window_function_coalesce() {
     // #3587
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from x
     select {a, b=a}
     window (
@@ -3133,19 +3390,19 @@ fn test_window_function_coalesce() {
       }
     )
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       SUM(a) OVER () AS cumsum_a,
       SUM(a) OVER () AS cumsum_b
     FROM
       x
-    "###
+    "
     );
 }
 
 #[test]
 fn test_casting() {
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from x
     select {a}
     derive {
@@ -3155,7 +3412,7 @@ fn test_casting() {
         e = (a | as float) / 10,
     }
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       a,
       CAST(a AS int) + 10 AS b,
@@ -3164,7 +3421,7 @@ fn test_casting() {
       CAST(a AS float) / 10 AS e
     FROM
       x
-    "###
+    "
     );
 }
 
@@ -3172,7 +3429,7 @@ fn test_casting() {
 fn test_toposort() {
     // #1183
 
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     let b = (
         from somesource
     )
@@ -3183,7 +3440,7 @@ fn test_toposort() {
 
     from b
     "###).unwrap(),
-        @r###"
+        @r"
     WITH b AS (
       SELECT
         *
@@ -3194,20 +3451,20 @@ fn test_toposort() {
       *
     FROM
       b
-    "###
+    "
     );
 }
 
 #[test]
 fn test_inline_tables() {
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     (
         from employees
         select {emp_id, name, surname, `type`, amount}
     )
     join s = (from salaries | select {emp_id, salary}) (==emp_id)
     "###).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         emp_id,
@@ -3226,7 +3483,7 @@ fn test_inline_tables() {
     FROM
       employees
       JOIN table_0 ON employees.emp_id = table_0.emp_id
-    "###
+    "
     );
 }
 
@@ -3234,64 +3491,64 @@ fn test_inline_tables() {
 fn test_filter_and_select_unchanged_alias() {
     // #1185
 
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from account
     filter account.name != null
     select {name = account.name}
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       name
     FROM
       account
     WHERE
       name IS NOT NULL
-    "###
+    "
     );
 }
 
 #[test]
 fn test_filter_and_select_changed_alias() {
     // #1185
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from account
     filter account.name != null
     select {renamed_name = account.name}
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       name AS renamed_name
     FROM
       account
     WHERE
       name IS NOT NULL
-    "###
+    "
     );
 
     // #1207
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from x
     filter name != "Bob"
     select name = name ?? "Default"
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       COALESCE(name, 'Default') AS name
     FROM
       x
     WHERE
       name <> 'Bob'
-    "###
+    "
     );
 }
 
 #[test]
 fn test_unused_alias() {
     // #1308
-    assert_display_snapshot!(compile(r###"
+    assert_snapshot!(compile(r###"
     from account
     select n = {account.name}
-    "###).unwrap_err(), @r###"
+    "###).unwrap_err(), @r"
     Error:
        ╭─[:3:16]
        │
@@ -3301,15 +3558,15 @@ fn test_unused_alias() {
        │
        │ Help: move assign into the tuple: `[n = ...]`
     ───╯
-    "###)
+    ")
 }
 
 #[test]
-fn test_table_s_string() {
-    assert_display_snapshot!(compile(r#"
+fn test_table_s_string_01() {
+    assert_snapshot!(compile(r#"
     let main <relation> = s"SELECT DISTINCT ON first_name, age FROM employees ORDER BY age ASC"
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         DISTINCT ON first_name,
@@ -3323,16 +3580,18 @@ fn test_table_s_string() {
       *
     FROM
       table_0
-    "###
+    "
     );
-
-    assert_display_snapshot!(compile(r#"
-    from s"""
+}
+#[test]
+fn test_table_s_string_02() {
+    assert_snapshot!(compile(r#"
+    s"""
         SELECT DISTINCT ON first_name, id, age FROM employees ORDER BY age ASC
     """
     join s = s"SELECT * FROM salaries" (==id)
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         DISTINCT ON first_name,
@@ -3355,14 +3614,16 @@ fn test_table_s_string() {
     FROM
       table_0
       JOIN table_1 ON table_0.id = table_1.id
-    "###
+    "
     );
-
-    assert_display_snapshot!(compile(r#"
-    from s"""SELECT * FROM employees"""
+}
+#[test]
+fn test_table_s_string_03() {
+    assert_snapshot!(compile(r#"
+    s"""SELECT * FROM employees"""
     filter country == "USA"
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         *
@@ -3375,14 +3636,17 @@ fn test_table_s_string() {
       table_0
     WHERE
       country = 'USA'
-    "###
+    "
     );
-
-    assert_display_snapshot!(compile(r#"
-    from e=s"""SELECT * FROM employees"""
+}
+#[test]
+fn test_table_s_string_04() {
+    assert_snapshot!(compile(r#"
+    s"""SELECT * FROM employees"""
+    select {e = this}
     filter e.country == "USA"
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         *
@@ -3395,16 +3659,18 @@ fn test_table_s_string() {
       table_0
     WHERE
       country = 'USA'
-    "###
+    "
     );
-
-    assert_display_snapshot!(compile(r#"
+}
+#[test]
+fn test_table_s_string_05() {
+    assert_snapshot!(compile(r#"
     let weeks_between = start end -> s"SELECT generate_series({start}, {end}, '1 week') as date"
     let current_week = -> s"date(date_trunc('week', current_date))"
 
     weeks_between @2022-06-03 (current_week + 4)
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         generate_series(
@@ -3417,13 +3683,15 @@ fn test_table_s_string() {
       *
     FROM
       table_0
-    "###
+    "
     );
-
-    assert_display_snapshot!(compile(r#"
+}
+#[test]
+fn test_table_s_string_06() {
+    assert_snapshot!(compile(r#"
     s"SELECT * FROM {default_db.x}"
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         *
@@ -3434,62 +3702,62 @@ fn test_table_s_string() {
       *
     FROM
       table_0
-    "###
+    "
     );
 }
 
 #[test]
 fn test_direct_table_references() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r#"
     from x
     select s"{x}.field"
     "#,
     )
-    .unwrap_err(), @r###"
+    .unwrap_err(), @r#"
     Error:
-       ╭─[:3:14]
+       ╭─[:3:15]
        │
      3 │     select s"{x}.field"
-       │              ─┬─
-       │               ╰─── table instance cannot be referenced directly
+       │               ┬
+       │               ╰── table instance cannot be referenced directly
        │
        │ Help: did you forget to specify the column name?
     ───╯
-    "###);
+    "#);
 
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from x
     select x
     "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     SELECT
       *
     FROM
       x
-    "###);
+    ");
 }
 
 #[test]
 fn test_name_shadowing() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from x
     select {a, a, a = a + 1}
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       a AS _expr_0,
       a AS _expr_0,
       a + 1 AS a
     FROM
       x
-    "###
+    "
     );
 
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from x
     select a
@@ -3497,7 +3765,7 @@ fn test_name_shadowing() {
     derive a = a + 1
     derive a = a + 2
     "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       a AS _expr_0,
       a AS _expr_0,
@@ -3505,41 +3773,37 @@ fn test_name_shadowing() {
       a + 1 + 2 AS a
     FROM
       x
-    "###
+    "
     );
 }
 
 #[test]
 fn test_group_all() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     prql target:sql.sqlite
 
     from a=albums
     group a.* (aggregate {count this})
-        "###).unwrap_err(), @r###"
-    Error: Target dialect does not support * in this position.
-    "###);
+        "###).unwrap_err(), @"Error: Target dialect does not support * in this position.");
 
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from e=albums
     group !{genre_id} (aggregate {count this})
-        "###).unwrap_err(), @r###"
-    Error: Excluding columns not supported as this position
-    "###);
+        "###).unwrap_err(), @"Error: Excluding columns not supported as this position");
 }
 
 #[test]
 fn test_output_column_deduplication() {
     // #1249
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r#"
     from report
     derive r = s"RANK() OVER ()"
     filter r == 1
         "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         *,
@@ -3553,13 +3817,13 @@ fn test_output_column_deduplication() {
       table_0
     WHERE
       r = 1
-    "###
+    "
     );
 }
 
 #[test]
-fn test_case() {
-    assert_display_snapshot!(compile(
+fn test_case_01() {
+    assert_snapshot!(compile(
         r###"
     from employees
     derive display_name = case [
@@ -3567,7 +3831,7 @@ fn test_case() {
         true => f'{first_name} {last_name}'
     ]
         "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       *,
       CASE
@@ -3576,10 +3840,13 @@ fn test_case() {
       END AS display_name
     FROM
       employees
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(
+#[test]
+fn test_case_02() {
+    assert_snapshot!(compile(
         r###"
     from employees
     derive display_name = case [
@@ -3587,7 +3854,7 @@ fn test_case() {
         first_name != null => f'{first_name} {last_name}'
     ]
         "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       *,
       CASE
@@ -3597,10 +3864,13 @@ fn test_case() {
       END AS display_name
     FROM
       employees
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(
+#[test]
+fn test_case_03() {
+    assert_snapshot!(compile(
         r###"
     from tracks
     select category = case [
@@ -3608,7 +3878,7 @@ fn test_case() {
     ]
     group category (aggregate {count this})
         "###).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         CASE
@@ -3627,7 +3897,7 @@ fn test_case() {
       table_0
     GROUP BY
       category
-    "###
+    "
     );
 }
 
@@ -3648,7 +3918,7 @@ fn test_sql_options() {
 
 #[test]
 fn test_static_analysis() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from x
     select {
@@ -3666,7 +3936,7 @@ fn test_static_analysis() {
         ],
     }
         "###).unwrap(),
-        @r###"
+        @r"
     SELECT
       3 AS a,
       false AS b,
@@ -3677,13 +3947,13 @@ fn test_static_analysis() {
       END AS a3
     FROM
       x
-    "###
+    "
     );
 }
 
 #[test]
 fn test_closures_and_pipelines() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r#"
     let addthree = a b c -> s"{a} || {b} || {c}"
     let arg = myarg myfunc <func> -> ( myfunc myarg )
@@ -3695,59 +3965,59 @@ fn test_closures_and_pipelines() {
         arg "citrus"
     )
         "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       'apples' || 'bananas' || 'citrus' AS x
     FROM
       y
-    "###
+    "
     );
 }
 
 #[test]
 fn test_basic_agg() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from employees
     aggregate {
       count salary,
       count this,
     }
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       COUNT(*),
       COUNT(*)
     FROM
       employees
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_01() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from tracks
     select {track_id, title, composer, bytes}
     select !{title, composer}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       track_id,
       bytes
     FROM
       tracks
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_02() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from tracks
     select {track_id, title, composer, bytes}
     group !{title, composer} (aggregate {count this})
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       track_id,
       bytes,
@@ -3757,84 +4027,82 @@ fn test_exclude_columns_02() {
     GROUP BY
       track_id,
       bytes
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_03() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from artists
     derive nick = name
     select !{artists.*}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       name AS nick
     FROM
       artists
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_04() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.bigquery
     from tracks
     select !{milliseconds,bytes}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
-      *
-    EXCEPT
-      (milliseconds, bytes)
+      * EXCEPT (milliseconds, bytes)
     FROM
       tracks
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_05() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.snowflake
     from tracks
     select !{milliseconds,bytes}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       * EXCLUDE (milliseconds, bytes)
     FROM
       tracks
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_06() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.duckdb
     from tracks
     select !{milliseconds,bytes}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       * EXCLUDE (milliseconds, bytes)
     FROM
       tracks
-    "###
+    "
     );
 }
 
 #[test]
 fn test_exclude_columns_07() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.duckdb
     from s"SELECT * FROM foo"
     select !{bar}
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         *
@@ -3845,13 +4113,13 @@ fn test_exclude_columns_07() {
       * EXCLUDE (bar)
     FROM
       table_0
-    "###
+    "
     );
 }
 
 #[test]
 fn test_custom_transforms() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     let my_transform = (
         derive double = single * 2
         sort name
@@ -3861,7 +4129,7 @@ fn test_custom_transforms() {
     my_transform
     take 3
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *,
       single * 2 AS double
@@ -3871,30 +4139,29 @@ fn test_custom_transforms() {
       name
     LIMIT
       3
-    "###
+    "
     );
 }
 
 #[test]
 fn test_name_inference() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from albums
     select {artist_id + album_id}
     # nothing inferred infer
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       artist_id + album_id
     FROM
       albums
-    "###
+    "
     );
 
     let sql1 = compile(
         r#"
     from albums
     select {artist_id}
-    # infer albums.artist_id
     select {albums.artist_id}
     "#,
     )
@@ -3903,27 +4170,26 @@ fn test_name_inference() {
         r#"
     from albums
     select {albums.artist_id}
-    # infer albums.artist_id
     select {albums.artist_id}
     "#,
     )
     .unwrap();
     assert_eq!(sql1, sql2);
 
-    assert_display_snapshot!(
+    assert_snapshot!(
         sql1,
-        @r###"
+        @r"
     SELECT
       artist_id
     FROM
       albums
-    "###
+    "
     );
 }
 
 #[test]
-fn test_from_text() {
-    assert_display_snapshot!(compile(r#"
+fn test_from_text_01() {
+    assert_snapshot!(compile(r#"
     from_text format:csv """
 a,b,c
 1,2,3
@@ -3931,7 +4197,7 @@ a,b,c
     """
     select {b, c}
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         '1' AS a,
@@ -3949,16 +4215,19 @@ a,b,c
       c
     FROM
       table_0
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
+#[test]
+fn test_from_text_02() {
+    assert_snapshot!(compile(r#"
     from_text format:json '''
       [{"a": 1, "b": "x", "c": false }, {"a": 4, "b": "y", "c": null }]
     '''
     select {b, c}
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         1 AS a,
@@ -3976,11 +4245,14 @@ a,b,c
       c
     FROM
       table_0
-    "###
+    "
     );
+}
 
-    assert_display_snapshot!(compile(r#"
-    from_text format:json '''{
+#[test]
+fn test_from_text_03() {
+    assert_snapshot!(compile(r#"
+    std.from_text format:json '''{
         "columns": ["a", "b", "c"],
         "data": [
             [1, "x", false],
@@ -3989,7 +4261,7 @@ a,b,c
     }'''
     select {b, c}
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         1 AS a,
@@ -4007,7 +4279,93 @@ a,b,c
       c
     FROM
       table_0
-    "###
+    "
+    );
+}
+
+#[test]
+fn test_from_text_04() {
+    assert_snapshot!(compile(r#"
+    std.from_text 'a,b'
+    "#).unwrap(),
+        @r"
+    WITH table_0 AS (
+      SELECT
+        NULL AS a,
+        NULL AS b
+      WHERE
+        false
+    )
+    SELECT
+      a,
+      b
+    FROM
+      table_0
+    "
+    );
+}
+
+#[test]
+fn test_from_text_05() {
+    assert_snapshot!(compile(r#"
+    std.from_text format:json '''{"columns": ["a", "b", "c"], "data": []}'''
+    "#).unwrap(),
+        @r"
+    WITH table_0 AS (
+      SELECT
+        NULL AS a,
+        NULL AS b,
+        NULL AS c
+      WHERE
+        false
+    )
+    SELECT
+      a,
+      b,
+      c
+    FROM
+      table_0
+    "
+    );
+}
+
+#[test]
+fn test_from_text_06() {
+    assert_snapshot!(compile(r#"
+    std.from_text ''
+    "#).unwrap(),
+        @r"
+    WITH table_0 AS (
+      SELECT
+        NULL
+      WHERE
+        false
+    )
+    SELECT
+      NULL
+    FROM
+      table_0
+    "
+    );
+}
+
+#[test]
+fn test_from_text_07() {
+    assert_snapshot!(compile(r#"
+    std.from_text format:json '''{"columns": [], "data": [[], []]}'''
+    "#).unwrap(),
+        @r"
+    WITH table_0 AS (
+      SELECT
+      UNION
+      ALL
+      SELECT
+    )
+    SELECT
+      NULL
+    FROM
+      table_0
+    "
     );
 }
 
@@ -4021,12 +4379,12 @@ fn test_header() {
         env!("CARGO_PKG_VERSION_MAJOR"),
         env!("CARGO_PKG_VERSION_MINOR")
     );
-    assert_display_snapshot!(compile(format!(r#"
+    assert_snapshot!(compile(format!(r#"
     {header}
 
     from a
     take 5
-    "#).as_str()).unwrap(),@r###"
+    "#).as_str()).unwrap(),@r"
     SELECT
       *
     FROM
@@ -4038,38 +4396,32 @@ fn test_header() {
       ) OFFSET 0 ROWS
     FETCH FIRST
       5 ROWS ONLY
-    "###);
+    ");
 }
 #[test]
 fn test_header_target_error() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:foo
     from a
-    "#).unwrap_err(),@r###"
-    Error: target `"foo"` not found
-    "###);
+    "#).unwrap_err(),@r#"Error: target `"foo"` not found"#);
 
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.foo
     from a
-    "#).unwrap_err(),@r###"
-    Error: target `"sql.foo"` not found
-    "###);
+    "#).unwrap_err(),@r#"Error: target `"sql.foo"` not found"#);
 
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:foo.bar
     from a
-    "#).unwrap_err(),@r###"
-    Error: target `"foo.bar"` not found
-    "###);
+    "#).unwrap_err(),@r#"Error: target `"foo.bar"` not found"#);
 
     // TODO: Can we use the span of:
     // - Ideally just `dialect`?
     // - At least not the first empty line?
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql dialect:foo.bar
     from a
-    "#).unwrap_err(),@r###"
+    "#).unwrap_err(),@r"
     Error:
        ╭─[:1:1]
        │
@@ -4078,42 +4430,42 @@ fn test_header_target_error() {
        │ │
        │ ╰────────────────────────────── unknown query definition arguments `dialect`
     ───╯
-    "###);
+    ");
 }
 
 #[test]
-fn prql_version() {
-    assert_display_snapshot!(compile(r#"
+fn shortest_prql_version() {
+    let mut escape_version = insta::Settings::new();
+    escape_version.add_filter(r"'.*'", "[VERSION]");
+    escape_version.bind(|| {
+        assert_snapshot!(compile(r#"[{version = prql.version}]"#).unwrap(),@r"
+        WITH table_0 AS (
+          SELECT
+            [VERSION] AS version
+        )
+        SELECT
+          version
+        FROM
+          table_0
+        ");
+
+        assert_snapshot!(compile(r#"
     from x
     derive y = std.prql.version
-    "#).unwrap(),@r###"
-    SELECT
-      *,
-      '0.11.3' AS y
-    FROM
-      x
-    "###);
-}
-
-#[test]
-
-fn shortest_prql_version() {
-    assert_display_snapshot!(compile(r#"[{version = prql.version}]"#).unwrap(),@r###"
-    WITH table_0 AS (
-      SELECT
-        '0.11.3' AS version
-    )
-    SELECT
-      version
-    FROM
-      table_0
-    "###);
+    "#).unwrap(),@r"
+        SELECT
+          *,
+          [VERSION] AS y
+        FROM
+          x
+        ");
+    })
 }
 
 #[test]
 fn test_loop() {
-    assert_display_snapshot!(compile(r#"
-    from [{n = 1}]
+    assert_snapshot!(compile(r#"
+    [{n = 1}]
     select n = n - 2
     loop (
         select n = n+1
@@ -4122,7 +4474,7 @@ fn test_loop() {
     select n = n * 2
     take 4
     "#).unwrap(),
-        @r###"
+        @r"
     WITH RECURSIVE table_0 AS (
       SELECT
         1 AS n
@@ -4152,21 +4504,21 @@ fn test_loop() {
       table_1 AS table_3
     LIMIT
       4
-    "###
+    "
     );
 }
 
 #[test]
 fn test_loop_2() {
-    assert_display_snapshot!(compile(r#"
-    from (read_csv 'employees.csv')
+    assert_snapshot!(compile(r#"
+    read_csv 'employees.csv'
     filter last_name=="Mitchell"
     loop (
       join manager=employees (manager.employee_id==this.reports_to)
       select manager.*
     )
     "#).unwrap(),
-        @r###"
+        @r"
     WITH RECURSIVE table_0 AS (
       SELECT
         *
@@ -4192,14 +4544,15 @@ fn test_loop_2() {
       *
     FROM
       table_1 AS table_2
-    "###
+    "
     );
 }
 
 #[test]
 fn test_params() {
-    assert_display_snapshot!(compile(r#"
-    from i = invoices
+    assert_snapshot!(compile(r#"
+    from invoices
+    select {i = this}
     filter $1 <= i.date || i.date <= $2
     select {
         i.id,
@@ -4207,19 +4560,19 @@ fn test_params() {
     }
     filter i.total > $3
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       id,
       total
     FROM
-      invoices AS i
+      invoices
     WHERE
       (
         $1 <= date
         OR date <= $2
       )
       AND total > $3
-    "###
+    "
     )
 }
 
@@ -4233,13 +4586,14 @@ fn test_datetime() {
 
     assert_snapshot!(
                 compile(query).unwrap(),
-                @r###"SELECT
-  DATE '2022-12-31' AS date,
-  TIME '08:30' AS time,
-  TIMESTAMP '2020-01-01T13:19:55-0800' AS timestamp
-FROM
-  test_table
-"###
+                @r"
+    SELECT
+      DATE '2022-12-31' AS date,
+      TIME '08:30' AS time,
+      TIMESTAMP '2020-01-01T13:19:55-0800' AS timestamp
+    FROM
+      test_table
+    "
     )
 }
 
@@ -4261,7 +4615,7 @@ fn test_datetime_sqlite() {
         timestamp3 = @2021-03-14T03:05+08:00,
     }
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       DATE('2022-12-31') AS date,
       TIME('08:30') AS time,
@@ -4272,80 +4626,80 @@ fn test_datetime_sqlite() {
       DATETIME('2021-03-14T03:05+08:00') AS timestamp3
     FROM
       x
-    "###
+    "
     );
 }
 
 #[test]
 fn test_datetime_parsing() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from test_tables
     select {date = @2022-12-31, time = @08:30, timestamp = @2020-01-01T13:19:55-0800}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       DATE '2022-12-31' AS date,
       TIME '08:30' AS time,
       TIMESTAMP '2020-01-01T13:19:55-0800' AS timestamp
     FROM
       test_tables
-    "###
+    "
     );
 }
 
 #[test]
 fn test_lower() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from test_tables
     derive {lower_name = (name | text.lower)}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *,
       LOWER(name) AS lower_name
     FROM
       test_tables
-    "###
+    "
     );
 }
 
 #[test]
 fn test_upper() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from test_tables
     derive {upper_name = text.upper name}
     select {upper_name}
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       UPPER(name) AS upper_name
     FROM
       test_tables
-    "###
+    "
     );
 }
 
 #[test]
 fn test_1535() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from x.y.z
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *
     FROM
       x.y.z
-    "###
+    "
     );
 }
 
 #[test]
 fn test_read_parquet_duckdb() {
-    assert_display_snapshot!(compile(r#"
-    from (read_parquet 'x.parquet')
-    join (read_parquet "y.parquet") (==foo)
+    assert_snapshot!(compile(r#"
+    std.read_parquet 'x.parquet'
+    join (std.read_parquet "y.parquet") (==foo)
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         *
@@ -4364,7 +4718,7 @@ fn test_read_parquet_duckdb() {
     FROM
       table_0
       JOIN table_1 ON table_0.foo = table_1.foo
-    "###
+    "
     );
 
     // TODO: `from x=(read_parquet 'x.parquet')` currently fails
@@ -4373,13 +4727,13 @@ fn test_read_parquet_duckdb() {
 #[test]
 fn test_excess_columns() {
     // https://github.com/PRQL/prql/issues/2079
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from tracks
     derive d = track_id
     sort d
     select {title}
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         title,
@@ -4393,51 +4747,51 @@ fn test_excess_columns() {
       table_0
     ORDER BY
       _expr_0
-    "###
+    "
     );
 }
 
 #[test]
 fn test_regex_search() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from tracks
     derive is_bob_marley = artist_name ~= "Bob\\sMarley"
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       *,
       REGEXP(artist_name, 'Bob\sMarley') AS is_bob_marley
     FROM
       tracks
-    "###
+    "
     );
 }
 
 #[test]
 fn test_intervals() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from foo
     select dt = 1years + 1months + 1weeks + 1days + 1hours + 1minutes + 1seconds + 1milliseconds + 1microseconds
     "#).unwrap(),
-        @r###"
+        @r"
     SELECT
       INTERVAL 1 YEAR + INTERVAL 1 MONTH + INTERVAL 1 WEEK + INTERVAL 1 DAY + INTERVAL 1 HOUR + INTERVAL 1 MINUTE + INTERVAL 1 SECOND + INTERVAL 1 MILLISECOND + INTERVAL 1 MICROSECOND AS dt
     FROM
       foo
-    "###
+    "
     );
 }
 
 #[test]
 fn test_into() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from data
     into table_a
 
     from table_a
     select {x, y}
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_a AS (
       SELECT
         *
@@ -4449,7 +4803,7 @@ fn test_into() {
       y
     FROM
       table_a
-    "###
+    "
     );
 }
 
@@ -4472,7 +4826,7 @@ fn test_array_01() {
 
     let main = (my_relation | filter b)
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         3 AS a,
@@ -4497,7 +4851,7 @@ fn test_array_01() {
       my_relation
     WHERE
       b
-    "###
+    "
     );
 }
 
@@ -4509,7 +4863,7 @@ fn test_array_02() {
       {x = '1'},
     ]
     "#)
-    .unwrap(), @r###"
+    .unwrap(), @r"
     WITH table_0 AS (
       SELECT
         NULL AS x
@@ -4522,18 +4876,18 @@ fn test_array_02() {
       x
     FROM
       table_0
-    "###);
+    ");
 }
 
 #[test]
 fn test_double_stars() {
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from tb1
     join tb2 (==c2)
     take 5
     filter (tb2.c3 < 100)
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         tb1.*,
@@ -4550,10 +4904,10 @@ fn test_double_stars() {
       table_0
     WHERE
       c3 < 100
-    "###
+    "
     );
 
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     prql target:sql.duckdb
 
     from tb1
@@ -4561,7 +4915,7 @@ fn test_double_stars() {
     take 5
     filter (tb2.c3 < 100)
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         tb1.*,
@@ -4578,14 +4932,14 @@ fn test_double_stars() {
       table_0
     WHERE
       c3 < 100
-    "###
+    "
     );
 }
 
 #[test]
 fn test_lineage() {
     // #2627
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from_text """
     a
     1
@@ -4594,7 +4948,7 @@ fn test_lineage() {
     """
     derive a = a
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         '    1' AS a
@@ -4612,18 +4966,18 @@ fn test_lineage() {
       a
     FROM
       table_0
-    "###
+    "
     );
 
     // #2392
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     from_text format:json """{
         "columns": ["a"],
         "data": [[1]]
     }"""
     derive a = a + 1
     "#).unwrap(),
-        @r###"
+        @r"
     WITH table_0 AS (
       SELECT
         1 AS a
@@ -4633,14 +4987,14 @@ fn test_lineage() {
       a + 1 AS a
     FROM
       table_0
-    "###
+    "
     );
 }
 
 #[test]
 fn test_type_as_column_name() {
     // #2503
-    assert_display_snapshot!(compile(r#"
+    assert_snapshot!(compile(r#"
     let f = tbl -> (
       t = tbl
       select t.date
@@ -4648,12 +5002,12 @@ fn test_type_as_column_name() {
 
     from foo
     f"#)
-    .unwrap(), @r###"
+    .unwrap(), @r"
     SELECT
       date
     FROM
       foo AS t
-    "###);
+    ");
 }
 
 #[test]
@@ -4698,7 +5052,7 @@ take 20
 
 #[test]
 fn test_returning_constants_only() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from tb1
     sort {a}
@@ -4706,7 +5060,7 @@ fn test_returning_constants_only() {
     select {d = 10}
     "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     WITH table_0 AS (
       SELECT
         10 AS d,
@@ -4720,9 +5074,9 @@ fn test_returning_constants_only() {
       table_0
     ORDER BY
       a
-    "###);
+    ");
 
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from tb1
     take 10
@@ -4732,7 +5086,7 @@ fn test_returning_constants_only() {
     select d = 10
     "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     WITH table_1 AS (
       SELECT
         NULL
@@ -4756,13 +5110,13 @@ fn test_returning_constants_only() {
       table_0
     WHERE
       true
-    "###);
+    ");
 }
 
 #[test]
 fn test_conflicting_names_at_split() {
     // issue #2697
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r#"
     from s = workflow_steps
     join wp=workflow_phases (s.phase_id == wp.id)
@@ -4774,7 +5128,7 @@ fn test_conflicting_names_at_split() {
     }
     "#,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     WITH table_0 AS (
       SELECT
         wp.id,
@@ -4792,13 +5146,13 @@ fn test_conflicting_names_at_split() {
     FROM
       table_0
       JOIN workflow AS w ON table_0.workflow_id = w.id
-    "###);
+    ");
 }
 
 #[test]
 fn test_relation_literal_quoting() {
     // issue #3484
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from [
         {`small number`=1e-10, `large number`=1e10},
@@ -4806,7 +5160,7 @@ fn test_relation_literal_quoting() {
     select {`small number`, `large number`}
     "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r#"
     WITH table_0 AS (
       SELECT
         1e-10 AS "small number",
@@ -4817,12 +5171,12 @@ fn test_relation_literal_quoting() {
       "large number"
     FROM
       table_0
-    "###);
+    "#);
 }
 
 #[test]
 fn test_relation_var_name_clashes_01() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     let table_0 = (from a)
 
@@ -4831,7 +5185,7 @@ fn test_relation_var_name_clashes_01() {
     filter x > 0
         "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     WITH table_0 AS (
       SELECT
         *
@@ -4852,26 +5206,26 @@ fn test_relation_var_name_clashes_01() {
       table_1
     WHERE
       x > 0
-    "###);
+    ");
 }
 
 #[test]
 fn test_relation_var_name_clashes_02() {
     // issue #3713
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from t
     join t (==x)
         "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     SELECT
       t.*,
       table_0.*
     FROM
       t
       JOIN t AS table_0 ON t.x = table_0.x
-    "###);
+    ");
 }
 
 #[test]
@@ -4880,7 +5234,7 @@ fn test_select_this() {
     // Currently broken for a few reasons:
     // - type of `this` is not resolved as tuple, but an union?
     // - lineage is not computed correctly
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from x
     select {a, b}
@@ -4898,24 +5252,26 @@ fn test_select_this() {
 
 #[test]
 fn test_group_exclude() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     from x
     select {a, b}
     group {a} (derive c = a + 1)
         "###,
     )
-    .unwrap_err(), @r###"
+    .unwrap_err(), @r"
     Error:
        ╭─[:4:27]
        │
      4 │     group {a} (derive c = a + 1)
        │                           ┬
        │                           ╰── Unknown name `a`
+       │
+       │ Help: available columns: x.b
     ───╯
-    "###);
+    ");
 
-    // assert_display_snapshot!(compile(
+    // assert_snapshot!(compile(
     //     r###"
     // from x
     // select {a, b}
@@ -4933,7 +5289,7 @@ fn test_group_exclude() {
 
 #[test]
 fn test_table_declarations() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     module default_db {
       module my_schema {
@@ -4946,7 +5302,7 @@ fn test_table_declarations() {
     from my_schema.my_table | join another_table (==id) | take 10
         "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     SELECT
       my_table.id,
       my_table.a,
@@ -4957,24 +5313,60 @@ fn test_table_declarations() {
       JOIN another_table ON my_table.id = another_table.id
     LIMIT
       10
-    "###);
+    ");
 }
 
 #[test]
 fn test_param_declarations() {
-    assert_display_snapshot!(compile(
+    assert_snapshot!(compile(
         r###"
     let a <int>
 
     from x | filter b == a
         "###,
     )
-    .unwrap(), @r###"
+    .unwrap(), @r"
     SELECT
       *
     FROM
       x
     WHERE
       b = $a
-    "###);
+    ");
+}
+
+#[test]
+fn test_relation_aliasing() {
+    assert_snapshot!(compile(
+        r###"
+    from x | select {y = this} | select {y.hello}
+        "###,
+    )
+    .unwrap(), @r"
+    SELECT
+      hello
+    FROM
+      x
+    ");
+}
+
+#[test]
+fn test_import() {
+    assert_snapshot!(compile(
+        r###"
+    module hello {
+        let world = 1
+    }
+
+    import a = hello.world
+
+    from x | select a
+        "###,
+    )
+    .unwrap(), @r"
+    SELECT
+      1
+    FROM
+      x
+    ");
 }

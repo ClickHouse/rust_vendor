@@ -1,20 +1,14 @@
-use anstream::adapter::strip_str;
-pub use anyhow::Result;
-
-use ariadne::{Cache, Config, Label, Report, ReportKind, Source};
-use serde::Serialize;
-
+use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt::{self, Debug, Display, Formatter};
 use std::ops::Range;
 use std::path::PathBuf;
-use std::{collections::HashMap, io::stderr};
 
-use crate::SourceTree;
-pub use prqlc_ast::error::WithErrorInfo;
-use prqlc_ast::error::*;
+use ariadne::{Cache, Config, Label, Report, ReportKind, Source};
+use serde::Serialize;
 
-pub use crate::ir::Span;
+use crate::Span;
+use crate::{Error, Errors, MessageKind, SourceTree};
 
 #[derive(Clone, Serialize)]
 pub struct ErrorMessage {
@@ -76,6 +70,27 @@ impl Debug for ErrorMessage {
     }
 }
 
+impl From<Error> for ErrorMessage {
+    fn from(e: Error) -> Self {
+        log::debug!("{:#?}", e);
+        ErrorMessage {
+            code: e.code.map(str::to_string),
+            kind: e.kind,
+            reason: e.reason.to_string(),
+            hints: e.hints,
+            span: e.span,
+            display: None,
+            location: None,
+        }
+    }
+}
+
+impl From<Vec<ErrorMessage>> for ErrorMessages {
+    fn from(errors: Vec<ErrorMessage>) -> Self {
+        ErrorMessages { inner: errors }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorMessages {
     pub inner: Vec<ErrorMessage>,
@@ -88,67 +103,28 @@ impl From<ErrorMessage> for ErrorMessages {
     }
 }
 
+impl From<Error> for ErrorMessages {
+    fn from(e: Error) -> Self {
+        ErrorMessages {
+            inner: vec![ErrorMessage::from(e)],
+        }
+    }
+}
+
+impl From<Errors> for ErrorMessages {
+    fn from(errs: Errors) -> Self {
+        ErrorMessages {
+            inner: errs.0.into_iter().map(ErrorMessage::from).collect(),
+        }
+    }
+}
+
 impl Display for ErrorMessages {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         for e in &self.inner {
             Display::fmt(&e, f)?;
         }
         Ok(())
-    }
-}
-
-pub fn downcast(error: anyhow::Error) -> ErrorMessages {
-    let mut code = None;
-    let mut span = None;
-    let mut hints = Vec::new();
-
-    let error = match error.downcast::<ErrorMessages>() {
-        Ok(messages) => return messages,
-        Err(error) => error,
-    };
-
-    let error = match error.downcast::<Errors>() {
-        Ok(messages) => {
-            return ErrorMessages {
-                inner: messages
-                    .0
-                    .into_iter()
-                    .flat_map(|e| downcast(e.into()).inner)
-                    .collect(),
-            }
-        }
-        Err(error) => error,
-    };
-
-    let reason = match error.downcast::<Error>() {
-        Ok(error) => {
-            code = error.code.map(|x| x.to_string());
-            span = error.span;
-            hints.extend(error.hints);
-
-            error.reason.to_string()
-        }
-        Err(error) => {
-            // default to basic Display
-            format!("{:#?}", error)
-        }
-    };
-
-    ErrorMessage {
-        code,
-        kind: MessageKind::Error,
-        reason,
-        hints,
-        span,
-        display: None,
-        location: None,
-    }
-    .into()
-}
-
-impl From<anyhow::Error> for ErrorMessages {
-    fn from(e: anyhow::Error) -> Self {
-        downcast(e)
     }
 }
 
@@ -174,6 +150,12 @@ impl ErrorMessages {
             };
             e.location = e.compose_location(source);
 
+            assert!(
+                e.location.is_some(),
+                "span {:?} is out of bounds of the source (len = {})",
+                e.span,
+                source.len()
+            );
             e.display = e.compose_display(source_path.clone(), &mut cache);
         }
         self
@@ -210,7 +192,7 @@ impl ErrorMessage {
         report.finish().write(cache, &mut out).ok()?;
         String::from_utf8(out)
             .ok()
-            .map(|x| strip_colors(x.as_str()))
+            .map(|x| crate::utils::maybe_strip_colors(x.as_str()))
     }
 
     fn compose_location(&self, source: &Source) -> Option<SourceLocation> {
@@ -222,28 +204,6 @@ impl ErrorMessage {
             start: (start.1, start.2),
             end: (end.1, end.2),
         })
-    }
-}
-
-fn should_use_color() -> bool {
-    match anstream::AutoStream::choice(&stderr()) {
-        anstream::ColorChoice::Auto => true,
-        anstream::ColorChoice::Always => true,
-        anstream::ColorChoice::AlwaysAnsi => true,
-        anstream::ColorChoice::Never => false,
-    }
-}
-
-/// Strip colors, for external libraries which don't yet strip themselves, and
-/// for insta snapshot tests. This will respond to environment variables such as
-/// `CLI_COLOR`. Eventually we can remove this, always pass colors back, and the
-/// consuming library can strip (including insta
-/// https://github.com/mitsuhiko/insta/issues/378).
-pub fn strip_colors(s: &str) -> String {
-    if !should_use_color() {
-        strip_str(s).to_string()
-    } else {
-        s.to_string()
     }
 }
 

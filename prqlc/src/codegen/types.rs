@@ -1,17 +1,18 @@
+use prqlc_parser::parser::pr;
+
 use crate::codegen::SeparatedExprs;
-use prqlc_ast::*;
 
 use super::{WriteOpt, WriteSource};
 
-pub(crate) fn write_ty(ty: &Ty) -> String {
+pub(crate) fn write_ty(ty: &pr::Ty) -> String {
     ty.write(WriteOpt::new_width(u16::MAX)).unwrap()
 }
 
-pub(crate) fn write_ty_kind(ty: &TyKind) -> String {
+pub(crate) fn write_ty_kind(ty: &pr::TyKind) -> String {
     ty.write(WriteOpt::new_width(u16::MAX)).unwrap()
 }
 
-impl WriteSource for Ty {
+impl WriteSource for pr::Ty {
     fn write(&self, opt: WriteOpt) -> Option<String> {
         if let Some(name) = &self.name {
             Some(name.clone())
@@ -21,7 +22,7 @@ impl WriteSource for Ty {
     }
 }
 
-impl WriteSource for Option<&Ty> {
+impl WriteSource for Option<&pr::Ty> {
     fn write(&self, opt: WriteOpt) -> Option<String> {
         match self {
             Some(ty) => ty.write(opt),
@@ -30,9 +31,9 @@ impl WriteSource for Option<&Ty> {
     }
 }
 
-impl WriteSource for TyKind {
+impl WriteSource for pr::TyKind {
     fn write(&self, opt: WriteOpt) -> Option<String> {
-        use TyKind::*;
+        use pr::TyKind::*;
 
         match &self {
             Ident(ident) => ident.write(opt),
@@ -69,12 +70,12 @@ impl WriteSource for TyKind {
             Function(Some(func)) => {
                 let mut r = "func ".to_string();
 
-                for t in &func.args {
+                for t in &func.params {
                     r += &t.as_ref().write(opt.clone())?;
                     r += " ";
                 }
                 r += "-> ";
-                r += &(*func.return_ty).as_ref().write(opt)?;
+                r += &func.return_ty.as_deref().write(opt)?;
                 Some(r)
             }
             Any => Some("anytype".to_string()),
@@ -88,7 +89,7 @@ impl WriteSource for TyKind {
     }
 }
 
-impl WriteSource for TupleField {
+impl WriteSource for pr::TyTupleField {
     fn write(&self, opt: WriteOpt) -> Option<String> {
         match self {
             Self::Wildcard(generic_el) => match generic_el {
@@ -113,7 +114,7 @@ impl WriteSource for TupleField {
     }
 }
 
-struct UnionVariant<'a>(&'a Option<String>, &'a Ty);
+struct UnionVariant<'a>(&'a Option<String>, &'a pr::Ty);
 
 impl WriteSource for UnionVariant<'_> {
     fn write(&self, mut opt: WriteOpt) -> Option<String> {

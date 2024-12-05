@@ -1,6 +1,19 @@
 CHANGELOG
 =========
 
+## 0.13.0
+
+- Reexport `cursor_icon` crate in `ansi`
+- Split-out private modes from `Mode` into `PrivateMode`
+- Add `unset_private_mode` and `set_private_mode`
+- Add `report_mode` and `report_private_mode` to handle DECRPM/DECRQM
+
+## 0.12.0
+
+- Add support for OSC 22
+- Add support for kitty keyboard protocol
+- Add support for XTerm's modifyOtherKeys protocol
+
 ## 0.11.1
 
 - Minimum rust version has been bumped to 1.62.1

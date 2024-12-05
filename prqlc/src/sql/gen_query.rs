@@ -2,7 +2,6 @@
 //! then to a String. We use sqlparser because it's trivial to create the string
 //! once it's in their AST (it's just `.to_string()`). It also lets us support a
 //! few dialects of SQL immediately.
-use anyhow::{anyhow, Result};
 use itertools::Itertools;
 use regex::Regex;
 use sqlparser::ast::{
@@ -10,33 +9,32 @@ use sqlparser::ast::{
     TableFactor, TableWithJoins,
 };
 
+use super::gen_expr::*;
+use super::gen_projection::*;
+use super::operators::translate_operator;
+use super::pq::ast::{Cte, CteKind, RelationExpr, RelationExprKind, SqlRelation, SqlTransform};
+use super::{Context, Dialect};
+use crate::debug;
 use crate::ir::pl::{JoinSide, Literal};
 use crate::ir::rq::{CId, Expr, ExprKind, RelationLiteral, RelationalQuery};
 use crate::utils::{BreakUp, Pluck};
-use crate::Error;
-use crate::WithErrorInfo;
-use prqlc_ast::expr::generic::InterpolateItem;
-
-use super::gen_expr::*;
-use super::gen_projection::*;
-use super::srq::ast::{Cte, CteKind, RelationExpr, RelationExprKind, SqlRelation, SqlTransform};
-
-use super::operators::translate_operator;
-use super::{Context, Dialect};
+use crate::{Error, Result, WithErrorInfo};
+use prqlc_parser::generic::InterpolateItem;
 
 type Transform = SqlTransform<RelationExpr, ()>;
 
 pub fn translate_query(query: RelationalQuery, dialect: Option<Dialect>) -> Result<sql_ast::Query> {
-    // compile from RQ to SRQ
-    let (srq_query, mut ctx) = super::srq::compile_query(query, dialect)?;
+    // compile from RQ to PQ
+    let (pq_query, mut ctx) = super::pq::compile_query(query, dialect)?;
 
-    let mut query = translate_relation(srq_query.main_relation, &mut ctx)?;
+    debug::log_stage(debug::Stage::Sql(debug::StageSql::Main));
+    let mut query = translate_relation(pq_query.main_relation, &mut ctx)?;
 
-    if !srq_query.ctes.is_empty() {
+    if !pq_query.ctes.is_empty() {
         // attach CTEs
         let mut cte_tables = Vec::new();
         let mut recursive = false;
-        for cte in srq_query.ctes {
+        for cte in pq_query.ctes {
             let (cte, rec) = translate_cte(cte, &mut ctx)?;
             cte_tables.push(cte);
             recursive = recursive || rec;
@@ -47,6 +45,7 @@ pub fn translate_query(query: RelationalQuery, dialect: Option<Dialect>) -> Resu
         });
     }
 
+    debug::log_entry(|| debug::DebugEntryKind::ReprSqlParser(query.clone()));
     Ok(query)
 }
 
@@ -100,7 +99,7 @@ fn translate_select_pipeline(
         if let Some(from) = from.last_mut() {
             from.joins = joins;
         } else {
-            return Err(anyhow!("Cannot use `join` without `from`"));
+            unreachable!()
         }
     }
 
@@ -144,7 +143,7 @@ fn translate_select_pipeline(
     let aggregate = after_agg.pluck(|t| t.into_aggregate()).into_iter().next();
     let group_by: Vec<CId> = aggregate.map(|(part, _)| part).unwrap_or_default();
     ctx.query.allow_stars = ctx.dialect.stars_in_group();
-    let group_by = sql_ast::GroupByExpr::Expressions(try_into_exprs(group_by, ctx, None)?);
+    let group_by = sql_ast::GroupByExpr::Expressions(try_into_exprs(group_by, ctx, None)?, vec![]);
     ctx.query.allow_stars = true;
 
     ctx.query.pre_projection = false;
@@ -206,6 +205,7 @@ fn translate_select_pipeline(
                 )),
                 asc: None,
                 nulls_first: None,
+                with_fill: None,
             });
         }
     }
@@ -213,7 +213,14 @@ fn translate_select_pipeline(
     ctx.pop_query();
 
     Ok(sql_ast::Query {
-        order_by,
+        order_by: if order_by.is_empty() {
+            None
+        } else {
+            Some(sql_ast::OrderBy {
+                exprs: order_by,
+                interpolate: None,
+            })
+        },
         limit,
         offset,
         fetch,
@@ -233,7 +240,7 @@ fn translate_set_ops_pipeline(
     mut top: sql_ast::Query,
     mut pipeline: Vec<Transform>,
     context: &mut Context,
-) -> Result<sql_ast::Query, anyhow::Error> {
+) -> Result<sql_ast::Query> {
     // reverse, so it's easier (and O(1)) to pop
     pipeline.reverse();
 
@@ -309,6 +316,7 @@ fn translate_relation_expr(relation_expr: RelationExpr, ctx: &mut Context) -> Re
                 },
                 args: None,
                 with_hints: vec![],
+                with_ordinality: false,
                 version: None,
                 partitions: vec![],
             }
@@ -349,6 +357,7 @@ fn translate_join(
             JoinSide::Right => JoinOperator::RightOuter(constraint),
             JoinSide::Full => JoinOperator::FullOuter(constraint),
         },
+        global: false,
     })
 }
 
@@ -418,6 +427,7 @@ fn translate_cte(cte: Cte, ctx: &mut Context) -> Result<(sql_ast::Cte, bool)> {
         alias: simple_table_alias(cte_name),
         query: Box::new(query),
         from: None,
+        materialized: None,
     };
     Ok((cte, recursive))
 }
@@ -425,6 +435,32 @@ fn translate_cte(cte: Cte, ctx: &mut Context) -> Result<(sql_ast::Cte, bool)> {
 fn translate_relation_literal(data: RelationLiteral, ctx: &Context) -> Result<sql_ast::Query> {
     // TODO: this could be made to use VALUES instead of SELECT UNION ALL SELECT
     //       I'm not sure about compatibility though.
+    // edit: probably not, because VALUES has no way of setting names of the columns
+    //       Postgres will just name them column1, column2 as so on.
+    //       Which means we can use VALUES, but only if this is not the top-level statement,
+    //       where they really matter.
+
+    if data.rows.is_empty() {
+        let mut nulls: Vec<_> = (data.columns.iter())
+            .map(|col_name| SelectItem::ExprWithAlias {
+                expr: sql_ast::Expr::Value(sql_ast::Value::Null),
+                alias: translate_ident_part(col_name.clone(), ctx),
+            })
+            .collect();
+
+        // empty projection is a parse error in some dialects, let's inject a NULL
+        if nulls.is_empty() {
+            nulls.push(SelectItem::UnnamedExpr(sql_ast::Expr::Value(
+                sql_ast::Value::Null,
+            )));
+        }
+
+        return Ok(default_query(sql_ast::SetExpr::Select(Box::new(Select {
+            projection: nulls,
+            selection: Some(sql_ast::Expr::Value(sql_ast::Value::Boolean(false))),
+            ..default_select()
+        }))));
+    }
 
     let mut selects = Vec::with_capacity(data.rows.len());
 
@@ -464,11 +500,7 @@ pub(super) fn translate_query_sstring(
     let string = translate_sstring(items, ctx)?;
 
     let re = Regex::new(r"(?i)^SELECT\b").unwrap();
-    let prefix = if let Some(string) = string.trim().get(0..7) {
-        string
-    } else {
-        ""
-    };
+    let prefix = string.trim().get(0..7).unwrap_or_default();
 
     if re.is_match(prefix) {
         if let Some(string) = string.trim().strip_prefix(prefix) {
@@ -485,8 +517,7 @@ pub(super) fn translate_query_sstring(
 
     Err(
         Error::new_simple("s-strings representing a table must start with `SELECT `".to_string())
-            .push_hint("this is a limitation by current compiler implementation")
-            .into(),
+            .push_hint("this is a limitation by current compiler implementation"),
     )
 }
 
@@ -535,13 +566,15 @@ fn default_query(body: sql_ast::SetExpr) -> sql_ast::Query {
     sql_ast::Query {
         with: None,
         body: Box::new(body),
-        order_by: Vec::new(),
+        order_by: None,
         limit: None,
         offset: None,
         fetch: None,
         locks: Vec::new(),
         limit_by: Vec::new(),
         for_clause: None,
+        settings: None,
+        format_clause: None,
     }
 }
 
@@ -554,13 +587,17 @@ fn default_select() -> Select {
         from: Vec::new(),
         lateral_views: Vec::new(),
         selection: None,
-        group_by: sql_ast::GroupByExpr::Expressions(vec![]),
+        group_by: sql_ast::GroupByExpr::Expressions(vec![], vec![]),
         cluster_by: Vec::new(),
         distribute_by: Vec::new(),
         sort_by: Vec::new(),
         having: None,
         named_window: vec![],
         qualify: None,
+        value_table_mode: None,
+        window_before_qualify: false,
+        connect_by: None,
+        prewhere: None,
     }
 }
 
@@ -573,7 +610,7 @@ fn simple_table_alias(name: sql_ast::Ident) -> TableAlias {
 
 fn query_to_set_expr(query: sql_ast::Query, context: &mut Context) -> Box<SetExpr> {
     let is_simple = query.with.is_none()
-        && query.order_by.is_empty()
+        && query.order_by.is_none()
         && query.limit.is_none()
         && query.offset.is_none()
         && query.fetch.is_none()
@@ -631,7 +668,7 @@ mod test {
 
         let sql_ast = crate::tests::compile(query).unwrap();
 
-        assert_snapshot!(sql_ast, @r###"
+        assert_snapshot!(sql_ast, @r"
         WITH table_0 AS (
           SELECT
             title,
@@ -649,7 +686,7 @@ mod test {
           table_0
         GROUP BY
           title
-        "###);
+        ");
     }
 
     #[test]
@@ -672,7 +709,7 @@ mod test {
 
         let sql_ast = crate::tests::compile(query).unwrap();
 
-        assert_snapshot!(sql_ast, @r###"
+        assert_snapshot!(sql_ast, @r"
         WITH table_0 AS (
           SELECT
             *,
@@ -687,7 +724,7 @@ mod test {
           table_0
         WHERE
           country = 'USA'
-        "###);
+        ");
     }
 
     #[test]
@@ -698,7 +735,7 @@ mod test {
         filter (average bar) > 3
         "#;
 
-        assert_snapshot!(crate::tests::compile(query).unwrap(), @r###"
+        assert_snapshot!(crate::tests::compile(query).unwrap(), @r"
         WITH table_0 AS (
           SELECT
             *,
@@ -712,6 +749,6 @@ mod test {
           table_0
         WHERE
           _expr_0 > 3
-        "###);
+        ");
     }
 }

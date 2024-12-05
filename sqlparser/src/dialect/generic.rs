@@ -35,11 +35,59 @@ impl Dialect for GenericDialect {
             || ch == '_'
     }
 
+    fn supports_unicode_string_literal(&self) -> bool {
+        true
+    }
+
     fn supports_group_by_expr(&self) -> bool {
         true
     }
 
+    fn supports_connect_by(&self) -> bool {
+        true
+    }
+
+    fn supports_match_recognize(&self) -> bool {
+        true
+    }
+
     fn supports_start_transaction_modifier(&self) -> bool {
+        true
+    }
+
+    fn supports_window_function_null_treatment_arg(&self) -> bool {
+        true
+    }
+
+    fn supports_dictionary_syntax(&self) -> bool {
+        true
+    }
+
+    fn supports_window_clause_named_window_reference(&self) -> bool {
+        true
+    }
+
+    fn supports_parenthesized_set_variables(&self) -> bool {
+        true
+    }
+
+    fn supports_select_wildcard_except(&self) -> bool {
+        true
+    }
+
+    fn support_map_literal_syntax(&self) -> bool {
+        true
+    }
+
+    fn allow_extract_custom(&self) -> bool {
+        true
+    }
+
+    fn allow_extract_single_quotes(&self) -> bool {
+        true
+    }
+
+    fn supports_create_index_with_clause(&self) -> bool {
         true
     }
 }

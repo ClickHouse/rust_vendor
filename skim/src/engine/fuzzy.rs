@@ -1,6 +1,8 @@
+use std::cmp::min;
 use std::fmt::{Display, Error, Formatter};
 use std::sync::Arc;
 
+use clap::ValueEnum;
 use fuzzy_matcher::clangd::ClangdMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -8,31 +10,15 @@ use fuzzy_matcher::FuzzyMatcher;
 use crate::item::RankBuilder;
 use crate::{CaseMatching, MatchEngine};
 use crate::{MatchRange, MatchResult, SkimItem};
-use bitflags::_core::cmp::min;
 
 //------------------------------------------------------------------------------
-#[derive(Debug, Copy, Clone)]
+#[derive(ValueEnum, Debug, Copy, Clone, Default)]
+#[clap(rename_all = "snake_case")]
 pub enum FuzzyAlgorithm {
     SkimV1,
+    #[default]
     SkimV2,
     Clangd,
-}
-
-impl FuzzyAlgorithm {
-    pub fn of(algorithm: &str) -> Self {
-        match algorithm.to_ascii_lowercase().as_ref() {
-            "skim_v1" => FuzzyAlgorithm::SkimV1,
-            "skim_v2" | "skim" => FuzzyAlgorithm::SkimV2,
-            "clangd" => FuzzyAlgorithm::Clangd,
-            _ => FuzzyAlgorithm::SkimV2,
-        }
-    }
-}
-
-impl Default for FuzzyAlgorithm {
-    fn default() -> Self {
-        FuzzyAlgorithm::SkimV2
-    }
 }
 
 const BYTES_1M: usize = 1024 * 1024 * 1024;
@@ -146,18 +132,19 @@ impl MatchEngine for FuzzyEngine {
             }
         }
 
-        if matched_result == None {
-            return None;
-        }
+        matched_result.as_ref()?;
 
         let (score, matched_range) = matched_result.unwrap();
 
+        trace!("matched range {:?}", matched_range);
         let begin = *matched_range.first().unwrap_or(&0);
         let end = *matched_range.last().unwrap_or(&0);
 
         let item_len = item_text.len();
         Some(MatchResult {
-            rank: self.rank_builder.build_rank(score as i32, begin, end, item_len),
+            rank: self
+                .rank_builder
+                .build_rank(score as i32, begin, end, item_len, item.get_index()),
             matched_range: MatchRange::Chars(matched_range),
         })
     }

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+PATH="$(printf '%s:' "$PWD"/fish/*)$PATH" exec "$@"
+# End.

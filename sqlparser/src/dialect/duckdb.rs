@@ -18,6 +18,10 @@ pub struct DuckDbDialect;
 
 // In most cases the redshift dialect is identical to [`PostgresSqlDialect`].
 impl Dialect for DuckDbDialect {
+    fn supports_trailing_commas(&self) -> bool {
+        true
+    }
+
     fn is_identifier_start(&self, ch: char) -> bool {
         ch.is_alphabetic() || ch == '_'
     }
@@ -31,6 +35,24 @@ impl Dialect for DuckDbDialect {
     }
 
     fn supports_group_by_expr(&self) -> bool {
+        true
+    }
+
+    fn supports_named_fn_args_with_eq_operator(&self) -> bool {
+        true
+    }
+
+    // DuckDB uses this syntax for `STRUCT`s.
+    //
+    // https://duckdb.org/docs/sql/data_types/struct.html#creating-structs
+    fn supports_dictionary_syntax(&self) -> bool {
+        true
+    }
+
+    // DuckDB uses this syntax for `MAP`s.
+    //
+    // https://duckdb.org/docs/sql/data_types/map.html#creating-maps
+    fn support_map_literal_syntax(&self) -> bool {
         true
     }
 }

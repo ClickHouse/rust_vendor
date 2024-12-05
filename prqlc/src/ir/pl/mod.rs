@@ -8,6 +8,17 @@
 //!
 //! Top-level construct is a list of statements [`Vec<Stmt>`].
 
+pub use crate::pr::Literal;
+pub use crate::pr::QueryDef;
+pub use crate::pr::{BinOp, BinaryExpr, Ident, UnOp, UnaryExpr};
+
+pub use self::expr::*;
+pub use self::extra::*;
+pub use self::fold::*;
+pub use self::lineage::*;
+pub use self::stmt::*;
+pub use self::utils::*;
+
 mod expr;
 mod extra;
 mod fold;
@@ -15,21 +26,12 @@ mod lineage;
 mod stmt;
 mod utils;
 
-pub use self::expr::*;
-pub use self::extra::expr::*;
-pub use self::fold::*;
-pub use self::lineage::*;
-pub use self::stmt::*;
-pub use self::utils::*;
-pub use prqlc_ast::{BinOp, BinaryExpr, Ident, Literal, UnOp, UnaryExpr, ValueAndUnit};
-
 pub fn print_mem_sizes() {
-    use crate::ir::{decl, generic, pl, rq};
-    use crate::sql::internal::SqlTransform;
-    use crate::{ErrorMessage, ErrorMessages, SourceTree, Span};
-    use prqlc_ast::{PrimitiveSet, TupleField, Ty, TyFunc, TyKind};
-
     use std::mem::size_of;
+
+    use crate::ir::{decl, generic, pl, rq};
+    use crate::pr::{PrimitiveSet, Ty, TyFunc, TyKind, TyTupleField};
+    use crate::{ErrorMessage, ErrorMessages, SourceTree, Span};
 
     println!("{:16}= {}", "Annotation", size_of::<Annotation>());
     println!("{:16}= {}", "BinaryExpr", size_of::<BinaryExpr>());
@@ -75,14 +77,13 @@ pub fn print_mem_sizes() {
     println!("{:16}= {}", "rq::TableRef", size_of::<rq::TableRef>());
     println!("{:16}= {}", "SourceTree", size_of::<SourceTree>());
     println!("{:16}= {}", "Span", size_of::<Span>());
-    println!("{:16}= {}", "SqlTransform", size_of::<SqlTransform>());
     println!("{:16}= {}", "Stmt", size_of::<Stmt>());
     println!("{:16}= {}", "StmtKind", size_of::<StmtKind>());
     println!("{:16}= {}", "SwitchCase", size_of::<SwitchCase>());
     println!("{:16}= {}", "TableExternRef", size_of::<TableExternRef>());
     println!("{:16}= {}", "TransformCall", size_of::<TransformCall>());
     println!("{:16}= {}", "TransformKind", size_of::<TransformKind>());
-    println!("{:16}= {}", "TupleField", size_of::<TupleField>());
+    println!("{:16}= {}", "TupleField", size_of::<TyTupleField>());
     println!("{:16}= {}", "Ty", size_of::<Ty>());
     println!("{:16}= {}", "TyFunc", size_of::<TyFunc>());
     println!("{:16}= {}", "TyKind", size_of::<TyKind>());

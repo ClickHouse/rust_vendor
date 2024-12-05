@@ -1,6 +1,5 @@
-use prqlc_ast::expr::Ident;
-
 use super::{Expr, ExprKind, FuncCall};
+use crate::pr::Ident;
 
 pub fn maybe_binop(left: Option<Expr>, op_name: &[&str], right: Option<Expr>) -> Option<Expr> {
     match (left, right) {

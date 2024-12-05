@@ -1,13 +1,13 @@
 //! List directory contents
 
-use crate::{Error, NixPath, Result};
 use crate::errno::Errno;
 use crate::fcntl::{self, OFlag};
+use crate::sys;
+use crate::{Error, NixPath, Result};
+use cfg_if::cfg_if;
+use std::ffi;
 use std::os::unix::io::{AsRawFd, IntoRawFd, RawFd};
 use std::ptr;
-use std::ffi;
-use crate::sys;
-use cfg_if::cfg_if;
 
 #[cfg(target_os = "linux")]
 use libc::{dirent64 as dirent, readdir64_r as readdir_r};
@@ -29,21 +29,26 @@ use libc::{dirent, readdir_r};
 ///    * returns entries' names as a `CStr` (no allocation or conversion beyond whatever libc
 ///      does).
 #[derive(Debug, Eq, Hash, PartialEq)]
-pub struct Dir(
-    ptr::NonNull<libc::DIR>
-);
+pub struct Dir(ptr::NonNull<libc::DIR>);
 
 impl Dir {
     /// Opens the given path as with `fcntl::open`.
-    pub fn open<P: ?Sized + NixPath>(path: &P, oflag: OFlag,
-                                     mode: sys::stat::Mode) -> Result<Self> {
+    pub fn open<P: ?Sized + NixPath>(
+        path: &P,
+        oflag: OFlag,
+        mode: sys::stat::Mode,
+    ) -> Result<Self> {
         let fd = fcntl::open(path, oflag, mode)?;
         Dir::from_fd(fd)
     }
 
     /// Opens the given path as with `fcntl::openat`.
-    pub fn openat<P: ?Sized + NixPath>(dirfd: RawFd, path: &P, oflag: OFlag,
-                                       mode: sys::stat::Mode) -> Result<Self> {
+    pub fn openat<P: ?Sized + NixPath>(
+        dirfd: Option<RawFd>,
+        path: &P,
+        oflag: OFlag,
+        mode: sys::stat::Mode,
+    ) -> Result<Self> {
         let fd = fcntl::openat(dirfd, path, oflag, mode)?;
         Dir::from_fd(fd)
     }
@@ -54,14 +59,16 @@ impl Dir {
         Dir::from_fd(fd.into_raw_fd())
     }
 
-    /// Converts from a file descriptor, closing it on success or failure.
-    #[cfg_attr(has_doc_alias, doc(alias("fdopendir")))]
+    /// Converts from a file descriptor, closing it on failure.
+    #[doc(alias("fdopendir"))]
     pub fn from_fd(fd: RawFd) -> Result<Self> {
-        let d = ptr::NonNull::new(unsafe { libc::fdopendir(fd) }).ok_or_else(|| {
-            let e = Error::last();
-            unsafe { libc::close(fd) };
-            e
-        })?;
+        let d = ptr::NonNull::new(unsafe { libc::fdopendir(fd) }).ok_or_else(
+            || {
+                let e = Error::last();
+                unsafe { libc::close(fd) };
+                e
+            },
+        )?;
         Ok(Dir(d))
     }
 
@@ -94,6 +101,9 @@ impl Drop for Dir {
     }
 }
 
+// The pass by mut is technically needless only because the inner NonNull is
+// Copy.  But philosophically we're mutating the Dir, so we pass by mut.
+#[allow(clippy::needless_pass_by_ref_mut)]
 fn next(dir: &mut Dir) -> Option<Result<Entry>> {
     unsafe {
         // Note: POSIX specifies that portable applications should dynamically allocate a
@@ -103,9 +113,11 @@ fn next(dir: &mut Dir) -> Option<Result<Entry>> {
         // Probably fine here too then.
         let mut ent = std::mem::MaybeUninit::<dirent>::uninit();
         let mut result = ptr::null_mut();
-        if let Err(e) = Errno::result(
-            readdir_r(dir.0.as_ptr(), ent.as_mut_ptr(), &mut result))
-        {
+        if let Err(e) = Errno::result(readdir_r(
+            dir.0.as_ptr(),
+            ent.as_mut_ptr(),
+            &mut result,
+        )) {
             return Some(Err(e));
         }
         if result.is_null() {
@@ -207,21 +219,19 @@ pub enum Type {
 
 impl Entry {
     /// Returns the inode number (`d_ino`) of the underlying `dirent`.
-    #[allow(clippy::useless_conversion)]    // Not useless on all OSes
+    #[allow(clippy::useless_conversion)] // Not useless on all OSes
     // The cast is not unnecessary on all platforms.
     #[allow(clippy::unnecessary_cast)]
     pub fn ino(&self) -> u64 {
         cfg_if! {
-            if #[cfg(any(target_os = "android",
+            if #[cfg(any(target_os = "aix",
                          target_os = "emscripten",
                          target_os = "fuchsia",
                          target_os = "haiku",
-                         target_os = "illumos",
-                         target_os = "ios",
-                         target_os = "l4re",
-                         target_os = "linux",
-                         target_os = "macos",
-                         target_os = "solaris"))] {
+                         target_os = "hurd",
+                         solarish,
+                         linux_android,
+                         apple_targets))] {
                 self.0.d_ino as u64
             } else {
                 u64::from(self.0.d_fileno)
@@ -231,7 +241,7 @@ impl Entry {
 
     /// Returns the bare file name of this directory entry without any other leading path component.
     pub fn file_name(&self) -> &ffi::CStr {
-        unsafe { ::std::ffi::CStr::from_ptr(self.0.d_name.as_ptr()) }
+        unsafe { ffi::CStr::from_ptr(self.0.d_name.as_ptr()) }
     }
 
     /// Returns the type of this directory entry, if known.
@@ -240,7 +250,7 @@ impl Entry {
     /// notably, some Linux filesystems don't implement this. The caller should use `stat` or
     /// `fstat` if this returns `None`.
     pub fn file_type(&self) -> Option<Type> {
-        #[cfg(not(any(target_os = "illumos", target_os = "solaris", target_os = "haiku")))]
+        #[cfg(not(any(solarish, target_os = "aix", target_os = "haiku")))]
         match self.0.d_type {
             libc::DT_FIFO => Some(Type::Fifo),
             libc::DT_CHR => Some(Type::CharacterDevice),
@@ -253,7 +263,7 @@ impl Entry {
         }
 
         // illumos, Solaris, and Haiku systems do not have the d_type member at all:
-        #[cfg(any(target_os = "illumos", target_os = "solaris", target_os = "haiku"))]
+        #[cfg(any(solarish, target_os = "aix", target_os = "haiku"))]
         None
     }
 }

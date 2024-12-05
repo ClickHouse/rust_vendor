@@ -1,11 +1,12 @@
 //! Feature tests for OS functionality
 pub use self::os::*;
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(linux_android)]
 mod os {
-    use std::os::unix::ffi::OsStrExt;
     use crate::sys::utsname::uname;
     use crate::Result;
+    use std::os::unix::ffi::OsStrExt;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     // Features:
     // * atomic cloexec on socket: 2.6.27
@@ -13,10 +14,10 @@ mod os {
     // * accept4: 2.6.28
 
     static VERS_UNKNOWN: usize = 1;
-    static VERS_2_6_18:  usize = 2;
-    static VERS_2_6_27:  usize = 3;
-    static VERS_2_6_28:  usize = 4;
-    static VERS_3:       usize = 5;
+    static VERS_2_6_18: usize = 2;
+    static VERS_2_6_27: usize = 3;
+    static VERS_2_6_28: usize = 4;
+    static VERS_3: usize = 5;
 
     #[inline]
     fn digit(dst: &mut usize, b: u8) {
@@ -27,7 +28,7 @@ mod os {
     fn parse_kernel_version() -> Result<usize> {
         let u = uname()?;
 
-        let mut curr:  usize = 0;
+        let mut curr: usize = 0;
         let mut major: usize = 0;
         let mut minor: usize = 0;
         let mut patch: usize = 0;
@@ -41,13 +42,11 @@ mod os {
                 b'.' | b'-' => {
                     curr += 1;
                 }
-                b'0'..=b'9' => {
-                    match curr {
-                        0 => digit(&mut major, b),
-                        1 => digit(&mut minor, b),
-                        _ => digit(&mut patch, b),
-                    }
-                }
+                b'0'..=b'9' => match curr {
+                    0 => digit(&mut major, b),
+                    1 => digit(&mut minor, b),
+                    _ => digit(&mut patch, b),
+                },
                 _ => break,
             }
         }
@@ -74,20 +73,22 @@ mod os {
     }
 
     fn kernel_version() -> Result<usize> {
-        static mut KERNEL_VERS: usize = 0;
+        static KERNEL_VERS: AtomicUsize = AtomicUsize::new(0);
+        let mut kernel_vers = KERNEL_VERS.load(Ordering::Relaxed);
 
-        unsafe {
-            if KERNEL_VERS == 0 {
-                KERNEL_VERS = parse_kernel_version()?;
-            }
-
-            Ok(KERNEL_VERS)
+        if kernel_vers == 0 {
+            kernel_vers = parse_kernel_version()?;
+            KERNEL_VERS.store(kernel_vers, Ordering::Relaxed);
         }
+
+        Ok(kernel_vers)
     }
 
     /// Check if the OS supports atomic close-on-exec for sockets
     pub fn socket_atomic_cloexec() -> bool {
-        kernel_version().map(|version| version >= VERS_2_6_27).unwrap_or(false)
+        kernel_version()
+            .map(|version| version >= VERS_2_6_27)
+            .unwrap_or(false)
     }
 
     #[test]
@@ -97,11 +98,10 @@ mod os {
 }
 
 #[cfg(any(
-        target_os = "dragonfly",    // Since ???
-        target_os = "freebsd",      // Since 10.0
+        freebsdlike,                // FreeBSD since 10.0 DragonFlyBSD since ???
+        netbsdlike,                 // NetBSD since 6.0 OpenBSD since 5.7
+        target_os = "hurd",         // Since glibc 2.28
         target_os = "illumos",      // Since ???
-        target_os = "netbsd",       // Since 6.0
-        target_os = "openbsd",      // Since 5.7
         target_os = "redox",        // Since 1-july-2020
 ))]
 mod os {
@@ -111,11 +111,13 @@ mod os {
     }
 }
 
-#[cfg(any(target_os = "macos",
-          target_os = "ios",
-          target_os = "fuchsia",
-          target_os = "haiku",
-          target_os = "solaris"))]
+#[cfg(any(
+    target_os = "aix",
+    apple_targets,
+    target_os = "fuchsia",
+    target_os = "haiku",
+    target_os = "solaris"
+))]
 mod os {
     /// Check if the OS supports atomic close-on-exec for sockets
     pub const fn socket_atomic_cloexec() -> bool {

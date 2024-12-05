@@ -7,203 +7,91 @@ mod module;
 pub mod reporting;
 mod resolver;
 
-use anyhow::Result;
-use itertools::Itertools;
-use std::path::PathBuf;
-
-use self::resolver::Resolver;
-pub use self::resolver::ResolverOptions;
 pub use eval::eval;
 pub use lowering::lower_to_ir;
 
+use self::resolver::Resolver;
+pub use self::resolver::ResolverOptions;
 use crate::ir::constant::ConstExpr;
 use crate::ir::decl::{Module, RootModule};
-use crate::ir::pl::{self, Expr, ModuleDef, Stmt, StmtKind, TypeDef, VarDef};
+use crate::ir::pl::{self, Expr, ImportDef, ModuleDef, Stmt, StmtKind, TypeDef, VarDef};
 use crate::ir::rq::RelationalQuery;
+use crate::parser::is_mod_def_for;
+use crate::pr;
 use crate::WithErrorInfo;
-use crate::{Error, Reason, SourceTree};
+use crate::{debug, parser};
+use crate::{Error, Reason, Result};
 
 /// Runs semantic analysis on the query and lowers PL to RQ.
 pub fn resolve_and_lower(
-    file_tree: SourceTree<Vec<prqlc_ast::stmt::Stmt>>,
+    file_tree: pr::ModuleDef,
     main_path: &[String],
     database_module_path: Option<&[String]>,
 ) -> Result<RelationalQuery> {
-    let root_mod = resolve(file_tree, Default::default())?;
+    let root_mod = resolve(file_tree)?;
 
+    debug::log_stage(debug::Stage::Semantic(debug::StageSemantic::Lowering));
     let default_db = [NS_DEFAULT_DB.to_string()];
     let database_module_path = database_module_path.unwrap_or(&default_db);
     let (query, _) = lowering::lower_to_ir(root_mod, main_path, database_module_path)?;
+
+    debug::log_entry(|| debug::DebugEntryKind::ReprRq(query.clone()));
     Ok(query)
 }
 
 /// Runs semantic analysis on the query.
-pub fn resolve(
-    file_tree: SourceTree<Vec<prqlc_ast::stmt::Stmt>>,
-    options: ResolverOptions,
-) -> Result<RootModule> {
-    let root_module_def = compose_module_tree(file_tree)?;
+pub fn resolve(mut module_tree: pr::ModuleDef) -> Result<RootModule> {
+    load_std_lib(&mut module_tree);
 
     // expand AST into PL
-    let root_module_def = ast_expand::expand_module_def(root_module_def)?;
+    debug::log_stage(debug::Stage::Semantic(debug::StageSemantic::AstExpand));
+    let root_module_def = ast_expand::expand_module_def(module_tree)?;
+    debug::log_entry(|| debug::DebugEntryKind::ReprPl(root_module_def.clone()));
 
     // init new root module
     let mut root_module = RootModule {
         module: Module::new_root(),
         ..Default::default()
     };
-    let mut resolver = Resolver::new(&mut root_module, options);
+    let mut resolver = Resolver::new(&mut root_module);
 
     // resolve the module def into the root module
+    debug::log_stage(debug::Stage::Semantic(debug::StageSemantic::Resolver));
     resolver.fold_statements(root_module_def.stmts)?;
+    debug::log_entry(|| debug::DebugEntryKind::ReprDecl(root_module.clone()));
 
     Ok(root_module)
 }
 
-pub fn compose_module_tree(
-    mut tree: SourceTree<Vec<prqlc_ast::stmt::Stmt>>,
-) -> Result<prqlc_ast::stmt::ModuleDef> {
-    // inject std module if it does not exist
-    if !tree.sources.contains_key(&PathBuf::from("std.prql")) {
-        let mut source_tree = SourceTree {
-            sources: Default::default(),
-            source_ids: tree.source_ids.clone(),
-            root: None,
-        };
-        load_std_lib(&mut source_tree);
-        let ast = crate::parser::parse(&source_tree).unwrap();
-        let (path, content) = ast.sources.into_iter().next().unwrap();
-        tree.insert(path, content);
-    }
-
-    // find root
-    let root_path = PathBuf::from("");
-    if tree.sources.get(&root_path).is_none() {
-        if tree.sources.len() == 1 {
-            // if there is only one file, use that as the root
-            let (_, only) = tree.sources.drain().exactly_one().unwrap();
-            tree.sources.insert(root_path, only);
-        } else if let Some(root) = tree.sources.keys().find(path_starts_with_uppercase) {
-            // if there is a path that starts with an uppercase, that's the root
-            let root = tree.sources.remove(&root.clone()).unwrap();
-            tree.sources.insert(root_path, root);
-        } else {
-            let file_names = tree
-                .sources
-                .keys()
-                .map(|p| format!(" - {}", p.to_str().unwrap_or_default()))
-                .sorted()
-                .join("\n");
-
-            return Err(Error::new_simple(format!(
-                "Cannot find the root module within the following files:\n{file_names}"
-            ))
-            .push_hint("add a file prefixed with `_` to the root directory")
-            .with_code("E0002")
-            .into());
-        }
-    }
-
-    // prepare paths and sort
-    let mut sources: Vec<_> = Vec::with_capacity(tree.sources.len());
-    for (path, stmts) in tree.sources {
-        let path = os_path_to_prql_path(path)?;
-        sources.push((path, stmts));
-    }
-
-    // ad-hoc sorting to get std to the last place
-    // TODO: this should be figured out using references between modules and toposort
-    sources.sort_by_key(|(path, _)| path.join("."));
-    sources.reverse();
-
-    // insert all sources into root module
-    let mut root = prqlc_ast::stmt::ModuleDef {
-        name: "Project".to_string(),
-        stmts: Vec::new(),
-    };
-
-    fn insert_module_def(
-        module: &mut prqlc_ast::stmt::ModuleDef,
-        mut path: Vec<String>,
-        stmts: Vec<prqlc_ast::stmt::Stmt>,
-    ) {
-        if path.is_empty() {
-            module.stmts.extend(stmts);
-        } else {
-            let step = path.remove(0);
-
-            // find submodule def
-            let submodule = module
-                .stmts
-                .iter_mut()
-                .find(|x| x.kind.as_module_def().map_or(false, |x| x.name == step));
-            let submodule = if let Some(sm) = submodule {
-                sm
-            } else {
-                // insert new module def
-                module.stmts.push(prqlc_ast::stmt::Stmt::new(
-                    prqlc_ast::stmt::StmtKind::ModuleDef(prqlc_ast::stmt::ModuleDef {
-                        name: step,
-                        stmts: Vec::new(),
-                    }),
-                ));
-                module.stmts.last_mut().unwrap()
-            };
-            let submodule = submodule.kind.as_module_def_mut().unwrap();
-
-            insert_module_def(submodule, path, stmts);
-        }
-    }
-    for (path, stmts) in sources {
-        insert_module_def(&mut root, path, stmts);
-    }
-
-    // TODO: make sure that the module tree is normalized
-
-    // TODO: find correct resolution order
-    // TODO: recursive references
-
-    Ok(root)
-}
-
 /// Preferred way of injecting std module.
-pub fn load_std_lib(source_tree: &mut SourceTree) {
-    let path = PathBuf::from("std.prql");
-    let content = include_str!("./std.prql");
+pub fn load_std_lib(module_tree: &mut pr::ModuleDef) {
+    if !module_tree.stmts.iter().any(|s| is_mod_def_for(s, NS_STD)) {
+        log::debug!("loading std.prql");
+        let _suppressed = debug::log_suppress();
 
-    source_tree.insert(path, content.to_string());
-}
-
-pub fn os_path_to_prql_path(path: PathBuf) -> Result<Vec<String>> {
-    // remove file format extension
-    let path = path.with_extension("");
-
-    // split by /
-    path.components()
-        .map(|x| {
-            x.as_os_str()
-                .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid file path: {path:?}"))
-                .map(str::to_string)
-        })
-        .try_collect()
-}
-
-fn path_starts_with_uppercase(p: &&PathBuf) -> bool {
-    p.components()
-        .next()
-        .and_then(|x| x.as_os_str().to_str())
-        .and_then(|x| x.chars().next())
-        .map_or(false, |x| x.is_uppercase())
+        let std_source = include_str!("std.prql");
+        match parser::parse_source(std_source, 0) {
+            Ok(stmts) => {
+                let stmt = pr::Stmt::new(pr::StmtKind::ModuleDef(pr::ModuleDef {
+                    name: "std".to_string(),
+                    stmts,
+                }));
+                module_tree.stmts.insert(0, stmt);
+            }
+            Err(errs) => {
+                panic!("std.prql failed to compile:\n{errs:?}");
+            }
+        }
+    }
 }
 
 pub fn static_eval(expr: Expr, root_mod: &mut RootModule) -> Result<ConstExpr> {
-    let mut resolver = Resolver::new(root_mod, ResolverOptions::default());
+    let mut resolver = Resolver::new(root_mod);
 
     resolver.static_eval_to_constant(expr)
 }
 
-pub fn is_ident_or_func_call(expr: &pl::Expr, name: &prqlc_ast::Ident) -> bool {
+pub fn is_ident_or_func_call(expr: &pl::Expr, name: &pr::Ident) -> bool {
     match &expr.kind {
         pl::ExprKind::Ident(i) if i == name => true,
         pl::ExprKind::FuncCall(pl::FuncCall { name: n_expr, .. })
@@ -250,6 +138,7 @@ impl Stmt {
             StmtKind::VarDef(VarDef { name, .. }) => name,
             StmtKind::TypeDef(TypeDef { name, .. }) => name,
             StmtKind::ModuleDef(ModuleDef { name, .. }) => name,
+            StmtKind::ImportDef(ImportDef { name, alias }) => alias.as_ref().unwrap_or(&name.name),
         }
     }
 }
@@ -280,22 +169,21 @@ pub fn write_pl(expr: pl::Expr) -> String {
 }
 #[cfg(test)]
 pub mod test {
-    use anyhow::Result;
     use insta::assert_yaml_snapshot;
 
+    use super::{resolve, resolve_and_lower, RootModule};
     use crate::ir::rq::RelationalQuery;
     use crate::parser::parse;
+    use crate::Errors;
 
-    use super::{resolve, resolve_and_lower, RootModule};
-
-    pub fn parse_resolve_and_lower(query: &str) -> Result<RelationalQuery> {
+    pub fn parse_resolve_and_lower(query: &str) -> Result<RelationalQuery, Errors> {
         let source_tree = query.into();
-        resolve_and_lower(parse(&source_tree)?, &[], None)
+        Ok(resolve_and_lower(parse(&source_tree)?, &[], None)?)
     }
 
-    pub fn parse_and_resolve(query: &str) -> Result<RootModule> {
+    pub fn parse_and_resolve(query: &str) -> Result<RootModule, Errors> {
         let source_tree = query.into();
-        resolve(parse(&source_tree)?, Default::default())
+        Ok(resolve(parse(&source_tree)?)?)
     }
 
     #[test]
@@ -303,10 +191,7 @@ pub mod test {
         assert_yaml_snapshot!(parse_resolve_and_lower(r###"
         from employees
         select !{foo}
-        "###).unwrap().relation.columns, @r###"
-        ---
-        - Wildcard
-        "###)
+        "###).unwrap().relation.columns, @"- Wildcard")
     }
 
     #[test]
@@ -317,13 +202,12 @@ pub mod test {
         window range:-4..4 (
             derive {next_four_days = sum b}
         )
-        "###).unwrap().relation.columns, @r###"
-        ---
+        "###).unwrap().relation.columns, @r"
         - Single: day
         - Single: b
         - Wildcard
         - Single: next_four_days
-        "###)
+        ")
     }
 
     #[test]
@@ -332,11 +216,10 @@ pub mod test {
         from a=albums
         filter is_sponsored
         select {a.*}
-        "###).unwrap().relation.columns, @r###"
-        ---
+        "###).unwrap().relation.columns, @r"
         - Single: is_sponsored
         - Wildcard
-        "###)
+        ")
     }
 
     #[test]
@@ -344,12 +227,11 @@ pub mod test {
         assert_yaml_snapshot!(parse_resolve_and_lower(r###"
         from x
         select {a, a, a = a + 1}
-        "###).unwrap().relation.columns, @r###"
-        ---
+        "###).unwrap().relation.columns, @r"
         - Single: ~
         - Single: ~
         - Single: a
-        "###)
+        ")
     }
 
     #[test]
@@ -358,8 +240,7 @@ pub mod test {
         prql target:sql.mssql version:"0"
 
         from employees
-        "#).unwrap(), @r###"
-        ---
+        "#).unwrap(), @r"
         def:
           version: ^0
           other:
@@ -370,7 +251,8 @@ pub mod test {
             relation:
               kind:
                 ExternRef:
-                  - employees
+                  LocalTable:
+                    - employees
               columns:
                 - Wildcard
         relation:
@@ -386,7 +268,7 @@ pub mod test {
                   - 0
           columns:
             - Wildcard
-        "### );
+        " );
 
         assert!(parse_resolve_and_lower(
             r###"

@@ -1,10 +1,13 @@
-///! An item is line of text that read from `find` command or stdin together with
-///! the internal states, such as selected or not
+//! An item is line of text that read from `find` command or stdin together with
+//! the internal states, such as selected or not
 use std::cmp::min;
 use std::default::Default;
 use std::ops::Deref;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+
+use clap::builder::PossibleValue;
+use clap::ValueEnum;
 
 use crate::spinlock::{SpinLock, SpinLockGuard};
 use crate::{MatchRange, Rank, SkimItem};
@@ -35,27 +38,31 @@ impl RankBuilder {
     }
 
     /// score: the greater the better
-    pub fn build_rank(&self, score: i32, begin: usize, end: usize, length: usize) -> Rank {
+    pub fn build_rank(&self, score: i32, begin: usize, end: usize, length: usize, index: usize) -> Rank {
         let mut rank = [0; 4];
         let begin = begin as i32;
         let end = end as i32;
         let length = length as i32;
+        let index = index as i32;
 
-        for (index, criteria) in self.criterion.iter().take(4).enumerate() {
+        for (priority, criteria) in self.criterion.iter().take(5).enumerate() {
             let value = match criteria {
                 RankCriteria::Score => -score,
-                RankCriteria::Begin => begin,
-                RankCriteria::End => end,
                 RankCriteria::NegScore => score,
+                RankCriteria::Begin => begin,
                 RankCriteria::NegBegin => -begin,
+                RankCriteria::End => end,
                 RankCriteria::NegEnd => -end,
                 RankCriteria::Length => length,
                 RankCriteria::NegLength => -length,
+                RankCriteria::Index => index,
+                RankCriteria::NegIndex => -index,
             };
 
-            rank[index] = value;
+            rank[priority] = value;
         }
 
+        trace!("ranks: {:?}", rank);
         rank
     }
 }
@@ -83,7 +90,7 @@ impl std::cmp::Eq for MatchedItem {}
 
 impl PartialOrd for MatchedItem {
     fn partial_cmp(&self, other: &Self) -> Option<CmpOrd> {
-        self.rank.partial_cmp(&other.rank)
+        Some(self.rank.cmp(&other.rank))
     }
 }
 
@@ -107,6 +114,18 @@ pub struct ItemPool {
     lines_to_reserve: usize,
 }
 
+impl Default for ItemPool {
+    fn default() -> Self {
+        Self {
+            length: AtomicUsize::new(0),
+            pool: SpinLock::new(Vec::with_capacity(ITEM_POOL_CAPACITY)),
+            taken: AtomicUsize::new(0),
+            reserved_items: SpinLock::new(Vec::new()),
+            lines_to_reserve: 0,
+        }
+    }
+}
+
 impl ItemPool {
     pub fn new() -> Self {
         Self {
@@ -125,6 +144,10 @@ impl ItemPool {
 
     pub fn len(&self) -> usize {
         self.length.load(Ordering::SeqCst)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn num_not_taken(&self) -> usize {
@@ -199,25 +222,38 @@ impl<'mutex, T: Sized> Deref for ItemPoolGuard<'mutex, T> {
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum RankCriteria {
     Score,
-    Begin,
-    End,
     NegScore,
+    Begin,
     NegBegin,
+    End,
     NegEnd,
     Length,
     NegLength,
+    Index,
+    NegIndex,
 }
 
-pub fn parse_criteria(text: &str) -> Option<RankCriteria> {
-    match text.to_lowercase().as_ref() {
-        "score" => Some(RankCriteria::Score),
-        "begin" => Some(RankCriteria::Begin),
-        "end" => Some(RankCriteria::End),
-        "-score" => Some(RankCriteria::NegScore),
-        "-begin" => Some(RankCriteria::NegBegin),
-        "-end" => Some(RankCriteria::NegEnd),
-        "length" => Some(RankCriteria::Length),
-        "-length" => Some(RankCriteria::NegLength),
-        _ => None,
+impl ValueEnum for RankCriteria {
+    fn value_variants<'a>() -> &'a [Self] {
+        use RankCriteria::*;
+        &[
+            Score, NegScore, Begin, NegBegin, End, NegEnd, Length, NegLength, Index, NegIndex,
+        ]
+    }
+
+    fn to_possible_value(&self) -> Option<clap::builder::PossibleValue> {
+        use RankCriteria::*;
+        Some(match self {
+            Score => PossibleValue::new("score"),
+            Begin => PossibleValue::new("begin"),
+            End => PossibleValue::new("end"),
+            NegScore => PossibleValue::new("-score"),
+            NegBegin => PossibleValue::new("-begin"),
+            NegEnd => PossibleValue::new("-end"),
+            Length => PossibleValue::new("length"),
+            NegLength => PossibleValue::new("-length"),
+            Index => PossibleValue::new("index"),
+            NegIndex => PossibleValue::new("-index"),
+        })
     }
 }

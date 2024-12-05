@@ -21,9 +21,9 @@ impl SkimItem for MyItem {
 
 pub fn main() {
     let options = SkimOptionsBuilder::default()
-        .height(Some("50%"))
+        .height(String::from("50%"))
         .multi(true)
-        .preview(Some("")) // preview should be specified to enable preview window
+        .preview(Some(String::new())) // preview should be specified to enable preview window
         .build()
         .unwrap();
 
@@ -41,7 +41,7 @@ pub fn main() {
 
     let selected_items = Skim::run_with(&options, Some(rx_item))
         .map(|out| out.selected_items)
-        .unwrap_or_else(Vec::new);
+        .unwrap_or_default();
 
     for item in selected_items.iter() {
         println!("{}", item.output());
