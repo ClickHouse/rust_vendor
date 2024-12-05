@@ -25,4 +25,20 @@ impl Dialect for ClickHouseDialect {
     fn is_identifier_part(&self, ch: char) -> bool {
         self.is_identifier_start(ch) || ch.is_ascii_digit()
     }
+
+    fn supports_string_literal_backslash_escape(&self) -> bool {
+        true
+    }
+
+    fn supports_select_wildcard_except(&self) -> bool {
+        true
+    }
+
+    fn describe_requires_table_keyword(&self) -> bool {
+        true
+    }
+
+    fn require_interval_qualifier(&self) -> bool {
+        true
+    }
 }

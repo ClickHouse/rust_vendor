@@ -18,7 +18,7 @@ use crate::{FromMeta, Result};
 /// # Example
 /// ```ignore
 /// #[derive(FromMeta)]
-/// #[darling(and_then = "Self::not_both")]
+/// #[darling(and_then = Self::not_both)]
 /// struct Demo {
 ///     flag_a: Flag,
 ///     flag_b: Flag,
@@ -27,7 +27,7 @@ use crate::{FromMeta, Result};
 /// impl Demo {
 ///     fn not_both(self) -> Result<Self> {
 ///         if self.flag_a.is_present() && self.flag_b.is_present() {
-///             Err(Error::custom("Cannot set flag_a and flag_b").with_span(self.flag_b))
+///             Err(Error::custom("Cannot set flag_a and flag_b").with_span(&self.flag_b.span()))
 ///         } else {
 ///             Ok(self)
 ///         }
@@ -59,6 +59,11 @@ impl Flag {
     pub fn is_some(&self) -> bool {
         self.is_present()
     }
+
+    /// Get the span of the flag, or [`Span::call_site`] if the flag was not present.
+    pub fn span(&self) -> Span {
+        self.0.unwrap_or_else(Span::call_site)
+    }
 }
 
 impl FromMeta for Flag {
@@ -74,12 +79,6 @@ impl FromMeta for Flag {
             // call it to make sure the span behaviors and error messages are the same.
             Err(<()>::from_meta(mi).unwrap_err())
         }
-    }
-}
-
-impl Spanned for Flag {
-    fn span(&self) -> Span {
-        self.0.unwrap_or_else(Span::call_site)
     }
 }
 

@@ -1,10 +1,7 @@
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, TokenStreamExt};
-use syn;
-use BuilderPattern;
-use DEFAULT_STRUCT_NAME;
 
-use crate::{BlockContents, DefaultExpression};
+use crate::{change_span, BlockContents, BuilderPattern, DefaultExpression, DEFAULT_STRUCT_NAME};
 
 /// Initializer for the target struct fields, implementing `quote::ToTokens`.
 ///
@@ -37,6 +34,8 @@ use crate::{BlockContents, DefaultExpression};
 /// ```
 #[derive(Debug, Clone)]
 pub struct Initializer<'a> {
+    /// Path to the root of the derive_builder crate.
+    pub crate_root: &'a syn::Path,
     /// Name of the target field.
     pub field_ident: &'a syn::Ident,
     /// Whether the builder implements a setter for this field.
@@ -105,39 +104,48 @@ impl<'a> ToTokens for Initializer<'a> {
 
 impl<'a> Initializer<'a> {
     /// To be used inside of `#struct_field: match self.#builder_field { ... }`
-    fn match_some(&'a self) -> MatchSome {
+    fn match_some(&'a self) -> MatchSome<'a> {
         match self.builder_pattern {
             BuilderPattern::Owned => MatchSome::Move,
-            BuilderPattern::Mutable | BuilderPattern::Immutable => MatchSome::Clone,
+            BuilderPattern::Mutable | BuilderPattern::Immutable => MatchSome::Clone {
+                crate_root: self.crate_root,
+            },
         }
     }
 
     /// To be used inside of `#struct_field: match self.#builder_field { ... }`
     fn match_none(&'a self) -> MatchNone<'a> {
         match self.default_value {
-            Some(expr) => MatchNone::DefaultTo(expr),
+            Some(expr) => MatchNone::DefaultTo {
+                expr,
+                crate_root: self.crate_root,
+            },
             None => {
                 if self.use_default_struct {
                     MatchNone::UseDefaultStructField(self.field_ident)
                 } else {
-                    MatchNone::ReturnError(
-                        self.field_ident.to_string(),
-                        self.custom_error_type_span,
-                    )
+                    MatchNone::ReturnError {
+                        crate_root: self.crate_root,
+                        field_name: self.field_ident.to_string(),
+                        span: self.custom_error_type_span,
+                    }
                 }
             }
         }
     }
 
     fn default(&'a self) -> TokenStream {
+        let crate_root = self.crate_root;
         match self.default_value {
-            Some(ref expr) => quote!(#expr),
+            Some(expr) => expr.with_crate_root(crate_root).into_token_stream(),
             None if self.use_default_struct => {
                 let struct_ident = syn::Ident::new(DEFAULT_STRUCT_NAME, Span::call_site());
                 let field_ident = self.field_ident;
                 quote!(#struct_ident.#field_ident)
             }
-            None => quote!(::derive_builder::export::core::default::Default::default()),
+            None => {
+                quote!(#crate_root::export::core::default::Default::default())
+            }
         }
     }
 }
@@ -155,34 +163,51 @@ pub enum FieldConversion<'a> {
 /// To be used inside of `#struct_field: match self.#builder_field { ... }`
 enum MatchNone<'a> {
     /// Inner value must be a valid Rust expression
-    DefaultTo(&'a DefaultExpression),
+    DefaultTo {
+        expr: &'a DefaultExpression,
+        crate_root: &'a syn::Path,
+    },
     /// Inner value must be the field identifier
     ///
     /// The default struct must be in scope in the build_method.
     UseDefaultStructField(&'a syn::Ident),
     /// Inner value must be the field name
-    ReturnError(String, Option<Span>),
+    ReturnError {
+        crate_root: &'a syn::Path,
+        field_name: String,
+        span: Option<Span>,
+    },
 }
 
 impl<'a> ToTokens for MatchNone<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match *self {
-            MatchNone::DefaultTo(expr) => tokens.append_all(quote!(
-                None => #expr
-            )),
+            MatchNone::DefaultTo { expr, crate_root } => {
+                let expr = expr.with_crate_root(crate_root);
+                tokens.append_all(quote!(None => #expr));
+            }
             MatchNone::UseDefaultStructField(field_ident) => {
                 let struct_ident = syn::Ident::new(DEFAULT_STRUCT_NAME, Span::call_site());
                 tokens.append_all(quote!(
                     None => #struct_ident.#field_ident
                 ))
             }
-            MatchNone::ReturnError(ref field_name, ref span) => {
+            MatchNone::ReturnError {
+                ref field_name,
+                ref span,
+                crate_root,
+            } => {
                 let conv_span = span.unwrap_or_else(Span::call_site);
-                let err_conv = quote_spanned!(conv_span => ::derive_builder::export::core::convert::Into::into(
-                    ::derive_builder::UninitializedFieldError::from(#field_name)
+                // If the conversion fails, the compiler error should point to the error declaration
+                // rather than the crate root declaration, but the compiler will see the span of #crate_root
+                // and produce an undesired behavior (possibly because that's the first span in the bad expression?).
+                // Creating a copy with deeply-rewritten spans preserves the desired error behavior.
+                let crate_root = change_span(crate_root.into_token_stream(), conv_span);
+                let err_conv = quote_spanned!(conv_span => #crate_root::export::core::convert::Into::into(
+                    #crate_root::UninitializedFieldError::from(#field_name)
                 ));
                 tokens.append_all(quote!(
-                    None => return ::derive_builder::export::core::result::Result::Err(#err_conv)
+                    None => return #crate_root::export::core::result::Result::Err(#err_conv)
                 ));
             }
         }
@@ -190,19 +215,19 @@ impl<'a> ToTokens for MatchNone<'a> {
 }
 
 /// To be used inside of `#struct_field: match self.#builder_field { ... }`
-enum MatchSome {
+enum MatchSome<'a> {
     Move,
-    Clone,
+    Clone { crate_root: &'a syn::Path },
 }
 
-impl<'a> ToTokens for MatchSome {
+impl ToTokens for MatchSome<'_> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match *self {
             Self::Move => tokens.append_all(quote!(
                 Some(value) => value
             )),
-            Self::Clone => tokens.append_all(quote!(
-                Some(ref value) => ::derive_builder::export::core::clone::Clone::clone(value)
+            Self::Clone { crate_root } => tokens.append_all(quote!(
+                Some(ref value) => #crate_root::export::core::clone::Clone::clone(value)
             )),
         }
     }
@@ -215,6 +240,9 @@ impl<'a> ToTokens for MatchSome {
 macro_rules! default_initializer {
     () => {
         Initializer {
+            // Deliberately don't use the default value here - make sure
+            // that all test cases are passing crate_root through properly.
+            crate_root: &parse_quote!(::db),
             field_ident: &syn::Ident::new("foo", ::proc_macro2::Span::call_site()),
             field_enabled: true,
             builder_pattern: BuilderPattern::Mutable,
@@ -240,9 +268,9 @@ mod tests {
             quote!(#initializer).to_string(),
             quote!(
                 foo: match self.foo {
-                    Some(ref value) => ::derive_builder::export::core::clone::Clone::clone(value),
-                    None => return ::derive_builder::export::core::result::Result::Err(::derive_builder::export::core::convert::Into::into(
-                        ::derive_builder::UninitializedFieldError::from("foo")
+                    Some(ref value) => ::db::export::core::clone::Clone::clone(value),
+                    None => return ::db::export::core::result::Result::Err(::db::export::core::convert::Into::into(
+                        ::db::UninitializedFieldError::from("foo")
                     )),
                 },
             )
@@ -259,9 +287,9 @@ mod tests {
             quote!(#initializer).to_string(),
             quote!(
                 foo: match self.foo {
-                    Some(ref value) => ::derive_builder::export::core::clone::Clone::clone(value),
-                    None => return ::derive_builder::export::core::result::Result::Err(::derive_builder::export::core::convert::Into::into(
-                        ::derive_builder::UninitializedFieldError::from("foo")
+                    Some(ref value) => ::db::export::core::clone::Clone::clone(value),
+                    None => return ::db::export::core::result::Result::Err(::db::export::core::convert::Into::into(
+                        ::db::UninitializedFieldError::from("foo")
                     )),
                 },
             )
@@ -279,8 +307,8 @@ mod tests {
             quote!(
                 foo: match self.foo {
                     Some(value) => value,
-                    None => return ::derive_builder::export::core::result::Result::Err(::derive_builder::export::core::convert::Into::into(
-                        ::derive_builder::UninitializedFieldError::from("foo")
+                    None => return ::db::export::core::result::Result::Err(::db::export::core::convert::Into::into(
+                        ::db::UninitializedFieldError::from("foo")
                     )),
                 },
             )
@@ -298,7 +326,7 @@ mod tests {
             quote!(#initializer).to_string(),
             quote!(
                 foo: match self.foo {
-                    Some(ref value) => ::derive_builder::export::core::clone::Clone::clone(value),
+                    Some(ref value) => ::db::export::core::clone::Clone::clone(value),
                     None => { 42 },
                 },
             )
@@ -315,7 +343,7 @@ mod tests {
             quote!(#initializer).to_string(),
             quote!(
                 foo: match self.foo {
-                    Some(ref value) => ::derive_builder::export::core::clone::Clone::clone(value),
+                    Some(ref value) => ::db::export::core::clone::Clone::clone(value),
                     None => __default.foo,
                 },
             )
@@ -330,7 +358,7 @@ mod tests {
 
         assert_eq!(
             quote!(#initializer).to_string(),
-            quote!(foo: ::derive_builder::export::core::default::Default::default(),).to_string()
+            quote!(foo: ::db::export::core::default::Default::default(),).to_string()
         );
     }
 
@@ -342,9 +370,9 @@ mod tests {
             quote!(#initializer).to_string(),
             quote!(
                 foo: match self.foo {
-                    Some(ref value) => ::derive_builder::export::core::clone::Clone::clone(value),
-                    None => return ::derive_builder::export::core::result::Result::Err(::derive_builder::export::core::convert::Into::into(
-                        ::derive_builder::UninitializedFieldError::from("foo")
+                    Some(ref value) => ::db::export::core::clone::Clone::clone(value),
+                    None => return ::db::export::core::result::Result::Err(::db::export::core::convert::Into::into(
+                        ::db::UninitializedFieldError::from("foo")
                     )),
                 },
             )

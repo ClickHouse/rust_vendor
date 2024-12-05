@@ -35,19 +35,25 @@ impl<'a> FieldsGen<'a> {
     /// Generate the loop which walks meta items looking for property matches.
     pub(in crate::codegen) fn core_loop(&self) -> TokenStream {
         let arms = self.fields.as_ref().map(Field::as_match);
-
+        // If there is a flatten field, buffer the unknown field so it can be passed
+        // to the flatten function with all other unknown fields.
+        let handle_unknown = if self.fields.iter().any(|f| f.flatten) {
+            quote! {
+                __flatten.push(::darling::ast::NestedMeta::Meta(__inner.clone()));
+            }
+        }
         // If we're allowing unknown fields, then handling one is a no-op.
-        // Otherwise, we're going to push a new spanned error pointing at the field.
-        let handle_unknown = if self.allow_unknown_fields {
+        else if self.allow_unknown_fields {
             quote!()
-        } else {
+        }
+        // Otherwise, we're going to push a new spanned error pointing at the field.
+        else {
+            let mut names = self.fields.iter().filter_map(Field::as_name).peekable();
             // We can't call `unknown_field_with_alts` with an empty slice, or else it fails to
             // infer the type of the slice item.
-            let err_fn = if arms.is_empty() {
+            let err_fn = if names.peek().is_none() {
                 quote!(unknown_field(__other))
             } else {
-                let names = self.fields.as_ref().map(Field::as_name);
-                let names = names.iter();
                 quote!(unknown_field_with_alts(__other, &[#(#names),*]))
             };
 
@@ -60,14 +66,14 @@ impl<'a> FieldsGen<'a> {
         quote!(
             for __item in __items {
                 match *__item {
-                    ::darling::export::syn::NestedMeta::Meta(ref __inner) => {
+                    ::darling::export::NestedMeta::Meta(ref __inner) => {
                         let __name = ::darling::util::path_to_string(__inner.path());
                         match __name.as_str() {
                             #(#arms)*
                             __other => { #handle_unknown }
                         }
                     }
-                    ::darling::export::syn::NestedMeta::Lit(ref __inner) => {
+                    ::darling::export::NestedMeta::Lit(ref __inner) => {
                         __errors.push(::darling::Error::unsupported_format("literal")
                             .with_span(__inner));
                     }

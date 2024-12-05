@@ -10,12 +10,14 @@ use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::thread;
 
+use clap::ValueEnum;
 use crossbeam::channel::{Receiver, Sender};
 use tuikit::prelude::{Event as TermEvent, *};
 
 pub use crate::ansi::AnsiString;
 pub use crate::engine::fuzzy::FuzzyAlgorithm;
 use crate::event::{EventReceiver, EventSender};
+pub use crate::item::RankCriteria;
 use crate::model::Model;
 pub use crate::options::SkimOptions;
 pub use crate::output::SkimOutput;
@@ -29,19 +31,20 @@ mod global;
 mod header;
 mod helper;
 mod input;
-mod item;
+pub mod item;
 mod matcher;
 mod model;
-mod options;
+pub mod options;
 mod orderedvec;
 mod output;
 pub mod prelude;
 mod previewer;
 mod query;
-mod reader;
+pub mod reader;
 mod selection;
 mod spinlock;
 mod theme;
+pub mod tmux;
 mod util;
 
 //------------------------------------------------------------------------------
@@ -124,10 +127,21 @@ pub trait SkimItem: AsAny + Send + Sync + 'static {
     }
 
     /// we could limit the matching ranges of the `get_text` of the item.
-    /// providing (start_byte, end_byte) of the range
+    /// providing (`start_byte`, `end_byte`) of the range
     fn get_matching_ranges(&self) -> Option<&[(usize, usize)]> {
         None
     }
+
+    /// Get index, for matching purposes
+    ///
+    /// Implemented as no-op for retro-compatibility purposes
+    fn get_index(&self) -> usize {
+        0
+    }
+    /// Set index, for matching purposes
+    ///
+    /// Implemented as no-op for retro-compatibility purposes
+    fn set_index(&mut self, _index: usize) {}
 }
 
 //------------------------------------------------------------------------------
@@ -160,12 +174,14 @@ impl<'a> From<DisplayContext<'a>> for AnsiString<'a> {
     fn from(context: DisplayContext<'a>) -> Self {
         match context.matches {
             Matches::CharIndices(indices) => AnsiString::from((context.text, indices, context.highlight_attr)),
+            #[allow(clippy::cast_possible_truncation)]
             Matches::CharRange(start, end) => {
                 AnsiString::new_str(context.text, vec![(context.highlight_attr, (start as u32, end as u32))])
             }
             Matches::ByteRange(start, end) => {
                 let ch_start = context.text[..start].chars().count();
                 let ch_end = ch_start + context.text[start..end].chars().count();
+                #[allow(clippy::cast_possible_truncation)]
                 AnsiString::new_str(
                     context.text,
                     vec![(context.highlight_attr, (ch_start as u32, ch_end as u32))],
@@ -219,17 +235,13 @@ pub enum ItemPreview {
 //==============================================================================
 // A match engine will execute the matching algorithm
 
-#[derive(Eq, PartialEq, Debug, Copy, Clone)]
+#[derive(ValueEnum, Eq, PartialEq, Debug, Copy, Clone, Default)]
+#[clap(rename_all = "snake_case")]
 pub enum CaseMatching {
     Respect,
     Ignore,
+    #[default]
     Smart,
-}
-
-impl Default for CaseMatching {
-    fn default() -> Self {
-        CaseMatching::Smart
-    }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug)]
@@ -249,6 +261,7 @@ pub struct MatchResult {
 }
 
 impl MatchResult {
+    #[must_use]
     pub fn range_char_indices(&self, text: &str) -> Vec<usize> {
         match &self.matched_range {
             &MatchRange::ByteRange(start, end) => {
@@ -287,23 +300,24 @@ pub type SkimItemReceiver = Receiver<Arc<dyn SkimItem>>;
 pub struct Skim {}
 
 impl Skim {
-    /// params:
+    /// # Params
+    ///
     /// - options: the "complex" options that control how skim behaves
     /// - source: a stream of items to be passed to skim for filtering.
     ///   If None is given, skim will invoke the command given to fetch the items.
     ///
-    /// return:
+    /// # Returns
+    ///
     /// - None: on internal errors.
-    /// - SkimOutput: the collected key, event, query, selected items, etc.
+    /// - `SkimOutput`: the collected key, event, query, selected items, etc.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tui fails to initilize
+    #[must_use]
     pub fn run_with(options: &SkimOptions, source: Option<SkimItemReceiver>) -> Option<SkimOutput> {
-        let min_height = options
-            .min_height
-            .map(Skim::parse_height_string)
-            .expect("min_height should have default values");
-        let height = options
-            .height
-            .map(Skim::parse_height_string)
-            .expect("height should have default values");
+        let min_height = Skim::parse_height_string(&options.min_height);
+        let height = Skim::parse_height_string(&options.height);
 
         let (tx, rx): (EventSender, EventReceiver) = channel();
         let term = Arc::new(
@@ -314,7 +328,7 @@ impl Skim {
                     .clear_on_exit(!options.no_clear)
                     .disable_alternate_screen(options.no_clear_start)
                     .clear_on_start(!options.no_clear_start)
-                    .hold(options.select1 || options.exit0 || options.sync),
+                    .hold(options.select_1 || options.exit_0 || options.sync),
             )
             .unwrap(),
         );
@@ -325,8 +339,8 @@ impl Skim {
         //------------------------------------------------------------------------------
         // input
         let mut input = input::Input::new();
-        input.parse_keymaps(&options.bind);
-        input.parse_expect_keys(options.expect.as_deref());
+        input.parse_keymaps(options.bind.iter().map(String::as_str));
+        input.parse_expect_keys(options.expect.iter().map(String::as_str));
 
         let tx_clone = tx.clone();
         let term_clone = term.clone();
@@ -337,7 +351,7 @@ impl Skim {
                 }
 
                 let (key, action_chain) = input.translate_event(key);
-                for event in action_chain.into_iter() {
+                for event in action_chain {
                     let _ = tx_clone.send((key, event));
                 }
             }

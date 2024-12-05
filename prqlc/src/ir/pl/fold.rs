@@ -1,11 +1,11 @@
 /// A trait to "fold" a PRQL AST (similar to a visitor), so we can transitively
 /// apply some logic to a whole tree by just defining how we want to handle each
 /// type.
-use anyhow::Result;
 use itertools::Itertools;
-use prqlc_ast::{TupleField, Ty, TyFunc, TyKind};
 
 use super::*;
+use crate::pr::{Ty, TyFunc, TyKind, TyTupleField};
+use crate::Result;
 
 // Fold pattern:
 // - https://rust-unofficial.github.io/patterns/patterns/creational/fold.html
@@ -110,11 +110,10 @@ pub fn fold_expr_kind<T: ?Sized + PlFold>(fold: &mut T, expr_kind: ExprKind) -> 
 pub fn fold_stmt_kind<T: ?Sized + PlFold>(fold: &mut T, stmt_kind: StmtKind) -> Result<StmtKind> {
     use StmtKind::*;
     Ok(match stmt_kind {
-        // FuncDef(func) => FuncDef(fold.fold_func_def(func)?),
         VarDef(var_def) => VarDef(fold.fold_var_def(var_def)?),
         TypeDef(type_def) => TypeDef(fold.fold_type_def(type_def)?),
         ModuleDef(module_def) => ModuleDef(fold.fold_module_def(module_def)?),
-        QueryDef(_) => stmt_kind,
+        QueryDef(_) | ImportDef(_) => stmt_kind,
     })
 }
 
@@ -321,11 +320,11 @@ pub fn fold_type<T: ?Sized + PlFold>(fold: &mut T, ty: Ty) -> Result<Ty> {
                     .into_iter()
                     .map(|field| -> Result<_> {
                         Ok(match field {
-                            TupleField::Single(name, ty) => {
-                                TupleField::Single(name, fold_type_opt(fold, ty)?)
+                            TyTupleField::Single(name, ty) => {
+                                TyTupleField::Single(name, fold_type_opt(fold, ty)?)
                             }
-                            TupleField::Wildcard(ty) => {
-                                TupleField::Wildcard(fold_type_opt(fold, ty)?)
+                            TyTupleField::Wildcard(ty) => {
+                                TyTupleField::Wildcard(fold_type_opt(fold, ty)?)
                             }
                         })
                     })
@@ -335,12 +334,12 @@ pub fn fold_type<T: ?Sized + PlFold>(fold: &mut T, ty: Ty) -> Result<Ty> {
             TyKind::Function(func) => TyKind::Function(
                 func.map(|f| -> Result<_> {
                     Ok(TyFunc {
-                        args: f
-                            .args
+                        params: f
+                            .params
                             .into_iter()
                             .map(|a| fold_type_opt(fold, a))
                             .try_collect()?,
-                        return_ty: Box::new(fold_type_opt(fold, *f.return_ty)?),
+                        return_ty: fold_type_opt(fold, f.return_ty.map(|x| *x))?.map(Box::new),
                         name_hint: f.name_hint,
                     })
                 })

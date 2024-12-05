@@ -1,13 +1,14 @@
-use std::fmt;
+use std::{fmt, io};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 pub enum Error {
-    BadAbsolutePath,
-    BadRelativePath,
+    /// An executable binary with that name was not found
     CannotFindBinaryPath,
-    CannotGetCurrentDir,
+    /// There was nowhere to search and the provided name wasn't an absolute path
+    CannotGetCurrentDirAndPathListEmpty,
+    /// Failed to canonicalize the path found
     CannotCanonicalize,
 }
 
@@ -16,11 +17,28 @@ impl std::error::Error for Error {}
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::BadAbsolutePath => write!(f, "bad absolute path"),
-            Error::BadRelativePath => write!(f, "bad relative path"),
             Error::CannotFindBinaryPath => write!(f, "cannot find binary path"),
-            Error::CannotGetCurrentDir => write!(f, "cannot get current directory"),
+            Error::CannotGetCurrentDirAndPathListEmpty => write!(
+                f,
+                "no path to search and provided name is not an absolute path"
+            ),
             Error::CannotCanonicalize => write!(f, "cannot canonicalize path"),
+        }
+    }
+}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum NonFatalError {
+    Io(io::Error),
+}
+
+impl std::error::Error for NonFatalError {}
+
+impl fmt::Display for NonFatalError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Io(e) => write!(f, "{e}"),
         }
     }
 }

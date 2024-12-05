@@ -1,13 +1,15 @@
 mod id_gen;
 mod toposort;
 
+use std::{io::stderr, sync::OnceLock};
+
+use anstream::adapter::strip_str;
 pub use id_gen::{IdGenerator, NameGenerator};
-use once_cell::sync::Lazy;
+use itertools::Itertools;
 use regex::Regex;
 pub use toposort::toposort;
 
-use anyhow::Result;
-use itertools::Itertools;
+use crate::Result;
 
 pub trait OrMap<T> {
     /// Merges two options into one using `f`.
@@ -77,17 +79,40 @@ impl<T> BreakUp<T> for Vec<T> {
     }
 }
 
-pub static VALID_IDENT: Lazy<Regex> = Lazy::new(|| {
-    // One of:
-    // - `*`
-    // - An ident starting with `a-z_\$` and containing other characters `a-z0-9_\$`
-    //
-    // We could replace this with pomsky (regex<>pomsky : sql<>prql)
-    // ^ ('*' | [ascii_lower '_$'] [ascii_lower ascii_digit '_$']* ) $
-    Regex::new(r"^((\*)|(^[a-z_\$][a-z0-9_\$]*))$").unwrap()
-});
+pub(crate) fn valid_ident() -> &'static Regex {
+    static VALID_IDENT: OnceLock<Regex> = OnceLock::new();
+    VALID_IDENT.get_or_init(|| {
+        // One of:
+        // - `*`
+        // - An ident starting with `a-z_\$` and containing other characters `a-z0-9_\$`
+        //
+        // We could replace this with pomsky (regex<>pomsky : sql<>prql)
+        // ^ ('*' | [ascii_lower '_$'] [ascii_lower ascii_digit '_$']* ) $
+        Regex::new(r"^((\*)|(^[a-z_\$][a-z0-9_\$]*))$").unwrap()
+    })
+}
+
+fn should_use_color() -> bool {
+    match anstream::AutoStream::choice(&stderr()) {
+        anstream::ColorChoice::Auto => true,
+        anstream::ColorChoice::Always => true,
+        anstream::ColorChoice::AlwaysAnsi => true,
+        anstream::ColorChoice::Never => false,
+    }
+}
+
+/// Strip colors, for external libraries which don't yet strip themselves, and
+/// for insta snapshot tests. This will respond to environment variables such as
+/// `CLI_COLOR`.
+pub fn maybe_strip_colors(s: &str) -> String {
+    if !should_use_color() {
+        strip_str(s).to_string()
+    } else {
+        s.to_string()
+    }
+}
 
 #[test]
 fn test_write_ident_part() {
-    assert!(!VALID_IDENT.is_match(""));
+    assert!(!valid_ident().is_match(""));
 }

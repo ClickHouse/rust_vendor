@@ -1,8 +1,8 @@
-mod ast;
-mod types;
-
 pub(crate) use ast::write_expr;
 pub(crate) use types::{write_ty, write_ty_kind};
+
+mod ast;
+mod types;
 
 pub trait WriteSource {
     /// Converts self to its source representation according to specified
@@ -66,12 +66,23 @@ pub struct WriteOpt {
     /// For exprs in function calls, this will be 10.
     pub context_strength: u8,
 
+    /// Position within binary operators.
+    /// Needed for omitting parenthesis in following expressions: `(a + b) + c`.
+    pub binary_position: Position,
+
     /// True iff preceding source ends in an expression that could
     /// be mistakenly bound into a binary op by appending an unary op.
     ///
     /// For example:
     /// `join foo` has an unbound expr, since `join foo ==bar` produced a binary op.
     pub unbound_expr: bool,
+}
+
+#[derive(Clone, PartialEq)]
+pub enum Position {
+    Unspecified,
+    Left,
+    Right,
 }
 
 impl Default for WriteOpt {
@@ -83,6 +94,7 @@ impl Default for WriteOpt {
             indent: 0,
             rem_width: 50,
             context_strength: 0,
+            binary_position: Position::Unspecified,
             unbound_expr: false,
         }
     }
@@ -124,9 +136,16 @@ impl WriteOpt {
     }
 }
 
+/// Holds a list of (generally) expressions, attempting to write them in a
+/// single line, or falling back to one-per-line
+#[derive(Debug, Clone)]
 struct SeparatedExprs<'a, T: WriteSource> {
     exprs: &'a [T],
+    /// The separator to use when writing the expressions on a single line; for
+    /// example `", "`.
     inline: &'static str,
+    /// The separator to use when writing the expressions on separate lines, for
+    /// example `","` (`/n` is implied)
     line_end: &'static str,
 }
 
@@ -179,44 +198,5 @@ impl<'a, T: WriteSource> SeparatedExprs<'a, T> {
         opt.consume_width(separators as u16)?;
 
         Some(exprs.join(self.inline))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use insta::assert_snapshot;
-    use prqlc_ast::expr::{Expr, ExprKind, Literal};
-
-    #[test]
-    fn test_string_quoting() {
-        fn mk_str(s: &str) -> Expr {
-            Expr::new(ExprKind::Literal(Literal::String(s.to_string())))
-        }
-
-        assert_snapshot!(
-            write_expr(&mk_str("hello")),
-            @r###""hello""###
-        );
-
-        assert_snapshot!(
-            write_expr(&mk_str(r#"he's nice"#)),
-            @r###""he's nice""###
-        );
-
-        assert_snapshot!(
-            write_expr(&mk_str(r#"he said "what up""#)),
-            @r###"'he said "what up"'"###
-        );
-
-        assert_snapshot!(
-            write_expr(&mk_str(r#"he said "what's up""#)),
-            @r###"""he said "what's up""""###
-        );
-
-        assert_snapshot!(
-            write_expr(&mk_str(r#" single' three double""" found double"""" "#)),
-            @r###"""""" single' three double""" found double"""" """"""###
-        );
     }
 }

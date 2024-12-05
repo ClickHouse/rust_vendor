@@ -13,19 +13,30 @@
 edition = "2021"
 rust-version = "1.70.0"
 name = "prqlc"
-version = "0.11.3"
+version = "0.13.2"
+build = "build.rs"
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "PRQL is a modern language for transforming data — a simple, powerful, pipelined SQL replacement."
 readme = "README.md"
 license = "Apache-2.0"
 repository = "https://github.com/PRQL/prql"
 
 [package.metadata]
-msrv = "1.70.0"
+msrv = "1.73.0"
+
+[[package.metadata.release.pre-release-replacements]]
+exactly = 1
+file = "../packages/snap/snapcraft.yaml"
+replace = 'version: "{{version}}"'
+search = '^version: "[\d.]+"$'
 
 [[package.metadata.release.pre-release-replacements]]
 exactly = 1
 file = "../../web/book/src/project/target.md"
-replace = "prql version:\"{{version}}\""
+replace = 'prql version:"{{prev_version}}"'
 search = 'prql version:"[\d.]+"'
 
 [[package.metadata.release.pre-release-replacements]]
@@ -58,142 +69,171 @@ search = """
 
 """
 
+[lib]
+name = "prqlc"
+path = "src/lib.rs"
+bench = false
+
+[[bin]]
+name = "prqlc"
+path = "src/main.rs"
+bench = false
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+
 [[bench]]
 name = "bench"
+path = "benches/bench.rs"
 harness = false
 
 [dependencies.anstream]
-version = "0.6.11"
+version = "0.6.15"
 features = ["auto"]
 
-[dependencies.anyhow]
-version = "1.0.79"
-features = ["backtrace"]
-
 [dependencies.ariadne]
-version = "0.4.0"
+version = "0.4.1"
 
 [dependencies.chrono]
-version = "0.4.33"
+version = "0.4.38"
 
 [dependencies.csv]
 version = "1.3.0"
 
 [dependencies.enum-as-inner]
-version = "0.6.0"
+version = "0.6.1"
 
 [dependencies.itertools]
-version = "0.12.0"
+version = "0.13.0"
 
 [dependencies.log]
-version = "0.4.20"
-
-[dependencies.once_cell]
-version = "1.19.0"
-
-[dependencies.prqlc-ast]
-version = "0.11.3"
+version = "0.4.22"
 
 [dependencies.prqlc-parser]
-version = "0.11.3"
+version = "0.13.2"
 
 [dependencies.regex]
-version = "1.10.3"
+version = "1.11.0"
+
+[dependencies.schemars]
+version = "1.0.0-alpha.15"
 
 [dependencies.semver]
-version = "1.0.21"
+version = "1.0.23"
 features = ["serde"]
 
 [dependencies.serde]
-version = "1.0.196"
+version = "1.0.210"
 features = ["derive"]
 
 [dependencies.serde_json]
-version = "1.0.113"
+version = "1.0.128"
 
 [dependencies.serde_yaml]
-version = "0.9.31"
+version = "0.9.34"
+optional = true
 
 [dependencies.sqlformat]
-version = "0.2.3"
+version = "0.2.6"
 
 [dependencies.sqlparser]
-version = "0.43.1"
+version = "0.51.0"
 features = ["serde"]
 
 [dependencies.strum]
-version = "0.26.1"
+version = "0.26.3"
 features = [
     "std",
     "derive",
 ]
 
 [dependencies.strum_macros]
-version = "0.26.1"
+version = "0.26.4"
 
-[dev-dependencies.cfg-if]
-version = "1.0"
+[dev-dependencies.criterion]
+version = "0.5.1"
+default-features = false
+
+[dev-dependencies.glob]
+version = "0.3.1"
 
 [dev-dependencies.insta]
-version = "1.34"
+version = "1.40.0"
 features = [
     "colors",
+    "glob",
     "yaml",
+    "filters",
 ]
 
 [dev-dependencies.insta-cmd]
-version = "0.4.0"
+version = "0.6.0"
 
 [dev-dependencies.rstest]
-version = "0.18.2"
+version = "0.23.0"
 
 [dev-dependencies.similar]
-version = "2.4.0"
+version = "2.6.0"
 
 [dev-dependencies.similar-asserts]
-version = "1.5.0"
+version = "1.6.0"
+
+[dev-dependencies.tempfile]
+version = "3.13.0"
 
 [dev-dependencies.test_each_file]
-version = "0.3.0"
+version = "0.3.4"
+
+[build-dependencies.vergen-gitcl]
+version = "1.0.0"
+features = ["build"]
 
 [features]
 cli = [
-    "atty",
+    "anyhow",
     "clap_complete_command",
-    "clap_complete",
     "clap",
     "clio",
     "color-eyre",
     "colorchoice-clap",
-    "env_logger",
+    "is-terminal",
     "minijinja",
     "notify",
+    "serde_yaml",
     "walkdir",
 ]
 default = ["cli"]
+serde_yaml = [
+    "prqlc-parser/serde_yaml",
+    "dep:serde_yaml",
+]
 test-dbs = [
-    "duckdb",
-    "glob",
     "rusqlite",
-    "tokio",
+    "duckdb",
+    "connector_arrow",
+    "connector_arrow/src_sqlite",
+    "connector_arrow/src_duckdb",
 ]
 test-dbs-external = [
-    "duckdb",
-    "glob",
-    "mysql",
-    "pg_bigdecimal",
+    "test-dbs",
     "postgres",
-    "rusqlite",
+    "mysql",
     "tiberius",
+    "futures",
     "tokio",
     "tokio-util",
+    "connector_arrow/src_mysql",
+    "connector_arrow/src_postgres",
+    "connector_arrow/src_tiberius",
 ]
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.atty]
-version = "0.2.14"
+[target.'cfg(not(target_family="wasm"))'.dependencies.anyhow]
+version = "1.0.89"
+features = ["backtrace"]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.clap]
+[target.'cfg(not(target_family="wasm"))'.dependencies.clap]
 version = "4.4.18"
 features = [
     "derive",
@@ -202,75 +242,70 @@ features = [
 ]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.clap_complete]
-version = "4.4.9"
-optional = true
-
-[target."cfg(not(target_family=\"wasm\"))".dependencies.clap_complete_command]
+[target.'cfg(not(target_family="wasm"))'.dependencies.clap_complete_command]
 version = "0.5.1"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.clio]
+[target.'cfg(not(target_family="wasm"))'.dependencies.clio]
 version = "0.3.3"
 features = ["clap-parse"]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.color-eyre]
-version = "0.6.2"
+[target.'cfg(not(target_family="wasm"))'.dependencies.color-eyre]
+version = "0.6.3"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.colorchoice-clap]
+[target.'cfg(not(target_family="wasm"))'.dependencies.colorchoice-clap]
 version = "1.0.0"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.duckdb]
-version = "0.9.2"
+[target.'cfg(not(target_family="wasm"))'.dependencies.connector_arrow]
+version = "0.5.4"
+optional = true
+
+[target.'cfg(not(target_family="wasm"))'.dependencies.duckdb]
+version = "1.0.0"
 features = [
     "bundled",
     "chrono",
 ]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.env_logger]
-version = "0.10.2"
-features = ["color"]
+[target.'cfg(not(target_family="wasm"))'.dependencies.futures]
+version = "0.3.31"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.glob]
-version = "0.3.1"
+[target.'cfg(not(target_family="wasm"))'.dependencies.is-terminal]
+version = "0.4.13"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.minijinja]
-version = "=0.31.0"
+[target.'cfg(not(target_family="wasm"))'.dependencies.minijinja]
+version = "2.3.1"
 features = ["unstable_machinery"]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.mysql]
-version = "24"
+[target.'cfg(not(target_family="wasm"))'.dependencies.mysql]
+version = "25"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.notify]
+[target.'cfg(not(target_family="wasm"))'.dependencies.notify]
 version = "6.1.1"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.pg_bigdecimal]
-version = "0.1.0"
+[target.'cfg(not(target_family="wasm"))'.dependencies.postgres]
+version = "0.19.9"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.postgres]
-version = "0.19.7"
-optional = true
-
-[target."cfg(not(target_family=\"wasm\"))".dependencies.rusqlite]
-version = "0.30.0"
+[target.'cfg(not(target_family="wasm"))'.dependencies.rusqlite]
+version = "0.32.0"
 features = [
     "bundled",
     "csvtab",
 ]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.tiberius]
-version = "0.12.2"
+[target.'cfg(not(target_family="wasm"))'.dependencies.tiberius]
+version = "0.12.3"
 features = [
     "sql-browser-tokio",
     "bigdecimal",
@@ -281,19 +316,22 @@ features = [
 optional = true
 default-features = false
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.tokio]
-version = "1.36.0"
+[target.'cfg(not(target_family="wasm"))'.dependencies.tokio]
+version = "1.40.0"
 features = ["full"]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.tokio-util]
-version = "0.7"
+[target.'cfg(not(target_family="wasm"))'.dependencies.tokio-util]
+version = "0.7.12"
 features = ["compat"]
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dependencies.walkdir]
-version = "2.4.0"
+[target.'cfg(not(target_family="wasm"))'.dependencies.walkdir]
+version = "2.5.0"
 optional = true
 
-[target."cfg(not(target_family=\"wasm\"))".dev-dependencies.criterion]
-version = "0.5.1"
+[lints.clippy]
+result_large_err = "allow"
+
+[lints.rust]
+unsafe_code = "forbid"

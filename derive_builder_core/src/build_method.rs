@@ -1,15 +1,12 @@
 use std::borrow::Cow;
 
-use doc_comment_from;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, TokenStreamExt};
-use syn;
 use syn::spanned::Spanned;
-use BuilderPattern;
-use Initializer;
-use DEFAULT_STRUCT_NAME;
 
-use crate::DefaultExpression;
+use crate::{
+    doc_comment_from, BuilderPattern, DefaultExpression, Initializer, DEFAULT_STRUCT_NAME,
+};
 
 /// Initializer for the struct fields in the build method, implementing
 /// `quote::ToTokens`.
@@ -40,6 +37,8 @@ use crate::DefaultExpression;
 /// ```
 #[derive(Debug)]
 pub struct BuildMethod<'a> {
+    /// Path to the root of the derive_builder crate.
+    pub crate_root: &'a syn::Path,
     /// Enables code generation for this build method.
     pub enabled: bool,
     /// Name of this build fn.
@@ -82,6 +81,7 @@ impl<'a> ToTokens for BuildMethod<'a> {
         };
         let doc_comment = &self.doc_comment;
         let default_struct = self.default_struct.as_ref().map(|default_expr| {
+            let default_expr = default_expr.with_crate_root(self.crate_root);
             let ident = syn::Ident::new(DEFAULT_STRUCT_NAME, Span::call_site());
             quote!(let #ident: #target_ty #target_ty_generics = #default_expr;)
         });
@@ -92,10 +92,11 @@ impl<'a> ToTokens for BuildMethod<'a> {
         let error_ty = &self.error_ty;
 
         if self.enabled {
+            let crate_root = &self.crate_root;
             tokens.append_all(quote!(
                 #doc_comment
                 #vis fn #ident(#self_param)
-                    -> ::derive_builder::export::core::result::Result<#target_ty #target_ty_generics, #error_ty>
+                    -> #crate_root::export::core::result::Result<#target_ty #target_ty_generics, #error_ty>
                 {
                     #validate_fn
                     #default_struct
@@ -138,6 +139,9 @@ impl<'a> BuildMethod<'a> {
 macro_rules! default_build_method {
     () => {
         BuildMethod {
+            // Deliberately don't use the default value here - make sure
+            // that all test cases are passing crate_root through properly.
+            crate_root: &parse_quote!(::db),
             enabled: true,
             ident: &syn::Ident::new("build", ::proc_macro2::Span::call_site()),
             visibility: ::std::borrow::Cow::Owned(syn::parse_quote!(pub)),
@@ -166,7 +170,7 @@ mod tests {
         assert_eq!(
             quote!(#build_method).to_string(),
             quote!(
-                pub fn build(&self) -> ::derive_builder::export::core::result::Result<Foo, FooBuilderError> {
+                pub fn build(&self) -> ::db::export::core::result::Result<Foo, FooBuilderError> {
                     Ok(Foo {
                         foo: self.foo,
                     })
@@ -187,7 +191,7 @@ mod tests {
         assert_eq!(
             quote!(#build_method).to_string(),
             quote!(
-                pub fn build(&self) -> ::derive_builder::export::core::result::Result<Foo, FooBuilderError> {
+                pub fn build(&self) -> ::db::export::core::result::Result<Foo, FooBuilderError> {
                     let __default: Foo = { Default::default() };
                     Ok(Foo {
                         foo: self.foo,
@@ -217,7 +221,7 @@ mod tests {
         assert_eq!(
             quote!(#build_method).to_string(),
             quote!(
-                pub fn finish(&self) -> ::derive_builder::export::core::result::Result<Foo, FooBuilderError> {
+                pub fn finish(&self) -> ::db::export::core::result::Result<Foo, FooBuilderError> {
                     Ok(Foo {
                         foo: self.foo,
                     })
@@ -238,7 +242,7 @@ mod tests {
         assert_eq!(
             quote!(#build_method).to_string(),
             quote!(
-                pub fn build(&self) -> ::derive_builder::export::core::result::Result<Foo, FooBuilderError> {
+                pub fn build(&self) -> ::db::export::core::result::Result<Foo, FooBuilderError> {
                     IpsumBuilder::validate(&self)?;
 
                     Ok(Foo {

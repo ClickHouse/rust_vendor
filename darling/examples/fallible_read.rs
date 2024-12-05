@@ -10,10 +10,10 @@ use darling::{FromDeriveInput, FromMeta};
 use syn::parse_str;
 
 #[derive(Debug, FromDeriveInput)]
-#[darling(attributes(my_trait), and_then = "MyInputReceiver::autocorrect")]
+#[darling(attributes(my_trait), and_then = MyInputReceiver::autocorrect)]
 pub struct MyInputReceiver {
     /// This field must be present and a string or else parsing will panic.
-    #[darling(map = "MyInputReceiver::make_string_shouty")]
+    #[darling(map = MyInputReceiver::make_string_shouty)]
     name: String,
 
     /// If this field fails to parse, the struct can still be built; the field
@@ -51,7 +51,7 @@ impl MyInputReceiver {
         // we'll go ahead and make it positive.
         let amplitude = match amplitude {
             Ok(amp) => amp,
-            Err(mi) => (i64::from_meta(&mi)?).abs() as u64,
+            Err(mi) => (i64::from_meta(&mi)?).unsigned_abs(),
         };
 
         Ok(Self {

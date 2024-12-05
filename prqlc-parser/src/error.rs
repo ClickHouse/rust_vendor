@@ -1,197 +1,231 @@
-use std::fmt::Display;
+use std::fmt::Debug;
 
-use chumsky::{error::SimpleReason, Span as ChumskySpan};
-use prqlc_ast::Span;
+use chumsky::error::Cheap;
+use serde::Serialize;
 
-use crate::{lexer::Token, PError};
+use super::parser::perror::PError;
+use crate::span::Span;
 
-#[derive(Debug)]
+/// A prqlc error. Used internally, exposed as prqlc::ErrorMessage.
+#[derive(Debug, Clone)]
 pub struct Error {
-    pub span: Span,
-    pub kind: ErrorKind,
+    /// Message kind. Currently only Error is implemented.
+    pub kind: MessageKind,
+    pub span: Option<Span>,
+    pub reason: Reason,
+    pub hints: Vec<String>,
+    /// Machine readable identifier error code eg, "E0001"
+    pub code: Option<&'static str>,
+    // pub source: ErrorSource
 }
 
-#[derive(Debug)]
-pub enum ErrorKind {
-    Lexer(LexerError),
-    Parser(ParserError),
+#[derive(Clone, Debug, Default)]
+pub enum ErrorSource {
+    Lexer(Cheap<char>),
+    Parser(PError),
+    #[default]
+    Unknown,
+    NameResolver,
+    TypeResolver,
+    SQL,
 }
 
-impl Display for ErrorKind {
+/// Multiple prqlc errors. Used internally, exposed as prqlc::ErrorMessages.
+#[derive(Debug, Clone)]
+pub struct Errors(pub Vec<Error>);
+
+/// Compile message kind. Currently only Error is implemented.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub enum MessageKind {
+    Error,
+    Warning,
+    Lint,
+}
+
+#[derive(Debug, Clone)]
+pub enum Reason {
+    Simple(String),
+    Expected {
+        /// Where we were
+        // (could rename to `where` / `location` / `within`?)
+        who: Option<String>,
+        /// What we expected
+        expected: String,
+        /// What we found
+        found: String,
+    },
+    Unexpected {
+        found: String,
+    },
+    NotFound {
+        name: String,
+        namespace: String,
+    },
+    Bug {
+        issue: Option<i32>,
+        details: Option<String>,
+    },
+}
+
+impl Error {
+    pub fn new(reason: Reason) -> Self {
+        Error {
+            kind: MessageKind::Error,
+            span: None,
+            reason,
+            hints: Vec::new(),
+            code: None,
+            // source: ErrorSource::default()
+        }
+    }
+
+    pub fn new_simple<S: ToString>(reason: S) -> Self {
+        Error::new(Reason::Simple(reason.to_string()))
+    }
+
+    pub fn new_bug(issue_no: i32) -> Self {
+        Error::new(Reason::Bug {
+            issue: Some(issue_no),
+            details: None,
+        })
+    }
+
+    /// Used for things that you *think* should never happen, but are not sure.
+    pub fn new_assert<S: ToString>(details: S) -> Self {
+        Error::new(Reason::Bug {
+            issue: None,
+            details: Some(details.to_string()),
+        })
+    }
+}
+
+impl std::fmt::Display for Reason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ErrorKind::Lexer(err) => write!(f, "{err}"),
-            ErrorKind::Parser(err) => write!(f, "{err}"),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct LexerError(String);
-
-#[derive(Debug)]
-pub struct ParserError(String);
-
-impl Display for ParserError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Display for LexerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "unexpected {}", self.0)
-    }
-}
-
-pub(crate) fn convert_lexer_error(
-    source: &str,
-    e: chumsky::error::Cheap<char>,
-    source_id: u16,
-) -> Error {
-    // TODO: is there a neater way of taking a span? We want to take it based on
-    // the chars, not the bytes, so can't just index into the str.
-    let found = source
-        .chars()
-        .skip(e.span().start)
-        .take(e.span().end() - e.span().start)
-        .collect();
-    let span = Span {
-        start: e.span().start,
-        end: e.span().end,
-        source_id,
-    };
-
-    Error {
-        span,
-        kind: ErrorKind::Lexer(LexerError(found)),
-    }
-}
-
-pub(crate) fn convert_parser_error(e: PError) -> Error {
-    let mut span = e.span();
-
-    if e.found().is_none() {
-        // found end of file
-        // fix for span outside of source
-        if span.start > 0 && span.end > 0 {
-            span.start -= 1;
-            span.end -= 1;
-        }
-    }
-
-    if let SimpleReason::Custom(message) = e.reason() {
-        return Error {
-            span: *span,
-            kind: ErrorKind::Parser(ParserError(message.clone())),
-        };
-    }
-
-    fn token_to_string(t: Option<Token>) -> String {
-        t.map(|t| DisplayToken(&t).to_string())
-            .unwrap_or_else(|| "end of input".to_string())
-    }
-
-    let is_all_whitespace = e
-        .expected()
-        .all(|t| matches!(t, None | Some(Token::NewLine)));
-    let expected: Vec<String> = e
-        .expected()
-        // TODO: could we collapse this into a `filter_map`? (though semantically
-        // identical)
-        //
-        // Only include whitespace if we're _only_ expecting whitespace
-        .filter(|t| is_all_whitespace || !matches!(t, None | Some(Token::NewLine)))
-        .cloned()
-        .map(token_to_string)
-        .collect();
-
-    let while_parsing = e
-        .label()
-        .map(|l| format!(" while parsing {l}"))
-        .unwrap_or_default();
-
-    if expected.is_empty() || expected.len() > 10 {
-        let label = token_to_string(e.found().cloned());
-
-        return Error {
-            span: *span,
-            kind: ErrorKind::Parser(ParserError(format!("unexpected {label}{while_parsing}"))),
-        };
-    }
-
-    let mut expected = expected;
-    expected.sort();
-
-    let expected = match expected.len() {
-        1 => expected.remove(0),
-        2 => expected.join(" or "),
-        _ => {
-            let last = expected.pop().unwrap();
-            format!("one of {} or {last}", expected.join(", "))
-        }
-    };
-
-    Error {
-        span: *span,
-        kind: ErrorKind::Parser(ParserError(match e.found() {
-            Some(found) => format!(
-                "{who}expected {expected}, but found {found}",
-                who = e.label().map(|l| format!("{l} ")).unwrap_or_default(),
-                found = DisplayToken(found)
-            ),
-
-            // We want a friendlier message than "found end of input"...
-            None => format!("Expected {expected}, but didn't find anything before the end."),
-        })),
-    }
-}
-
-struct DisplayToken<'a>(&'a Token);
-
-impl std::fmt::Display for DisplayToken<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.0 {
-            Token::NewLine => write!(f, "new line"),
-            Token::Ident(arg0) => {
-                if arg0.is_empty() {
-                    write!(f, "an identifier")
-                } else {
-                    write!(f, "`{arg0}`")
+            Reason::Simple(text) => f.write_str(text),
+            Reason::Expected {
+                who,
+                expected,
+                found,
+            } => {
+                if let Some(who) = who {
+                    write!(f, "{who} ")?;
                 }
+                write!(f, "expected {expected}, but found {found}")
             }
-            Token::Keyword(arg0) => write!(f, "keyword {arg0}"),
-            Token::Literal(..) => write!(f, "literal"),
-            Token::Control(arg0) => write!(f, "{arg0}"),
-
-            Token::ArrowThin => f.write_str("->"),
-            Token::ArrowFat => f.write_str("=>"),
-            Token::Eq => f.write_str("=="),
-            Token::Ne => f.write_str("!="),
-            Token::Gte => f.write_str(">="),
-            Token::Lte => f.write_str("<="),
-            Token::RegexSearch => f.write_str("~="),
-            Token::And => f.write_str("&&"),
-            Token::Or => f.write_str("||"),
-            Token::Coalesce => f.write_str("??"),
-            Token::DivInt => f.write_str("//"),
-            Token::Pow => f.write_str("**"),
-            Token::Annotate => f.write_str("@{"),
-
-            Token::Param(id) => write!(f, "${id}"),
-
-            Token::Range {
-                bind_left,
-                bind_right,
-            } => write!(
-                f,
-                "'{}..{}'",
-                if *bind_left { "" } else { " " },
-                if *bind_right { "" } else { " " }
-            ),
-            Token::Interpolation(c, s) => {
-                write!(f, "{c}\"{}\"", s)
+            Reason::Unexpected { found } => write!(f, "unexpected {found}"),
+            Reason::NotFound { name, namespace } => write!(f, "{namespace} `{name}` not found"),
+            Reason::Bug { issue, details } => {
+                write!(f, "internal compiler error")?;
+                if let Some(details) = details {
+                    write!(f, "; {details}")?;
+                }
+                if let Some(issue_no) = issue {
+                    write!(
+                        f,
+                        "; tracked at https://github.com/PRQL/prql/issues/{issue_no}"
+                    )?;
+                }
+                Ok(())
             }
         }
+    }
+}
+
+impl From<Error> for Errors {
+    fn from(error: Error) -> Self {
+        Errors(vec![error])
+    }
+}
+
+// Needed for anyhow
+impl std::error::Error for Error {}
+
+// Needed for anyhow
+impl std::error::Error for Errors {}
+
+// Needed for StdError
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self, f)
+    }
+}
+
+// Needed for StdError
+impl std::fmt::Display for Errors {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self, f)
+    }
+}
+
+pub trait WithErrorInfo: Sized {
+    fn push_hint<S: Into<String>>(self, hint: S) -> Self;
+
+    fn with_hints<S: Into<String>, I: IntoIterator<Item = S>>(self, hints: I) -> Self;
+
+    fn with_span(self, span: Option<Span>) -> Self;
+
+    fn with_span_fallback(self, span: Option<Span>) -> Self;
+
+    fn with_code(self, code: &'static str) -> Self;
+
+    fn with_source(self, source: ErrorSource) -> Self;
+}
+
+impl WithErrorInfo for Error {
+    fn push_hint<S: Into<String>>(mut self, hint: S) -> Self {
+        self.hints.push(hint.into());
+        self
+    }
+
+    fn with_hints<S: Into<String>, I: IntoIterator<Item = S>>(mut self, hints: I) -> Self {
+        self.hints = hints.into_iter().map(|x| x.into()).collect();
+        self
+    }
+
+    fn with_span(mut self, span: Option<Span>) -> Self {
+        self.span = span;
+        self
+    }
+
+    fn with_code(mut self, code: &'static str) -> Self {
+        self.code = Some(code);
+        self
+    }
+
+    fn with_span_fallback(mut self, span: Option<Span>) -> Self {
+        self.span = self.span.or(span);
+        self
+    }
+
+    fn with_source(self, _source: ErrorSource) -> Self {
+        // self.source = source;
+        self
+    }
+}
+
+impl<T, E: WithErrorInfo> WithErrorInfo for Result<T, E> {
+    fn push_hint<S: Into<String>>(self, hint: S) -> Self {
+        self.map_err(|e| e.push_hint(hint))
+    }
+
+    fn with_hints<S: Into<String>, I: IntoIterator<Item = S>>(self, hints: I) -> Self {
+        self.map_err(|e| e.with_hints(hints))
+    }
+
+    fn with_span(self, span: Option<Span>) -> Self {
+        self.map_err(|e| e.with_span(span))
+    }
+
+    fn with_span_fallback(self, span: Option<Span>) -> Self {
+        self.map_err(|e| e.with_span_fallback(span))
+    }
+
+    fn with_code(self, code: &'static str) -> Self {
+        self.map_err(|e| e.with_code(code))
+    }
+
+    fn with_source(self, source: ErrorSource) -> Self {
+        self.map_err(|e| e.with_source(source))
     }
 }

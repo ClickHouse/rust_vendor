@@ -1,13 +1,13 @@
-use enum_as_inner::EnumAsInner;
-use itertools::Itertools;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt::Debug;
 
-use prqlc_ast::{Span, Ty};
+use enum_as_inner::EnumAsInner;
+use itertools::Itertools;
+use serde::{Deserialize, Serialize};
 
 use crate::codegen::write_ty;
-use crate::ir::pl::*;
+use crate::ir::pl;
+use crate::pr::{Span, Ty};
 use crate::semantic::write_pl;
 
 /// Context of the pipeline.
@@ -34,7 +34,7 @@ pub struct Module {
     /// - because of redirect `std`, so we look for `average` in `std`,
     /// - there is `average` is `std`,
     /// - result of the lookup is FQ ident `std.average`.
-    pub redirects: Vec<Ident>,
+    pub redirects: Vec<pl::Ident>,
 
     /// A declaration that has been shadowed (overwritten) by this module.
     pub shadowed: Option<Box<Decl>>,
@@ -54,7 +54,7 @@ pub struct Decl {
     pub order: usize,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub annotations: Vec<Annotation>,
+    pub annotations: Vec<pl::Annotation>,
 }
 
 /// The Declaration itself.
@@ -68,7 +68,7 @@ pub enum DeclKind {
 
     TableDecl(TableDecl),
 
-    InstanceOf(Ident, Option<Ty>),
+    InstanceOf(pl::Ident, Option<Ty>),
 
     /// A single column. Contains id of target which is either:
     /// - an input relation that is source of this column or
@@ -78,11 +78,14 @@ pub enum DeclKind {
     /// Contains a default value to be created in parent namespace when NS_INFER is matched.
     Infer(Box<DeclKind>),
 
-    Expr(Box<Expr>),
+    Expr(Box<pl::Expr>),
 
     Ty(Ty),
 
-    QueryDef(QueryDef),
+    QueryDef(pl::QueryDef),
+
+    /// Equivalent to the declaration pointed to by the fully qualified ident
+    Import(pl::Ident),
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone)]
@@ -98,7 +101,7 @@ pub struct TableDecl {
 #[derive(Debug, PartialEq, Serialize, Deserialize, Clone, EnumAsInner)]
 pub enum TableExpr {
     /// In SQL, this is a CTE
-    RelationVar(Box<Expr>),
+    RelationVar(Box<pl::Expr>),
 
     /// Actual table in a database. In SQL it can be referred to by name.
     LocalTable,
@@ -196,6 +199,7 @@ impl std::fmt::Display for DeclKind {
             Self::Expr(arg0) => write!(f, "Expr: {}", write_pl(*arg0.clone())),
             Self::Ty(arg0) => write!(f, "Ty: {}", write_ty(arg0)),
             Self::QueryDef(_) => write!(f, "QueryDef"),
+            Self::Import(arg0) => write!(f, "Import {arg0}"),
         }
     }
 }

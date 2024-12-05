@@ -1,6 +1,7 @@
 ---
 source: prqlc/prqlc/src/semantic/resolver/mod.rs
 expression: "resolve_derive(r#\"\n            from a\n            derive one = (foo | sum)\n            \"#).unwrap()"
+snapshot_kind: text
 ---
 - RqOperator:
     name: std.sum
@@ -9,14 +10,16 @@ expression: "resolve_derive(r#\"\n            from a\n            derive one = (
           - this
           - a
           - foo
+        span: "1:46-49"
         ty:
           kind:
             Array:
               kind: Any
-              span: "2:1929-1936"
+              span: "0:1929-1936"
               name: ~
-          span: "2:1928-1937"
+          span: "0:1928-1937"
           name: array
+  span: "1:52-55"
   alias: one
   ty:
     kind:
@@ -24,13 +27,12 @@ expression: "resolve_derive(r#\"\n            from a\n            derive one = (
         - - ~
           - kind:
               Primitive: Int
-            span: "2:4121-4124"
+            span: "0:4123-4126"
             name: ~
         - - ~
           - kind:
               Primitive: Float
-            span: "2:4128-4133"
+            span: "0:4130-4135"
             name: ~
-    span: "2:4121-4133"
+    span: "0:4123-4135"
     name: ~
-

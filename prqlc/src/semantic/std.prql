@@ -54,7 +54,7 @@ type array = [anytype]
 
 ## Scalar
 type scalar = int || float || bool || text || date || time || timestamp || null
-type tuple = {anytype..}
+type tuple = {..anytype}
 
 ## Range
 type range = {start = scalar, end = scalar}
@@ -116,8 +116,8 @@ let group = func
   -> <relation> internal group
 
 let window = func
-  rows:0..0
-  range:0..0
+  rows:0..-1
+  range:0..-1
   expanding <bool>:false
   rolling <int>:0
   pipeline <transform>

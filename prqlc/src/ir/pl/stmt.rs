@@ -1,15 +1,14 @@
 use enum_as_inner::EnumAsInner;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use prqlc_ast::{Span, Ty};
-
-pub use prqlc_ast::stmt::QueryDef;
+use crate::pr::Ident;
+use crate::pr::QueryDef;
+use crate::pr::{Span, Ty};
 
 use super::expr::Expr;
 
-// The following code is tested by the tests_misc crate to match stmt.rs in prqlc_ast.
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Stmt {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<usize>,
@@ -22,15 +21,16 @@ pub struct Stmt {
     pub annotations: Vec<Annotation>,
 }
 
-#[derive(Debug, EnumAsInner, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, EnumAsInner, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
 pub enum StmtKind {
     QueryDef(Box<QueryDef>),
     VarDef(VarDef),
     TypeDef(TypeDef),
     ModuleDef(ModuleDef),
+    ImportDef(ImportDef),
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct VarDef {
     pub name: String,
     pub value: Option<Box<Expr>>,
@@ -39,19 +39,25 @@ pub struct VarDef {
     pub ty: Option<Ty>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TypeDef {
     pub name: String,
     pub value: Option<Ty>,
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ModuleDef {
     pub name: String,
     pub stmts: Vec<Stmt>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ImportDef {
+    pub alias: Option<String>,
+    pub name: Ident,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct Annotation {
     pub expr: Box<Expr>,
 }

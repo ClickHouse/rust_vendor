@@ -1,6 +1,7 @@
 ---
 source: prqlc/prqlc/src/semantic/resolver/mod.rs
 expression: "resolve_derive(r#\"\n            let lag_day = x -> s\"lag_day_todo({x})\"\n            let ret = x dividend_return ->  x / (lag_day x) - 1 + dividend_return\n\n            from a\n            derive (ret b c)\n            \"#).unwrap()"
+snapshot_kind: text
 ---
 - RqOperator:
     name: std.add
@@ -15,6 +16,7 @@ expression: "resolve_derive(r#\"\n            let lag_day = x -> s\"lag_day_todo
                       - this
                       - a
                       - b
+                    span: "1:179-180"
                   - SString:
                       - String: lag_day_todo(
                       - Expr:
@@ -23,82 +25,88 @@ expression: "resolve_derive(r#\"\n            let lag_day = x -> s\"lag_day_todo
                               - this
                               - a
                               - b
+                            span: "1:179-180"
                           format: ~
                       - String: )
+                    span: "1:102-111"
+              span: "1:97-112"
               ty:
                 kind:
                   Union:
                     - - ~
                       - kind:
                           Primitive: Int
-                        span: "2:779-782"
+                        span: "0:779-782"
                         name: ~
                     - - ~
                       - kind:
                           Primitive: Float
-                        span: "2:786-791"
+                        span: "0:786-791"
                         name: ~
-                span: "2:779-791"
+                span: "0:779-791"
                 name: ~
             - Literal:
                 Integer: 1
+              span: "1:115-116"
               ty:
                 kind:
                   Primitive: Int
                 span: ~
                 name: ~
+        span: "1:97-116"
         ty:
           kind:
             Union:
               - - ~
                 - kind:
                     Primitive: Int
-                  span: "2:970-973"
+                  span: "0:970-973"
                   name: ~
               - - ~
                 - kind:
                     Primitive: Float
-                  span: "2:977-982"
+                  span: "0:977-982"
                   name: ~
               - - ~
                 - kind:
                     Primitive: Timestamp
-                  span: "2:986-995"
+                  span: "0:986-995"
                   name: ~
               - - ~
                 - kind:
                     Primitive: Date
-                  span: "2:999-1003"
+                  span: "0:999-1003"
                   name: ~
-          span: "2:970-1003"
+          span: "0:970-1003"
           name: ~
       - Ident:
           - this
           - a
           - c
+        span: "1:181-182"
+  span: "1:175-182"
   ty:
     kind:
       Union:
         - - ~
           - kind:
               Primitive: Int
-            span: "2:893-896"
+            span: "0:893-896"
             name: ~
         - - ~
           - kind:
               Primitive: Float
-            span: "2:900-905"
+            span: "0:900-905"
             name: ~
         - - ~
           - kind:
               Primitive: Timestamp
-            span: "2:909-918"
+            span: "0:909-918"
             name: ~
         - - ~
           - kind:
               Primitive: Date
-            span: "2:922-926"
+            span: "0:922-926"
             name: ~
-    span: "2:893-926"
+    span: "0:893-926"
     name: ~
-

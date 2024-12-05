@@ -68,7 +68,7 @@ impl TestedDialects {
                 }
                 Some((dialect, parsed))
             })
-            .unwrap()
+            .expect("tested dialects cannot be empty")
             .1
     }
 
@@ -111,10 +111,10 @@ impl TestedDialects {
     /// that:
     ///
     /// 1. parsing `sql` results in the same [`Statement`] as parsing
-    /// `canonical`.
+    ///    `canonical`.
     ///
     /// 2. re-serializing the result of parsing `sql` produces the same
-    /// `canonical` sql string
+    ///    `canonical` sql string
     pub fn one_statement_parses_to(&self, sql: &str, canonical: &str) -> Statement {
         let mut statements = self.parse_sql_statements(sql).expect(sql);
         assert_eq!(statements.len(), 1);
@@ -124,6 +124,7 @@ impl TestedDialects {
         }
 
         let only_statement = statements.pop().unwrap();
+
         if !canonical.is_empty() {
             assert_eq!(canonical, only_statement.to_string())
         }
@@ -157,6 +158,16 @@ impl TestedDialects {
         }
     }
 
+    /// Ensures that `sql` parses as a single [Query], and that
+    /// re-serializing the parse result matches the given canonical
+    /// sql string.
+    pub fn verified_query_with_canonical(&self, query: &str, canonical: &str) -> Query {
+        match self.one_statement_parses_to(query, canonical) {
+            Statement::Query(query) => *query,
+            _ => panic!("Expected Query"),
+        }
+    }
+
     /// Ensures that `sql` parses as a single [Select], and that
     /// re-serializing the parse result produces the same `sql`
     /// string (is not modified after a serialization round-trip).
@@ -170,10 +181,10 @@ impl TestedDialects {
     /// Ensures that `sql` parses as a single [`Select`], and that additionally:
     ///
     /// 1. parsing `sql` results in the same [`Statement`] as parsing
-    /// `canonical`.
+    ///    `canonical`.
     ///
     /// 2. re-serializing the result of parsing `sql` produces the same
-    /// `canonical` sql string
+    ///    `canonical` sql string
     pub fn verified_only_select_with_canonical(&self, query: &str, canonical: &str) -> Select {
         let q = match self.one_statement_parses_to(query, canonical) {
             Statement::Query(query) => *query,
@@ -193,23 +204,45 @@ impl TestedDialects {
     }
 }
 
+/// Returns all available dialects.
 pub fn all_dialects() -> TestedDialects {
+    let all_dialects = vec![
+        Box::new(GenericDialect {}) as Box<dyn Dialect>,
+        Box::new(PostgreSqlDialect {}) as Box<dyn Dialect>,
+        Box::new(MsSqlDialect {}) as Box<dyn Dialect>,
+        Box::new(AnsiDialect {}) as Box<dyn Dialect>,
+        Box::new(SnowflakeDialect {}) as Box<dyn Dialect>,
+        Box::new(HiveDialect {}) as Box<dyn Dialect>,
+        Box::new(RedshiftSqlDialect {}) as Box<dyn Dialect>,
+        Box::new(MySqlDialect {}) as Box<dyn Dialect>,
+        Box::new(BigQueryDialect {}) as Box<dyn Dialect>,
+        Box::new(SQLiteDialect {}) as Box<dyn Dialect>,
+        Box::new(DuckDbDialect {}) as Box<dyn Dialect>,
+        Box::new(DatabricksDialect {}) as Box<dyn Dialect>,
+    ];
     TestedDialects {
-        dialects: vec![
-            Box::new(GenericDialect {}),
-            Box::new(PostgreSqlDialect {}),
-            Box::new(MsSqlDialect {}),
-            Box::new(AnsiDialect {}),
-            Box::new(SnowflakeDialect {}),
-            Box::new(HiveDialect {}),
-            Box::new(RedshiftSqlDialect {}),
-            Box::new(MySqlDialect {}),
-            Box::new(BigQueryDialect {}),
-            Box::new(SQLiteDialect {}),
-            Box::new(DuckDbDialect {}),
-        ],
+        dialects: all_dialects,
         options: None,
     }
+}
+
+/// Returns all dialects matching the given predicate.
+pub fn all_dialects_where<F>(predicate: F) -> TestedDialects
+where
+    F: Fn(&dyn Dialect) -> bool,
+{
+    let mut dialects = all_dialects();
+    dialects.dialects.retain(|d| predicate(&**d));
+    dialects
+}
+
+/// Returns available dialects. The `except` predicate is used
+/// to filter out specific dialects.
+pub fn all_dialects_except<F>(except: F) -> TestedDialects
+where
+    F: Fn(&dyn Dialect) -> bool,
+{
+    all_dialects_where(|d| !except(d))
 }
 
 pub fn assert_eq_vec<T: ToString>(expected: &[&str], actual: &[T]) {
@@ -242,6 +275,8 @@ pub fn alter_table_op_with_name(stmt: Statement, expected_name: &str) -> AlterTa
             if_exists,
             only: is_only,
             operations,
+            on_cluster: _,
+            location: _,
         } => {
             assert_eq!(name.to_string(), expected_name);
             assert!(!if_exists);
@@ -251,6 +286,7 @@ pub fn alter_table_op_with_name(stmt: Statement, expected_name: &str) -> AlterTa
         _ => panic!("Expected ALTER TABLE statement"),
     }
 }
+
 pub fn alter_table_op(stmt: Statement) -> AlterTableOperation {
     alter_table_op_with_name(stmt, "tab")
 }
@@ -275,12 +311,48 @@ pub fn table(name: impl Into<String>) -> TableFactor {
         with_hints: vec![],
         version: None,
         partitions: vec![],
+        with_ordinality: false,
+    }
+}
+
+pub fn table_with_alias(name: impl Into<String>, alias: impl Into<String>) -> TableFactor {
+    TableFactor::Table {
+        name: ObjectName(vec![Ident::new(name)]),
+        alias: Some(TableAlias {
+            name: Ident::new(alias),
+            columns: vec![],
+        }),
+        args: None,
+        with_hints: vec![],
+        version: None,
+        partitions: vec![],
+        with_ordinality: false,
     }
 }
 
 pub fn join(relation: TableFactor) -> Join {
     Join {
         relation,
+        global: false,
         join_operator: JoinOperator::Inner(JoinConstraint::Natural),
     }
+}
+
+pub fn call(function: &str, args: impl IntoIterator<Item = Expr>) -> Expr {
+    Expr::Function(Function {
+        name: ObjectName(vec![Ident::new(function)]),
+        parameters: FunctionArguments::None,
+        args: FunctionArguments::List(FunctionArgumentList {
+            duplicate_treatment: None,
+            args: args
+                .into_iter()
+                .map(|arg| FunctionArg::Unnamed(FunctionArgExpr::Expr(arg)))
+                .collect(),
+            clauses: vec![],
+        }),
+        filter: None,
+        null_treatment: None,
+        over: None,
+        within_group: vec![],
+    })
 }

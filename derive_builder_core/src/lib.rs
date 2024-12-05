@@ -27,16 +27,12 @@ extern crate proc_macro2;
 extern crate syn;
 #[macro_use]
 extern crate quote;
-#[cfg(test)]
-#[macro_use]
-extern crate pretty_assertions;
-
 mod block;
 mod build_method;
 mod builder;
 mod builder_field;
+mod change_span;
 mod default_expression;
-mod deprecation_notes;
 mod doc_comment;
 mod initializer;
 mod macro_options;
@@ -47,9 +43,9 @@ pub(crate) use block::BlockContents;
 pub(crate) use build_method::BuildMethod;
 pub(crate) use builder::Builder;
 pub(crate) use builder_field::{BuilderField, BuilderFieldType};
+pub(crate) use change_span::change_span;
 use darling::FromDeriveInput;
 pub(crate) use default_expression::DefaultExpression;
-pub(crate) use deprecation_notes::DeprecationNotes;
 pub(crate) use doc_comment::doc_comment_from;
 pub(crate) use initializer::{FieldConversion, Initializer};
 pub(crate) use options::{BuilderPattern, Each};

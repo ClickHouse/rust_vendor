@@ -11,11 +11,16 @@
 
 [package]
 edition = "2021"
-rust-version = "1.63"
+rust-version = "1.70"
 name = "which"
-version = "4.4.2"
-authors = ["Harry Fei <tiziyuanfang@gmail.com>"]
-description = "A Rust equivalent of Unix command \"which\". Locate installed executable in cross platforms."
+version = "7.0.0"
+authors = ["Harry Fei <tiziyuanfang@gmail.com>, Jacob Kiesel <jake@bitcrafters.co>"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+description = 'A Rust equivalent of Unix command "which". Locate installed executable in cross platforms.'
 documentation = "https://docs.rs/which/"
 readme = "README.md"
 keywords = [
@@ -34,26 +39,44 @@ repository = "https://github.com/harryfei/which-rs.git"
 [package.metadata.docs.rs]
 all-features = true
 
+[lib]
+name = "which"
+path = "src/lib.rs"
+
+[[test]]
+name = "basic"
+path = "tests/basic.rs"
+
 [dependencies.either]
-version = "1.6.1"
+version = "1.9.0"
 
 [dependencies.regex]
-version = "1.5.5"
+version = "1.10.2"
 optional = true
 
-[dependencies.rustix]
-version = "0.38.10"
+[dependencies.tracing]
+version = "0.1.40"
+optional = true
+default-features = false
+
+[dev-dependencies.tempfile]
+version = "3.9.0"
+
+[features]
+regex = ["dep:regex"]
+tracing = ["dep:tracing"]
+
+[target.'cfg(any(unix, target_os = "wasi", target_os = "redox"))'.dependencies.rustix]
+version = "0.38.30"
 features = [
     "fs",
     "std",
 ]
 default-features = false
 
-[dev-dependencies.tempfile]
-version = "3.3.0"
+[target.'cfg(any(windows, unix, target_os = "redox"))'.dependencies.home]
+version = "0.5.9"
 
-[target."cfg(any(windows, unix, target_os = \"redox\"))".dependencies.home]
-version = "0.5.5"
-
-[target."cfg(windows)".dependencies.once_cell]
-version = "1"
+[target."cfg(windows)".dependencies.winsafe]
+version = "0.0.19"
+features = ["kernel"]

@@ -1,7 +1,7 @@
 use std::{
-    io::{Read, Seek, SeekFrom, Write},
+    io::{Read, Seek, Write},
     ops::Deref,
-    os::unix::io::AsRawFd,
+    os::unix::io::{AsFd, AsRawFd, BorrowedFd},
     pin::Pin,
     sync::atomic::{AtomicBool, Ordering},
     thread, time,
@@ -21,9 +21,7 @@ use nix::{
 };
 use tempfile::tempfile;
 
-lazy_static! {
-    pub static ref SIGNALED: AtomicBool = AtomicBool::new(false);
-}
+pub static SIGNALED: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn sigfunc(_: c_int) {
     SIGNALED.store(true, Ordering::Relaxed);
@@ -47,8 +45,9 @@ mod aio_fsync {
 
     #[test]
     fn test_accessors() {
+        let f = tempfile().unwrap();
         let aiocb = AioFsync::new(
-            1001,
+            f.as_fd(),
             AioFsyncMode::O_SYNC,
             42,
             SigevNotify::SigevSignal {
@@ -56,7 +55,7 @@ mod aio_fsync {
                 si_value: 99,
             },
         );
-        assert_eq!(1001, aiocb.fd());
+        assert_eq!(f.as_raw_fd(), aiocb.fd().as_raw_fd());
         assert_eq!(AioFsyncMode::O_SYNC, aiocb.mode());
         assert_eq!(42, aiocb.priority());
         let sev = aiocb.sigevent().sigevent();
@@ -69,21 +68,17 @@ mod aio_fsync {
     // Skip on Linux, because Linux's AIO implementation can't detect errors
     // synchronously
     #[test]
-    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    #[cfg_attr(any(target_os = "android", target_os = "linux"), ignore)]
     fn error() {
         use std::mem;
 
         const INITIAL: &[u8] = b"abcdef123456";
         // Create an invalid AioFsyncMode
-        let mode = unsafe { mem::transmute(666) };
+        let mode = unsafe { mem::transmute::<i32, AioFsyncMode>(666) };
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
-        let mut aiof = Box::pin(AioFsync::new(
-            f.as_raw_fd(),
-            mode,
-            0,
-            SigevNotify::SigevNone,
-        ));
+        let mut aiof =
+            Box::pin(AioFsync::new(f.as_fd(), mode, 0, SigevNotify::SigevNone));
         let err = aiof.as_mut().submit();
         err.expect_err("assertion failed");
     }
@@ -94,9 +89,8 @@ mod aio_fsync {
         const INITIAL: &[u8] = b"abcdef123456";
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
-        let fd = f.as_raw_fd();
         let mut aiof = Box::pin(AioFsync::new(
-            fd,
+            f.as_fd(),
             AioFsyncMode::O_SYNC,
             0,
             SigevNotify::SigevNone,
@@ -112,9 +106,10 @@ mod aio_read {
 
     #[test]
     fn test_accessors() {
+        let f = tempfile().unwrap();
         let mut rbuf = vec![0; 4];
         let aiocb = AioRead::new(
-            1001,
+            f.as_fd(),
             2, //offset
             &mut rbuf,
             42, //priority
@@ -123,7 +118,7 @@ mod aio_read {
                 si_value: 99,
             },
         );
-        assert_eq!(1001, aiocb.fd());
+        assert_eq!(f.as_raw_fd(), aiocb.fd().as_raw_fd());
         assert_eq!(4, aiocb.nbytes());
         assert_eq!(2, aiocb.offset());
         assert_eq!(42, aiocb.priority());
@@ -142,7 +137,7 @@ mod aio_read {
         let mut rbuf = vec![0; 4];
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
-        let fd = f.as_raw_fd();
+        let fd = f.as_fd();
         let mut aior =
             Box::pin(AioRead::new(fd, 2, &mut rbuf, 0, SigevNotify::SigevNone));
         aior.as_mut().submit().unwrap();
@@ -159,14 +154,14 @@ mod aio_read {
     // Skip on Linux, because Linux's AIO implementation can't detect errors
     // synchronously
     #[test]
-    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    #[cfg(any(target_os = "freebsd", apple_targets))]
     fn error() {
         const INITIAL: &[u8] = b"abcdef123456";
         let mut rbuf = vec![0; 4];
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
         let mut aior = Box::pin(AioRead::new(
-            f.as_raw_fd(),
+            f.as_fd(),
             -1, //an invalid offset
             &mut rbuf,
             0, //priority
@@ -186,7 +181,7 @@ mod aio_read {
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
         {
-            let fd = f.as_raw_fd();
+            let fd = f.as_fd();
             let mut aior = Box::pin(AioRead::new(
                 fd,
                 2,
@@ -200,7 +195,7 @@ mod aio_read {
             assert_eq!(err, Ok(()));
             assert_eq!(aior.as_mut().aio_return().unwrap(), EXPECT.len());
         }
-        assert_eq!(EXPECT, rbuf.deref().deref());
+        assert_eq!(EXPECT, rbuf.deref());
     }
 
     // Like ok, but allocates the structure on the stack.
@@ -213,7 +208,7 @@ mod aio_read {
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
         {
-            let fd = f.as_raw_fd();
+            let fd = f.as_fd();
             let mut aior =
                 AioRead::new(fd, 2, &mut rbuf, 0, SigevNotify::SigevNone);
             let mut aior = unsafe { Pin::new_unchecked(&mut aior) };
@@ -223,7 +218,7 @@ mod aio_read {
             assert_eq!(err, Ok(()));
             assert_eq!(aior.as_mut().aio_return().unwrap(), EXPECT.len());
         }
-        assert_eq!(EXPECT, rbuf.deref().deref());
+        assert_eq!(EXPECT, rbuf.deref());
     }
 }
 
@@ -236,12 +231,13 @@ mod aio_readv {
 
     #[test]
     fn test_accessors() {
+        let f = tempfile().unwrap();
         let mut rbuf0 = vec![0; 4];
         let mut rbuf1 = vec![0; 8];
         let mut rbufs =
             [IoSliceMut::new(&mut rbuf0), IoSliceMut::new(&mut rbuf1)];
         let aiocb = AioReadv::new(
-            1001,
+            f.as_fd(),
             2, //offset
             &mut rbufs,
             42, //priority
@@ -250,7 +246,7 @@ mod aio_readv {
                 si_value: 99,
             },
         );
-        assert_eq!(1001, aiocb.fd());
+        assert_eq!(f.as_raw_fd(), aiocb.fd().as_raw_fd());
         assert_eq!(2, aiocb.iovlen());
         assert_eq!(2, aiocb.offset());
         assert_eq!(42, aiocb.priority());
@@ -272,7 +268,7 @@ mod aio_readv {
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
         {
-            let fd = f.as_raw_fd();
+            let fd = f.as_fd();
             let mut aior = Box::pin(AioReadv::new(
                 fd,
                 2,
@@ -299,9 +295,10 @@ mod aio_write {
 
     #[test]
     fn test_accessors() {
+        let f = tempfile().unwrap();
         let wbuf = vec![0; 4];
         let aiocb = AioWrite::new(
-            1001,
+            f.as_fd(),
             2, //offset
             &wbuf,
             42, //priority
@@ -310,7 +307,7 @@ mod aio_write {
                 si_value: 99,
             },
         );
-        assert_eq!(1001, aiocb.fd());
+        assert_eq!(f.as_raw_fd(), aiocb.fd().as_raw_fd());
         assert_eq!(4, aiocb.nbytes());
         assert_eq!(2, aiocb.offset());
         assert_eq!(42, aiocb.priority());
@@ -329,7 +326,7 @@ mod aio_write {
 
         let f = tempfile().unwrap();
         let mut aiow = Box::pin(AioWrite::new(
-            f.as_raw_fd(),
+            f.as_fd(),
             0,
             wbuf,
             0,
@@ -358,20 +355,22 @@ mod aio_write {
 
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
-        let mut aiow = Box::pin(AioWrite::new(
-            f.as_raw_fd(),
-            2,
-            &wbuf,
-            0,
-            SigevNotify::SigevNone,
-        ));
-        aiow.as_mut().submit().unwrap();
+        {
+            let mut aiow = Box::pin(AioWrite::new(
+                f.as_fd(),
+                2,
+                &wbuf,
+                0,
+                SigevNotify::SigevNone,
+            ));
+            aiow.as_mut().submit().unwrap();
 
-        let err = poll_aio!(&mut aiow);
-        assert_eq!(err, Ok(()));
-        assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+            let err = poll_aio!(&mut aiow);
+            assert_eq!(err, Ok(()));
+            assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+        }
 
-        f.seek(SeekFrom::Start(0)).unwrap();
+        f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert_eq!(len, EXPECT.len());
         assert_eq!(rbuf, EXPECT);
@@ -388,21 +387,23 @@ mod aio_write {
 
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
-        let mut aiow = AioWrite::new(
-            f.as_raw_fd(),
-            2, //offset
-            &wbuf,
-            0, //priority
-            SigevNotify::SigevNone,
-        );
-        let mut aiow = unsafe { Pin::new_unchecked(&mut aiow) };
-        aiow.as_mut().submit().unwrap();
+        {
+            let mut aiow = AioWrite::new(
+                f.as_fd(),
+                2, //offset
+                &wbuf,
+                0, //priority
+                SigevNotify::SigevNone,
+            );
+            let mut aiow = unsafe { Pin::new_unchecked(&mut aiow) };
+            aiow.as_mut().submit().unwrap();
 
-        let err = poll_aio!(&mut aiow);
-        assert_eq!(err, Ok(()));
-        assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+            let err = poll_aio!(&mut aiow);
+            assert_eq!(err, Ok(()));
+            assert_eq!(aiow.as_mut().aio_return().unwrap(), wbuf.len());
+        }
 
-        f.seek(SeekFrom::Start(0)).unwrap();
+        f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert_eq!(len, EXPECT.len());
         assert_eq!(rbuf, EXPECT);
@@ -413,12 +414,14 @@ mod aio_write {
     // Skip on Linux, because Linux's AIO implementation can't detect errors
     // synchronously
     #[test]
-    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
+    #[cfg_attr(any(target_os = "android", target_os = "linux"), ignore)]
     fn error() {
+        // Not I/O safe!  Deliberately create an invalid fd.
+        let fd = unsafe { BorrowedFd::borrow_raw(666) };
         let wbuf = "CDEF".to_string().into_bytes();
         let mut aiow = Box::pin(AioWrite::new(
-            666, // An invalid file descriptor
-            0,   //offset
+            fd,
+            0, //offset
             &wbuf,
             0, //priority
             SigevNotify::SigevNone,
@@ -437,11 +440,12 @@ mod aio_writev {
 
     #[test]
     fn test_accessors() {
+        let f = tempfile().unwrap();
         let wbuf0 = vec![0; 4];
         let wbuf1 = vec![0; 8];
         let wbufs = [IoSlice::new(&wbuf0), IoSlice::new(&wbuf1)];
         let aiocb = AioWritev::new(
-            1001,
+            f.as_fd(),
             2, //offset
             &wbufs,
             42, //priority
@@ -450,7 +454,7 @@ mod aio_writev {
                 si_value: 99,
             },
         );
-        assert_eq!(1001, aiocb.fd());
+        assert_eq!(f.as_raw_fd(), aiocb.fd().as_raw_fd());
         assert_eq!(2, aiocb.iovlen());
         assert_eq!(2, aiocb.offset());
         assert_eq!(42, aiocb.priority());
@@ -474,20 +478,22 @@ mod aio_writev {
 
         let mut f = tempfile().unwrap();
         f.write_all(INITIAL).unwrap();
-        let mut aiow = Box::pin(AioWritev::new(
-            f.as_raw_fd(),
-            1,
-            &wbufs,
-            0,
-            SigevNotify::SigevNone,
-        ));
-        aiow.as_mut().submit().unwrap();
+        {
+            let mut aiow = Box::pin(AioWritev::new(
+                f.as_fd(),
+                1,
+                &wbufs,
+                0,
+                SigevNotify::SigevNone,
+            ));
+            aiow.as_mut().submit().unwrap();
 
-        let err = poll_aio!(&mut aiow);
-        assert_eq!(err, Ok(()));
-        assert_eq!(aiow.as_mut().aio_return().unwrap(), wlen);
+            let err = poll_aio!(&mut aiow);
+            assert_eq!(err, Ok(()));
+            assert_eq!(aiow.as_mut().aio_return().unwrap(), wlen);
+        }
 
-        f.seek(SeekFrom::Start(0)).unwrap();
+        f.rewind().unwrap();
         let len = f.read_to_end(&mut rbuf).unwrap();
         assert_eq!(len, EXPECT.len());
         assert_eq!(rbuf, EXPECT);
@@ -500,7 +506,9 @@ mod aio_writev {
     any(
         all(target_env = "musl", target_arch = "x86_64"),
         target_arch = "mips",
-        target_arch = "mips64"
+        target_arch = "mips32r6",
+        target_arch = "mips64",
+        target_arch = "mips64r6"
     ),
     ignore
 )]
@@ -521,23 +529,26 @@ fn sigev_signal() {
 
     let mut f = tempfile().unwrap();
     f.write_all(INITIAL).unwrap();
-    let mut aiow = Box::pin(AioWrite::new(
-        f.as_raw_fd(),
-        2, //offset
-        WBUF,
-        0, //priority
-        SigevNotify::SigevSignal {
-            signal: Signal::SIGUSR2,
-            si_value: 0, //TODO: validate in sigfunc
-        },
-    ));
-    aiow.as_mut().submit().unwrap();
-    while !SIGNALED.load(Ordering::Relaxed) {
-        thread::sleep(time::Duration::from_millis(10));
+    {
+        let mut aiow = Box::pin(AioWrite::new(
+            f.as_fd(),
+            2, //offset
+            WBUF,
+            0, //priority
+            SigevNotify::SigevSignal {
+                signal: Signal::SIGUSR2,
+                si_value: 0, //TODO: validate in sigfunc
+            },
+        ));
+        aiow.as_mut().submit().unwrap();
+        while !SIGNALED.load(Ordering::Relaxed) {
+            thread::sleep(time::Duration::from_millis(10));
+        }
+
+        assert_eq!(aiow.as_mut().aio_return().unwrap(), WBUF.len());
     }
 
-    assert_eq!(aiow.as_mut().aio_return().unwrap(), WBUF.len());
-    f.seek(SeekFrom::Start(0)).unwrap();
+    f.rewind().unwrap();
     let len = f.read_to_end(&mut rbuf).unwrap();
     assert_eq!(len, EXPECT.len());
     assert_eq!(rbuf, EXPECT);
@@ -551,7 +562,7 @@ fn test_aio_cancel_all() {
 
     let f = tempfile().unwrap();
     let mut aiocb = Box::pin(AioWrite::new(
-        f.as_raw_fd(),
+        f.as_fd(),
         0, //offset
         wbuf,
         0, //priority
@@ -561,7 +572,7 @@ fn test_aio_cancel_all() {
     let err = aiocb.as_mut().error();
     assert!(err == Ok(()) || err == Err(Errno::EINPROGRESS));
 
-    aio_cancel_all(f.as_raw_fd()).unwrap();
+    aio_cancel_all(f.as_fd()).unwrap();
 
     // Wait for aiocb to complete, but don't care whether it succeeded
     let _ = poll_aio!(&mut aiocb);
@@ -569,12 +580,6 @@ fn test_aio_cancel_all() {
 }
 
 #[test]
-// On Cirrus on Linux, this test fails due to a glibc bug.
-// https://github.com/nix-rust/nix/issues/1099
-#[cfg_attr(target_os = "linux", ignore)]
-// On Cirrus, aio_suspend is failing with EINVAL
-// https://github.com/nix-rust/nix/issues/1361
-#[cfg_attr(target_os = "macos", ignore)]
 fn test_aio_suspend() {
     const INITIAL: &[u8] = b"abcdef123456";
     const WBUF: &[u8] = b"CDEFG";
@@ -585,7 +590,7 @@ fn test_aio_suspend() {
     f.write_all(INITIAL).unwrap();
 
     let mut wcb = Box::pin(AioWrite::new(
-        f.as_raw_fd(),
+        f.as_fd(),
         2, //offset
         WBUF,
         0, //priority
@@ -593,7 +598,7 @@ fn test_aio_suspend() {
     ));
 
     let mut rcb = Box::pin(AioRead::new(
-        f.as_raw_fd(),
+        f.as_fd(),
         8, //offset
         &mut rbuf,
         0, //priority
@@ -610,7 +615,7 @@ fn test_aio_suspend() {
             let r = aio_suspend(&cbbuf[..], Some(timeout));
             match r {
                 Err(Errno::EINTR) => continue,
-                Err(e) => panic!("aio_suspend returned {:?}", e),
+                Err(e) => panic!("aio_suspend returned {e:?}"),
                 Ok(_) => (),
             };
         }
@@ -623,4 +628,58 @@ fn test_aio_suspend() {
 
     assert_eq!(wcb.as_mut().aio_return().unwrap(), WBUF.len());
     assert_eq!(rcb.as_mut().aio_return().unwrap(), rlen);
+}
+
+/// aio_suspend relies on casting Rust Aio* struct pointers to libc::aiocb
+/// pointers.  This test ensures that such casts are valid.
+#[test]
+fn casting() {
+    let sev = SigevNotify::SigevNone;
+    // Only safe because we'll never await the futures
+    let fd = unsafe { BorrowedFd::borrow_raw(666) };
+    let aiof = AioFsync::new(fd, AioFsyncMode::O_SYNC, 0, sev);
+    assert_eq!(
+        aiof.as_ref() as *const libc::aiocb,
+        &aiof as *const AioFsync as *const libc::aiocb
+    );
+
+    let mut rbuf = [];
+    let aior = AioRead::new(fd, 0, &mut rbuf, 0, sev);
+    assert_eq!(
+        aior.as_ref() as *const libc::aiocb,
+        &aior as *const AioRead as *const libc::aiocb
+    );
+
+    let wbuf = [];
+    let aiow = AioWrite::new(fd, 0, &wbuf, 0, sev);
+    assert_eq!(
+        aiow.as_ref() as *const libc::aiocb,
+        &aiow as *const AioWrite as *const libc::aiocb
+    );
+}
+
+#[cfg(target_os = "freebsd")]
+#[test]
+fn casting_vectored() {
+    use std::io::{IoSlice, IoSliceMut};
+
+    let sev = SigevNotify::SigevNone;
+
+    let mut rbuf = [];
+    let mut rbufs = [IoSliceMut::new(&mut rbuf)];
+    // Only safe because we'll never await the futures
+    let fd = unsafe { BorrowedFd::borrow_raw(666) };
+    let aiorv = AioReadv::new(fd, 0, &mut rbufs[..], 0, sev);
+    assert_eq!(
+        aiorv.as_ref() as *const libc::aiocb,
+        &aiorv as *const AioReadv as *const libc::aiocb
+    );
+
+    let wbuf = [];
+    let wbufs = [IoSlice::new(&wbuf)];
+    let aiowv = AioWritev::new(fd, 0, &wbufs, 0, sev);
+    assert_eq!(
+        aiowv.as_ref() as *const libc::aiocb,
+        &aiowv as *const AioWritev as *const libc::aiocb
+    );
 }

@@ -83,7 +83,7 @@ pub enum Error {
 impl ::std::fmt::Display for Error {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         use self::Error::*;
-        match *self {
+        match self {
             StackUnderflow => f.write_str("not enough elements on the stack"),
             TypeMismatch => f.write_str("type mismatch"),
             UnrecognizedFormatOption(_) => f.write_str("unrecognized format option"),
@@ -298,36 +298,40 @@ pub fn expand(cap: &[u8], params: &[Param], vars: &mut Variables) -> Result<Vec<
                     .clone(),
                 );
             }
-            SetVar => {
-                if cur >= 'A' && cur <= 'Z' {
+            SetVar => match cur {
+                'A'..='Z' => {
                     if let Some(arg) = stack.pop() {
                         let idx = (cur as u8) - b'A';
                         vars.sta_vars[idx as usize] = arg;
                     } else {
                         return Err(Error::StackUnderflow);
                     }
-                } else if cur >= 'a' && cur <= 'z' {
+                }
+                'a'..='z' => {
                     if let Some(arg) = stack.pop() {
                         let idx = (cur as u8) - b'a';
                         vars.dyn_vars[idx as usize] = arg;
                     } else {
                         return Err(Error::StackUnderflow);
                     }
-                } else {
+                }
+                _ => {
                     return Err(Error::InvalidVariableName(cur));
                 }
-            }
-            GetVar => {
-                if cur >= 'A' && cur <= 'Z' {
+            },
+            GetVar => match cur {
+                'A'..='Z' => {
                     let idx = (cur as u8) - b'A';
                     stack.push(vars.sta_vars[idx as usize].clone());
-                } else if cur >= 'a' && cur <= 'z' {
+                }
+                'a'..='z' => {
                     let idx = (cur as u8) - b'a';
                     stack.push(vars.dyn_vars[idx as usize].clone());
-                } else {
+                }
+                _ => {
                     return Err(Error::InvalidVariableName(cur));
                 }
-            }
+            },
             CharConstant => {
                 stack.push(Number(i32::from(c)));
                 state = CharClose;
@@ -474,6 +478,7 @@ enum FormatOp {
     Digit,
     Octal,
     Hex,
+    #[allow(clippy::upper_case_acronyms)]
     HEX,
     String,
 }
@@ -553,7 +558,7 @@ fn format(val: Param, op: FormatOp, flags: Flags) -> Result<Vec<u8>, Error> {
         } else {
             let mut s_ = Vec::with_capacity(flags.width);
             s_.extend(repeat(b' ').take(n));
-            s_.extend(s.into_iter());
+            s_.extend(s);
             s = s_;
         }
     }
@@ -675,15 +680,15 @@ mod test {
         for &(op, bs) in &v {
             let s = format!("%{{1}}%{{2}}%{}%d", op);
             let res = expand(s.as_bytes(), &[], &mut Variables::new());
-            assert!(res.is_ok(), res.err().unwrap());
+            assert!(res.is_ok(), "{}", res.err().unwrap());
             assert_eq!(res.unwrap(), vec![b'0' + bs[0]]);
             let s = format!("%{{1}}%{{1}}%{}%d", op);
             let res = expand(s.as_bytes(), &[], &mut Variables::new());
-            assert!(res.is_ok(), res.err().unwrap());
+            assert!(res.is_ok(), "{}", res.err().unwrap());
             assert_eq!(res.unwrap(), vec![b'0' + bs[1]]);
             let s = format!("%{{2}}%{{1}}%{}%d", op);
             let res = expand(s.as_bytes(), &[], &mut Variables::new());
-            assert!(res.is_ok(), res.err().unwrap());
+            assert!(res.is_ok(), "{}", res.err().unwrap());
             assert_eq!(res.unwrap(), vec![b'0' + bs[2]]);
         }
     }
@@ -693,13 +698,13 @@ mod test {
         let mut vars = Variables::new();
         let s = b"\\E[%?%p1%{8}%<%t3%p1%d%e%p1%{16}%<%t9%p1%{8}%-%d%e38;5;%p1%d%;m";
         let res = expand(s, &[Number(1)], &mut vars);
-        assert!(res.is_ok(), res.err().unwrap());
+        assert!(res.is_ok(), "{}", res.err().unwrap());
         assert_eq!(res.unwrap(), "\\E[31m".bytes().collect::<Vec<_>>());
         let res = expand(s, &[Number(8)], &mut vars);
-        assert!(res.is_ok(), res.err().unwrap());
+        assert!(res.is_ok(), "{}", res.err().unwrap());
         assert_eq!(res.unwrap(), "\\E[90m".bytes().collect::<Vec<_>>());
         let res = expand(s, &[Number(42)], &mut vars);
-        assert!(res.is_ok(), res.err().unwrap());
+        assert!(res.is_ok(), "{}", res.err().unwrap());
         assert_eq!(res.unwrap(), "\\E[38;5;42m".bytes().collect::<Vec<_>>());
     }
 

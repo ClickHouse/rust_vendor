@@ -3,14 +3,14 @@ use std::borrow::Cow;
 use proc_macro2::TokenStream;
 use quote::{format_ident, ToTokens, TokenStreamExt};
 use syn::punctuated::Punctuated;
-use syn::{self, Path, TraitBound, TraitBoundModifier, TypeParamBound};
+use syn::{Path, TraitBound, TraitBoundModifier, TypeParamBound};
 
-use doc_comment_from;
-use BuildMethod;
-use BuilderField;
-use BuilderPattern;
-use DeprecationNotes;
-use Setter;
+use crate::{doc_comment_from, BuildMethod, BuilderField, BuilderPattern, Setter};
+
+const ALLOC_NOT_ENABLED_ERROR: &str = r#"`alloc` is disabled within 'derive_builder', consider one of the following:
+* enable feature `alloc` on 'dervie_builder' if a `global_allocator` is present
+* use a custom error `#[builder(build_fn(error = "path::to::Error"))]
+* disable the validation error `#[builder(build_fn(error(validation_error = false)))]"#;
 
 /// Builder, implementing `quote::ToTokens`.
 ///
@@ -86,6 +86,8 @@ use Setter;
 /// ```
 #[derive(Debug)]
 pub struct Builder<'a> {
+    /// Path to the root of the derive_builder crate.
+    pub crate_root: &'a Path,
     /// Enables code generation for this builder struct.
     pub enabled: bool,
     /// Name of this builder struct.
@@ -127,6 +129,14 @@ pub struct Builder<'a> {
     ///
     /// This would be `false` in the case where an already-existing error is to be used.
     pub generate_error: bool,
+    /// Whether to include `ValidationError` in the generated enum. Necessary to avoid dependency
+    /// on `alloc::string`.
+    ///
+    /// This would be `false` when `build_fn.error.as_validation_error() == Some((false, _))`. This
+    /// has no effect when `generate_error` is `false`.
+    pub generate_validation_error: bool,
+    /// Indicator of `cfg!(not(any(feature = "alloc", feature = "std")))`, as a field for tests
+    pub no_alloc: bool,
     /// Whether this builder must derive `Clone`.
     ///
     /// This is true even for a builder using the `owned` pattern if there is a field whose setter
@@ -134,8 +144,6 @@ pub struct Builder<'a> {
     pub must_derive_clone: bool,
     /// Doc-comment of the builder struct.
     pub doc_comment: Option<syn::Attribute>,
-    /// Emit deprecation notes to the user.
-    pub deprecation_notes: DeprecationNotes,
     /// Whether or not a libstd is used.
     pub std: bool,
 }
@@ -143,15 +151,17 @@ pub struct Builder<'a> {
 impl<'a> ToTokens for Builder<'a> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         if self.enabled {
+            let crate_root = self.crate_root;
             let builder_vis = &self.visibility;
             let builder_ident = &self.ident;
+            // Splitting because Generics doesn't output WhereClause, see dtolnay/syn#782
+            let (struct_generics, struct_where_clause) = (
+                self.generics,
+                self.generics.and_then(|g| g.where_clause.as_ref()),
+            );
             let bounded_generics = self.compute_impl_bounds();
-            let (impl_generics, _, _) = bounded_generics.split_for_impl();
-            let (struct_generics, ty_generics, where_clause) = self
-                .generics
-                .map(syn::Generics::split_for_impl)
-                .map(|(i, t, w)| (Some(i), Some(t), Some(w)))
-                .unwrap_or((None, None, None));
+            let (impl_generics, impl_ty_generics, impl_where_clause) =
+                bounded_generics.split_for_impl();
             let builder_fields = &self.fields;
             let builder_field_initializers = &self.field_initializers;
             let create_empty = &self.create_empty;
@@ -178,7 +188,6 @@ impl<'a> ToTokens for Builder<'a> {
             let impl_attrs = self.impl_attrs;
 
             let builder_doc_comment = &self.doc_comment;
-            let deprecation_notes = &self.deprecation_notes.as_item();
 
             #[cfg(not(feature = "clippy"))]
             tokens.append_all(quote!(#[allow(clippy::all)]));
@@ -190,7 +199,7 @@ impl<'a> ToTokens for Builder<'a> {
                 #derive_attr
                 #(#struct_attrs)*
                 #builder_doc_comment
-                #builder_vis struct #builder_ident #struct_generics #where_clause {
+                #builder_vis struct #builder_ident #struct_generics #struct_where_clause {
                     #(#builder_fields)*
                 }
             ));
@@ -201,9 +210,8 @@ impl<'a> ToTokens for Builder<'a> {
             tokens.append_all(quote!(
                 #(#impl_attrs)*
                 #[allow(dead_code)]
-                impl #impl_generics #builder_ident #ty_generics #where_clause {
+                impl #impl_generics #builder_ident #impl_ty_generics #impl_where_clause {
                     #(#functions)*
-                    #deprecation_notes
 
                     /// Create an empty builder, with all fields set to `None` or `PhantomData`.
                     fn #create_empty() -> Self {
@@ -216,7 +224,7 @@ impl<'a> ToTokens for Builder<'a> {
 
             if self.impl_default {
                 tokens.append_all(quote!(
-                    impl #impl_generics ::derive_builder::export::core::default::Default for #builder_ident #ty_generics #where_clause {
+                    impl #impl_generics #crate_root::export::core::default::Default for #builder_ident #impl_ty_generics #impl_where_clause {
                         fn default() -> Self {
                             Self::#create_empty()
                         }
@@ -224,9 +232,39 @@ impl<'a> ToTokens for Builder<'a> {
                 ));
             }
 
-            if self.generate_error {
+            if self.no_alloc && self.generate_error && self.generate_validation_error {
+                let err = syn::Error::new_spanned(&self.ident, ALLOC_NOT_ENABLED_ERROR);
+                tokens.append_all(err.to_compile_error());
+            } else if self.generate_error {
                 let builder_error_ident = format_ident!("{}Error", builder_ident);
                 let builder_error_doc = format!("Error type for {}", builder_ident);
+
+                let validation_error = if self.generate_validation_error {
+                    quote!(
+                        /// Custom validation error
+                        ValidationError(#crate_root::export::core::string::String),
+                    )
+                } else {
+                    TokenStream::new()
+                };
+                let validation_from = if self.generate_validation_error {
+                    quote!(
+                        impl #crate_root::export::core::convert::From<#crate_root::export::core::string::String> for #builder_error_ident {
+                            fn from(s: #crate_root::export::core::string::String) -> Self {
+                                Self::ValidationError(s)
+                            }
+                        }
+                    )
+                } else {
+                    TokenStream::new()
+                };
+                let validation_display = if self.generate_validation_error {
+                    quote!(
+                        Self::ValidationError(ref error) => write!(f, "{}", error),
+                    )
+                } else {
+                    TokenStream::new()
+                };
 
                 tokens.append_all(quote!(
                     #[doc=#builder_error_doc]
@@ -235,27 +273,22 @@ impl<'a> ToTokens for Builder<'a> {
                     #builder_vis enum #builder_error_ident {
                         /// Uninitialized field
                         UninitializedField(&'static str),
-                        /// Custom validation error
-                        ValidationError(::derive_builder::export::core::string::String),
+                        #validation_error
                     }
 
-                    impl ::derive_builder::export::core::convert::From<::derive_builder::UninitializedFieldError> for #builder_error_ident {
-                        fn from(s: ::derive_builder::UninitializedFieldError) -> Self {
+                    impl #crate_root::export::core::convert::From<#crate_root::UninitializedFieldError> for #builder_error_ident {
+                        fn from(s: #crate_root::UninitializedFieldError) -> Self {
                             Self::UninitializedField(s.field_name())
                         }
                     }
 
-                    impl ::derive_builder::export::core::convert::From<::derive_builder::export::core::string::String> for #builder_error_ident {
-                        fn from(s: ::derive_builder::export::core::string::String) -> Self {
-                            Self::ValidationError(s)
-                        }
-                    }
+                    #validation_from
 
-                    impl ::derive_builder::export::core::fmt::Display for #builder_error_ident {
-                        fn fmt(&self, f: &mut ::derive_builder::export::core::fmt::Formatter) -> ::derive_builder::export::core::fmt::Result {
+                    impl #crate_root::export::core::fmt::Display for #builder_error_ident {
+                        fn fmt(&self, f: &mut #crate_root::export::core::fmt::Formatter) -> #crate_root::export::core::fmt::Result {
                             match self {
                                 Self::UninitializedField(ref field) => write!(f, "`{}` must be initialized", field),
-                                Self::ValidationError(ref error) => write!(f, "{}", error),
+                                #validation_display
                             }
                         }
                     }
@@ -309,11 +342,13 @@ impl<'a> Builder<'a> {
                 return generics;
             }
 
+            let crate_root = self.crate_root;
+
             let clone_bound = TypeParamBound::Trait(TraitBound {
                 paren_token: None,
                 modifier: TraitBoundModifier::None,
                 lifetimes: None,
-                path: syn::parse_quote!(::derive_builder::export::core::clone::Clone),
+                path: syn::parse_quote!(#crate_root::export::core::clone::Clone),
             });
 
             for typ in generics.type_params_mut() {
@@ -334,6 +369,9 @@ impl<'a> Builder<'a> {
 macro_rules! default_builder {
     () => {
         Builder {
+            // Deliberately don't use the default value here - make sure
+            // that all test cases are passing crate_root through properly.
+            crate_root: &parse_quote!(::db),
             enabled: true,
             ident: syn::Ident::new("FooBuilder", ::proc_macro2::Span::call_site()),
             pattern: Default::default(),
@@ -345,12 +383,13 @@ macro_rules! default_builder {
             generics: None,
             visibility: ::std::borrow::Cow::Owned(parse_quote!(pub)),
             fields: vec![quote!(foo: u32,)],
-            field_initializers: vec![quote!(foo: ::derive_builder::export::core::default::Default::default(), )],
+            field_initializers: vec![quote!(foo: ::db::export::core::default::Default::default(), )],
             functions: vec![quote!(fn bar() -> { unimplemented!() })],
             generate_error: true,
+            generate_validation_error: true,
+            no_alloc: false,
             must_derive_clone: true,
             doc_comment: None,
-            deprecation_notes: DeprecationNotes::default(),
             std: true,
         }
     };
@@ -360,8 +399,44 @@ macro_rules! default_builder {
 mod tests {
     #[allow(unused_imports)]
     use super::*;
-    use proc_macro2::TokenStream;
     use syn::Ident;
+
+    fn add_simple_foo_builder(result: &mut TokenStream) {
+        #[cfg(not(feature = "clippy"))]
+        result.append_all(quote!(#[allow(clippy::all)]));
+
+        result.append_all(quote!(
+            #[derive(Clone)]
+            pub struct FooBuilder {
+                foo: u32,
+            }
+        ));
+
+        #[cfg(not(feature = "clippy"))]
+        result.append_all(quote!(#[allow(clippy::all)]));
+
+        result.append_all(quote!(
+            #[allow(dead_code)]
+            impl FooBuilder {
+                fn bar () -> {
+                    unimplemented!()
+                }
+
+                /// Create an empty builder, with all fields set to `None` or `PhantomData`.
+                fn create_empty() -> Self {
+                    Self {
+                        foo: ::db::export::core::default::Default::default(),
+                    }
+                }
+            }
+
+            impl ::db::export::core::default::Default for FooBuilder {
+                fn default() -> Self {
+                    Self::create_empty()
+                }
+            }
+        ));
+    }
 
     fn add_generated_error(result: &mut TokenStream) {
         result.append_all(quote!(
@@ -372,23 +447,23 @@ mod tests {
                 /// Uninitialized field
                 UninitializedField(&'static str),
                 /// Custom validation error
-                ValidationError(::derive_builder::export::core::string::String),
+                ValidationError(::db::export::core::string::String),
             }
 
-            impl ::derive_builder::export::core::convert::From<::derive_builder::UninitializedFieldError> for FooBuilderError {
-                fn from(s: ::derive_builder::UninitializedFieldError) -> Self {
+            impl ::db::export::core::convert::From<::db::UninitializedFieldError> for FooBuilderError {
+                fn from(s: ::db::UninitializedFieldError) -> Self {
                     Self::UninitializedField(s.field_name())
                 }
             }
 
-            impl ::derive_builder::export::core::convert::From<::derive_builder::export::core::string::String> for FooBuilderError {
-                fn from(s: ::derive_builder::export::core::string::String) -> Self {
+            impl ::db::export::core::convert::From<::db::export::core::string::String> for FooBuilderError {
+                fn from(s: ::db::export::core::string::String) -> Self {
                     Self::ValidationError(s)
                 }
             }
 
-            impl ::derive_builder::export::core::fmt::Display for FooBuilderError {
-                fn fmt(&self, f: &mut ::derive_builder::export::core::fmt::Formatter) -> ::derive_builder::export::core::fmt::Result {
+            impl ::db::export::core::fmt::Display for FooBuilderError {
+                fn fmt(&self, f: &mut ::db::export::core::fmt::Formatter) -> ::db::export::core::fmt::Result {
                     match self {
                         Self::UninitializedField(ref field) => write!(f, "`{}` must be initialized", field),
                         Self::ValidationError(ref error) => write!(f, "{}", error),
@@ -409,40 +484,7 @@ mod tests {
             {
                 let mut result = quote!();
 
-                #[cfg(not(feature = "clippy"))]
-                result.append_all(quote!(#[allow(clippy::all)]));
-
-                result.append_all(quote!(
-                    #[derive(Clone)]
-                    pub struct FooBuilder {
-                        foo: u32,
-                    }
-                ));
-
-                #[cfg(not(feature = "clippy"))]
-                result.append_all(quote!(#[allow(clippy::all)]));
-
-                result.append_all(quote!(
-                    #[allow(dead_code)]
-                    impl FooBuilder {
-                        fn bar () -> {
-                            unimplemented!()
-                        }
-
-                        /// Create an empty builder, with all fields set to `None` or `PhantomData`.
-                        fn create_empty() -> Self {
-                            Self {
-                                foo: ::derive_builder::export::core::default::Default::default(),
-                            }
-                        }
-                    }
-
-                    impl ::derive_builder::export::core::default::Default for FooBuilder {
-                        fn default() -> Self {
-                            Self::create_empty()
-                        }
-                    }
-                ));
+                add_simple_foo_builder(&mut result);
 
                 add_generated_error(&mut result);
 
@@ -485,12 +527,12 @@ mod tests {
                         /// Create an empty builder, with all fields set to `None` or `PhantomData`.
                         fn empty() -> Self {
                             Self {
-                                foo: ::derive_builder::export::core::default::Default::default(),
+                                foo: ::db::export::core::default::Default::default(),
                             }
                         }
                     }
 
-                    impl ::derive_builder::export::core::default::Default for FooBuilder {
+                    impl ::db::export::core::default::Default for FooBuilder {
                         fn default() -> Self {
                             Self::empty()
                         }
@@ -537,7 +579,7 @@ mod tests {
 
                 result.append_all(quote!(
                     #[allow(dead_code)]
-                    impl<'a, T: Debug + ::derive_builder::export::core::clone::Clone> FooBuilder<'a, T> where T: PartialEq {
+                    impl<'a, T: Debug + ::db::export::core::clone::Clone> FooBuilder<'a, T> where T: PartialEq {
                         fn bar() -> {
                             unimplemented!()
                         }
@@ -545,12 +587,12 @@ mod tests {
                         /// Create an empty builder, with all fields set to `None` or `PhantomData`.
                         fn create_empty() -> Self {
                             Self {
-                                foo: ::derive_builder::export::core::default::Default::default(),
+                                foo: ::db::export::core::default::Default::default(),
                             }
                         }
                     }
 
-                    impl<'a, T: Debug + ::derive_builder::export::core::clone::Clone> ::derive_builder::export::core::default::Default for FooBuilder<'a, T> where T: PartialEq {
+                    impl<'a, T: Debug + ::db::export::core::clone::Clone> ::db::export::core::default::Default for FooBuilder<'a, T> where T: PartialEq {
                         fn default() -> Self {
                             Self::create_empty()
                         }
@@ -597,7 +639,7 @@ mod tests {
 
                 result.append_all(quote!(
                     #[allow(dead_code)]
-                    impl<'a, T: 'a + Default + ::derive_builder::export::core::clone::Clone> FooBuilder<'a, T>
+                    impl<'a, T: 'a + Default + ::db::export::core::clone::Clone> FooBuilder<'a, T>
                     where
                         T: PartialEq
                     {
@@ -608,12 +650,73 @@ mod tests {
                         /// Create an empty builder, with all fields set to `None` or `PhantomData`.
                         fn create_empty() -> Self {
                             Self {
-                                foo: ::derive_builder::export::core::default::Default::default(),
+                                foo: ::db::export::core::default::Default::default(),
                             }
                         }
                     }
 
-                    impl<'a, T: 'a + Default + ::derive_builder::export::core::clone::Clone> ::derive_builder::export::core::default::Default for FooBuilder<'a, T> where T: PartialEq {
+                    impl<'a, T: 'a + Default + ::db::export::core::clone::Clone> ::db::export::core::default::Default for FooBuilder<'a, T> where T: PartialEq {
+                        fn default() -> Self {
+                            Self::create_empty()
+                        }
+                    }
+                ));
+
+                add_generated_error(&mut result);
+
+                result
+            }.to_string()
+        );
+    }
+
+    // This test depends on the exact formatting of the `stringify`'d code,
+    // so we don't automatically format the test
+    #[rustfmt::skip]
+    #[test]
+    fn generic_with_default_type() {
+        let ast: syn::DeriveInput = parse_quote! {
+            struct Lorem<T = ()> { }
+        };
+
+        let generics = ast.generics;
+        let mut builder = default_builder!();
+        builder.generics = Some(&generics);
+
+        assert_eq!(
+            quote!(#builder).to_string(),
+            {
+                let mut result = quote!();
+
+                #[cfg(not(feature = "clippy"))]
+                result.append_all(quote!(#[allow(clippy::all)]));
+
+                result.append_all(quote!(
+                    #[derive(Clone)]
+                    pub struct FooBuilder<T = ()> {
+                        foo: u32,
+                    }
+                ));
+
+                #[cfg(not(feature = "clippy"))]
+                result.append_all(quote!(#[allow(clippy::all)]));
+
+                result.append_all(quote!(
+                    #[allow(dead_code)]
+                    impl<T: ::db::export::core::clone::Clone> FooBuilder<T>
+                    {
+                        fn bar() -> {
+                            unimplemented!()
+                        }
+
+                        /// Create an empty builder, with all fields set to `None` or `PhantomData`.
+                        fn create_empty() -> Self {
+                            Self {
+                                foo: ::db::export::core::default::Default::default(),
+                            }
+                        }
+                    }
+
+                    impl<T: ::db::export::core::clone::Clone> ::db::export::core::default::Default for FooBuilder<T> {
                         fn default() -> Self {
                             Self::create_empty()
                         }
@@ -668,12 +771,12 @@ mod tests {
                         /// Create an empty builder, with all fields set to `None` or `PhantomData`.
                         fn create_empty() -> Self {
                             Self {
-                                foo: ::derive_builder::export::core::default::Default::default(),
+                                foo: ::db::export::core::default::Default::default(),
                             }
                         }
                     }
 
-                    impl<'a, T: Debug> ::derive_builder::export::core::default::Default for FooBuilder<'a, T>
+                    impl<'a, T: Debug> ::db::export::core::default::Default for FooBuilder<'a, T>
                     where T: PartialEq {
                         fn default() -> Self {
                             Self::create_empty()
@@ -730,12 +833,12 @@ mod tests {
                         /// Create an empty builder, with all fields set to `None` or `PhantomData`.
                         fn create_empty() -> Self {
                             Self {
-                                foo: ::derive_builder::export::core::default::Default::default(),
+                                foo: ::db::export::core::default::Default::default(),
                             }
                         }
                     }
 
-                    impl ::derive_builder::export::core::default::Default for FooBuilder {
+                    impl ::db::export::core::default::Default for FooBuilder {
                         fn default() -> Self {
                             Self::create_empty()
                         }
@@ -743,6 +846,70 @@ mod tests {
                 ));
 
                 add_generated_error(&mut result);
+
+                result
+            }
+            .to_string()
+        );
+    }
+
+    #[test]
+    fn no_validation_error() {
+        let mut builder = default_builder!();
+        builder.generate_validation_error = false;
+
+        assert_eq!(
+            quote!(#builder).to_string(),
+            {
+                let mut result = quote!();
+
+                add_simple_foo_builder(&mut result);
+
+                result.append_all(quote!(
+                    #[doc="Error type for FooBuilder"]
+                    #[derive(Debug)]
+                    #[non_exhaustive]
+                    pub enum FooBuilderError {
+                        /// Uninitialized field
+                        UninitializedField(&'static str),
+                    }
+
+                    impl ::db::export::core::convert::From<::db::UninitializedFieldError> for FooBuilderError {
+                        fn from(s: ::db::UninitializedFieldError) -> Self {
+                            Self::UninitializedField(s.field_name())
+                        }
+                    }
+
+                    impl ::db::export::core::fmt::Display for FooBuilderError {
+                        fn fmt(&self, f: &mut ::db::export::core::fmt::Formatter) -> ::db::export::core::fmt::Result {
+                            match self {
+                                Self::UninitializedField(ref field) => write!(f, "`{}` must be initialized", field),
+                            }
+                        }
+                    }
+
+                    impl std::error::Error for FooBuilderError {}
+                ));
+
+                result
+            }
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn no_alloc_bug_using_string() {
+        let mut builder = default_builder!();
+        builder.no_alloc = true;
+
+        assert_eq!(
+            quote!(#builder).to_string(),
+            {
+                let mut result = quote!();
+
+                add_simple_foo_builder(&mut result);
+
+                result.append_all(quote!(::core::compile_error! { #ALLOC_NOT_ENABLED_ERROR }));
 
                 result
             }

@@ -1,78 +1,82 @@
-#![cfg(test)]
-
+use chumsky::Parser;
 use insta::{assert_debug_snapshot, assert_yaml_snapshot};
-use itertools::Itertools;
-use prqlc_ast::error::*;
-use prqlc_ast::expr::*;
-use prqlc_ast::stmt::*;
+use std::fmt::Debug;
 
-/// Helper that does not track source_ids
-fn parse_single(source: &str) -> Result<Vec<Stmt>, Vec<Error>> {
-    crate::parse_source(source, 0)
+use crate::parser::pr::Stmt;
+use crate::parser::prepare_stream;
+use crate::parser::stmt;
+use crate::{error::Error, lexer::lr::TokenKind, parser::perror::PError};
+
+/// Parse source code based on the supplied parser.
+///
+/// Use this to test any parser!
+pub(crate) fn parse_with_parser<O: Debug>(
+    source: &str,
+    parser: impl Parser<TokenKind, O, Error = PError>,
+) -> Result<O, Vec<Error>> {
+    let tokens = crate::lexer::lex_source(source)?;
+    let stream = prepare_stream(tokens.0, 0);
+
+    // TODO: possibly should check we consume all the input? Either with an
+    // end() parser or some other way (but if we add an end parser then this
+    // func doesn't work with `source`, which has its own end parser...)
+    let (ast, parse_errors) = parser.parse_recovery_verbose(stream);
+
+    if !parse_errors.is_empty() {
+        log::info!("ast: {ast:?}");
+        return Err(parse_errors.into_iter().map(|e| e.into()).collect());
+    }
+    Ok(ast.unwrap())
 }
 
-fn parse_expr(source: &str) -> Result<Expr, Vec<Error>> {
-    let source = format!("let result = ({source}\n)");
-
-    let stmts = parse_single(&source)?;
-    let stmt = stmts.into_iter().exactly_one().unwrap();
-    Ok(*stmt.kind.into_var_def().unwrap().value.unwrap())
+/// Parse into statements
+pub(crate) fn parse_source(source: &str) -> Result<Vec<Stmt>, Vec<Error>> {
+    parse_with_parser(source, stmt::source())
 }
 
 #[test]
 fn test_error_unicode_string() {
     // Test various unicode strings successfully parse errors. We were
     // getting loops in the lexer before.
-    parse_single("s’ ").unwrap_err();
-    parse_single("s’").unwrap_err();
-    parse_single(" s’").unwrap_err();
-    parse_single(" ’ s").unwrap_err();
-    parse_single("’s").unwrap_err();
-    parse_single("👍 s’").unwrap_err();
+    parse_source("s’ ").unwrap_err();
+    parse_source("s’").unwrap_err();
+    parse_source(" s’").unwrap_err();
+    parse_source(" ’ s").unwrap_err();
+    parse_source("’s").unwrap_err();
+    parse_source("👍 s’").unwrap_err();
 
     let source = "Mississippi has four S’s and four I’s.";
-    assert_debug_snapshot!(parse_single(source).unwrap_err(), @r###"
-        [
-            Error {
-                kind: Error,
-                span: Some(
-                    0:22-23,
-                ),
-                reason: Unexpected {
-                    found: "’",
-                },
-                hints: [],
-                code: None,
+    assert_debug_snapshot!(parse_source(source).unwrap_err(), @r#"
+    [
+        Error {
+            kind: Error,
+            span: Some(
+                0:22-23,
+            ),
+            reason: Unexpected {
+                found: "’",
             },
-            Error {
-                kind: Error,
-                span: Some(
-                    0:35-36,
-                ),
-                reason: Unexpected {
-                    found: "’",
-                },
-                hints: [],
-                code: None,
+            hints: [],
+            code: None,
+        },
+        Error {
+            kind: Error,
+            span: Some(
+                0:35-36,
+            ),
+            reason: Unexpected {
+                found: "’",
             },
-            Error {
-                kind: Error,
-                span: Some(
-                    0:37-38,
-                ),
-                reason: Simple(
-                    "Expected * or an identifier, but didn't find anything before the end.",
-                ),
-                hints: [],
-                code: None,
-            },
-        ]
-        "###);
+            hints: [],
+            code: None,
+        },
+    ]
+    "#);
 }
 
 #[test]
 fn test_error_unexpected() {
-    assert_debug_snapshot!(parse_single("Answer: T-H-A-T!").unwrap_err(), @r###"
+    assert_debug_snapshot!(parse_source("Answer: T-H-A-T!").unwrap_err(), @r#"
     [
         Error {
             kind: Error,
@@ -80,18 +84,18 @@ fn test_error_unexpected() {
                 0:6-7,
             ),
             reason: Simple(
-                "unexpected : while parsing function call",
+                "unexpected :",
             ),
             hints: [],
             code: None,
         },
     ]
-    "###);
+    "#);
 }
 
 #[test]
 fn test_pipeline_parse_tree() {
-    assert_yaml_snapshot!(parse_single(
+    assert_yaml_snapshot!(parse_source(
         r#"
 from employees
 filter country == "USA"                      # Each line transforms the previous result.
@@ -121,931 +125,248 @@ take 20
 
 #[test]
 fn test_take() {
-    parse_single("take 10").unwrap();
+    parse_source("take 10").unwrap();
 
-    assert_yaml_snapshot!(parse_single(r#"take 10"#).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(r#"take 10"#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - take
+              Ident: take
+              span: "0:0-4"
             args:
               - Literal:
                   Integer: 10
+                span: "0:5-7"
+          span: "0:0-7"
       span: "0:0-7"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single(r#"take ..10"#).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(r#"take ..10"#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - take
+              Ident: take
+              span: "0:0-4"
             args:
               - Range:
                   start: ~
                   end:
                     Literal:
                       Integer: 10
+                    span: "0:7-9"
+                span: "0:4-9"
+          span: "0:0-9"
       span: "0:0-9"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single(r#"take 1..10"#).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(r#"take 1..10"#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - take
+              Ident: take
+              span: "0:0-4"
             args:
               - Range:
                   start:
                     Literal:
                       Integer: 1
+                    span: "0:5-6"
                   end:
                     Literal:
                       Integer: 10
+                    span: "0:8-10"
+                span: "0:5-10"
+          span: "0:0-10"
       span: "0:0-10"
-    "###);
-}
-
-#[test]
-fn test_ranges() {
-    assert_yaml_snapshot!(parse_expr(r#"3..5"#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Literal:
-              Integer: 3
-          end:
-            Literal:
-              Integer: 5
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"-2..-5"#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Unary:
-              op: Neg
-              expr:
-                Literal:
-                  Integer: 2
-          end:
-            Unary:
-              op: Neg
-              expr:
-                Literal:
-                  Integer: 5
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"(-2..(-5 | abs))"#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Unary:
-              op: Neg
-              expr:
-                Literal:
-                  Integer: 2
-          end:
-            Pipeline:
-              exprs:
-                - Unary:
-                    op: Neg
-                    expr:
-                      Literal:
-                        Integer: 5
-                - Ident:
-                    - abs
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"(2 + 5)..'a'"#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Binary:
-              left:
-                Literal:
-                  Integer: 2
-              op: Add
-              right:
-                Literal:
-                  Integer: 5
-          end:
-            Literal:
-              String: a
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"1.6..rel.col"#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Literal:
-              Float: 1.6
-          end:
-            Ident:
-              - rel
-              - col
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"6.."#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Literal:
-              Integer: 6
-          end: ~
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"..7"#).unwrap(), @r###"
-        ---
-        Range:
-          start: ~
-          end:
-            Literal:
-              Integer: 7
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#".."#).unwrap(), @r###"
-        ---
-        Range:
-          start: ~
-          end: ~
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"@2020-01-01..@2021-01-01"#).unwrap(), @r###"
-        ---
-        Range:
-          start:
-            Literal:
-              Date: 2020-01-01
-          end:
-            Literal:
-              Date: 2021-01-01
-        "###);
-}
-
-#[test]
-fn test_basic_exprs() {
-    assert_yaml_snapshot!(parse_expr(r#"country == "USA""#).unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Ident:
-              - country
-          op: Eq
-          right:
-            Literal:
-              String: USA
-        "###);
-    assert_yaml_snapshot!(parse_expr("select {a, b, c}").unwrap(), @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - select
-          args:
-            - Tuple:
-                - Ident:
-                    - a
-                - Ident:
-                    - b
-                - Ident:
-                    - c
-        "###);
-    assert_yaml_snapshot!(parse_expr(
-            "group {title, country} (
-                aggregate {sum salary}
-            )"
-        ).unwrap(), @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - group
-          args:
-            - Tuple:
-                - Ident:
-                    - title
-                - Ident:
-                    - country
-            - FuncCall:
-                name:
-                  Ident:
-                    - aggregate
-                args:
-                  - Tuple:
-                      - FuncCall:
-                          name:
-                            Ident:
-                              - sum
-                          args:
-                            - Ident:
-                                - salary
-        "###);
-    assert_yaml_snapshot!(parse_expr(
-            r#"    filter country == "USA""#
-        ).unwrap(), @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - filter
-          args:
-            - Binary:
-                left:
-                  Ident:
-                    - country
-                op: Eq
-                right:
-                  Literal:
-                    String: USA
-        "###);
-    assert_yaml_snapshot!(parse_expr("{a, b, c,}").unwrap(), @r###"
-        ---
-        Tuple:
-          - Ident:
-              - a
-          - Ident:
-              - b
-          - Ident:
-              - c
-        "###);
-    assert_yaml_snapshot!(parse_expr(
-            r#"{
-  gross_salary = salary + payroll_tax,
-  gross_cost   = gross_salary + benefits_cost
-}"#
-        ).unwrap(), @r###"
-        ---
-        Tuple:
-          - Binary:
-              left:
-                Ident:
-                  - salary
-              op: Add
-              right:
-                Ident:
-                  - payroll_tax
-            alias: gross_salary
-          - Binary:
-              left:
-                Ident:
-                  - gross_salary
-              op: Add
-              right:
-                Ident:
-                  - benefits_cost
-            alias: gross_cost
-        "###);
-    // Currently not putting comments in our parse tree, so this is blank.
-    assert_yaml_snapshot!(parse_single(
-            r#"# this is a comment
-        select a"#
-        ).unwrap(), @r###"
-    ---
-    - VarDef:
-        kind: Main
-        name: main
-        value:
-          FuncCall:
-            name:
-              Ident:
-                - select
-            args:
-              - Ident:
-                  - a
-      span: "0:28-36"
-    "###);
-    assert_yaml_snapshot!(parse_expr(
-            "join side:left country (id==employee_id)"
-        ).unwrap(), @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - join
-          args:
-            - Ident:
-                - country
-            - Binary:
-                left:
-                  Ident:
-                    - id
-                op: Eq
-                right:
-                  Ident:
-                    - employee_id
-          named_args:
-            side:
-              Ident:
-                - left
-        "###);
-    assert_yaml_snapshot!(parse_expr("1  + 2").unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Literal:
-              Integer: 1
-          op: Add
-          right:
-            Literal:
-              Integer: 2
-        "###)
-}
-
-#[test]
-fn test_string() {
-    let double_quoted_ast = parse_expr(r#"" U S A ""#).unwrap();
-    assert_yaml_snapshot!(double_quoted_ast, @r###"
-        ---
-        Literal:
-          String: " U S A "
-        "###);
-
-    let single_quoted_ast = parse_expr(r#"' U S A '"#).unwrap();
-    assert_eq!(single_quoted_ast, double_quoted_ast);
-
-    // Single quotes within double quotes should produce a string containing
-    // the single quotes (and vice versa).
-    assert_yaml_snapshot!(parse_expr(r#""' U S A '""#).unwrap(), @r###"
-        ---
-        Literal:
-          String: "' U S A '"
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"'" U S A "'"#).unwrap(), @r###"
-        ---
-        Literal:
-          String: "\" U S A \""
-        "###);
-
-    parse_expr(r#"" U S A"#).unwrap_err();
-    parse_expr(r#"" U S A '"#).unwrap_err();
-
-    assert_yaml_snapshot!(parse_expr(r#"" \nU S A ""#).unwrap(), @r###"
-        ---
-        Literal:
-          String: " \nU S A "
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"r" \nU S A ""#).unwrap(), @r###"
-        ---
-        Literal:
-          String: " \\nU S A "
-        "###);
-
-    let multi_double = parse_expr(
-        r#""""
-''
-Canada
-"
-
-""""#,
-    )
-    .unwrap();
-    assert_yaml_snapshot!(multi_double, @r###"
-        ---
-        Literal:
-          String: "\n''\nCanada\n\"\n\n"
-        "###);
-
-    let multi_single = parse_expr(
-        r#"'''
-Canada
-"
-"""
-
-'''"#,
-    )
-    .unwrap();
-    assert_yaml_snapshot!(multi_single, @r###"
-        ---
-        Literal:
-          String: "\nCanada\n\"\n\"\"\"\n\n"
-        "###);
-
-    assert_yaml_snapshot!(
-          parse_expr("''").unwrap(),
-          @r###"
-        ---
-        Literal:
-          String: ""
-        "###);
-}
-
-#[test]
-fn test_s_string() {
-    assert_yaml_snapshot!(parse_expr(r#"s"SUM({col})""#).unwrap(), @r###"
-        ---
-        SString:
-          - String: SUM(
-          - Expr:
-              expr:
-                Ident:
-                  - col
-              format: ~
-          - String: )
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"s"SUM({rel.`Col name`})""#).unwrap(), @r###"
-        ---
-        SString:
-          - String: SUM(
-          - Expr:
-              expr:
-                Ident:
-                  - rel
-                  - Col name
-              format: ~
-          - String: )
-        "###)
-}
-
-#[test]
-fn test_s_string_braces() {
-    assert_yaml_snapshot!(parse_expr(r#"s"{{?crystal_var}}""#).unwrap(), @r###"
-        ---
-        SString:
-          - String: "{?crystal_var}"
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"s"foo{{bar""#).unwrap(), @r###"
-        ---
-        SString:
-          - String: "foo{bar"
-        "###);
-    parse_expr(r#"s"foo{{bar}""#).unwrap_err();
-}
-
-#[test]
-fn test_tuple() {
-    assert_yaml_snapshot!(parse_expr(r#"{1 + 1, 2}"#).unwrap(), @r###"
-        ---
-        Tuple:
-          - Binary:
-              left:
-                Literal:
-                  Integer: 1
-              op: Add
-              right:
-                Literal:
-                  Integer: 1
-          - Literal:
-              Integer: 2
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"{1 + (f 1), 2}"#).unwrap(), @r###"
-        ---
-        Tuple:
-          - Binary:
-              left:
-                Literal:
-                  Integer: 1
-              op: Add
-              right:
-                FuncCall:
-                  name:
-                    Ident:
-                      - f
-                  args:
-                    - Literal:
-                        Integer: 1
-          - Literal:
-              Integer: 2
-        "###);
-    // Line breaks
-    assert_yaml_snapshot!(parse_expr(
-            r#"{1,
-
-                2}"#
-        ).unwrap(), @r###"
-        ---
-        Tuple:
-          - Literal:
-              Integer: 1
-          - Literal:
-              Integer: 2
-        "###);
-    // Function call in a tuple
-    let ab = parse_expr(r#"{a b}"#).unwrap();
-    let a_comma_b = parse_expr(r#"{a, b}"#).unwrap();
-    assert_yaml_snapshot!(ab, @r###"
-        ---
-        Tuple:
-          - FuncCall:
-              name:
-                Ident:
-                  - a
-              args:
-                - Ident:
-                    - b
-        "###);
-    assert_yaml_snapshot!(a_comma_b, @r###"
-        ---
-        Tuple:
-          - Ident:
-              - a
-          - Ident:
-              - b
-        "###);
-    assert_ne!(ab, a_comma_b);
-
-    assert_yaml_snapshot!(parse_expr(r#"{amount, +amount, -amount}"#).unwrap(), @r###"
-        ---
-        Tuple:
-          - Ident:
-              - amount
-          - Unary:
-              op: Add
-              expr:
-                Ident:
-                  - amount
-          - Unary:
-              op: Neg
-              expr:
-                Ident:
-                  - amount
-        "###);
-    // Operators in tuple items
-    assert_yaml_snapshot!(parse_expr(r#"{amount, +amount, -amount}"#).unwrap(), @r###"
-        ---
-        Tuple:
-          - Ident:
-              - amount
-          - Unary:
-              op: Add
-              expr:
-                Ident:
-                  - amount
-          - Unary:
-              op: Neg
-              expr:
-                Ident:
-                  - amount
-        "###);
-}
-
-#[test]
-fn test_number() {
-    assert_yaml_snapshot!(parse_expr(r#"23"#).unwrap(), @r###"
-        ---
-        Literal:
-          Integer: 23
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"2_3_4.5_6"#).unwrap(), @r###"
-        ---
-        Literal:
-          Float: 234.56
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"23.6"#).unwrap(), @r###"
-        ---
-        Literal:
-          Float: 23.6
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"23.0"#).unwrap(), @r###"
-        ---
-        Literal:
-          Float: 23
-        "###);
-    assert_yaml_snapshot!(parse_expr(r#"2 + 2"#).unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Literal:
-              Integer: 2
-          op: Add
-          right:
-            Literal:
-              Integer: 2
-        "###);
-
-    // Underscores at the beginning are parsed as ident
-    assert!(parse_expr("_2").unwrap().kind.into_ident().is_ok());
-    assert!(parse_expr("_").unwrap().kind.into_ident().is_ok());
-
-    // We don't allow trailing periods
-    assert!(parse_expr(r#"add 1. 2"#).is_err());
-
-    assert!(parse_expr("_2.3").is_err());
-
-    assert_yaml_snapshot!(parse_expr(r#"2e3"#).unwrap(), @r###"
-        ---
-        Literal:
-          Float: 2000
-        "###);
-
-    // expr_of_string("2_").unwrap_err(); // TODO
-    // expr_of_string("2.3_").unwrap_err(); // TODO
+    "#);
 }
 
 #[test]
 fn test_filter() {
     assert_yaml_snapshot!(
-            parse_single(r#"filter country == "USA""#).unwrap(), @r###"
-    ---
+            parse_source(r#"filter country == "USA""#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - filter
+              Ident: filter
+              span: "0:0-6"
             args:
               - Binary:
                   left:
-                    Ident:
-                      - country
+                    Ident: country
+                    span: "0:7-14"
                   op: Eq
                   right:
                     Literal:
                       String: USA
+                    span: "0:18-23"
+                span: "0:7-23"
+          span: "0:0-23"
       span: "0:0-23"
-    "###);
+    "#);
 
     assert_yaml_snapshot!(
-        parse_single(r#"filter (text.upper country) == "USA""#).unwrap(), @r###"
-    ---
+        parse_source(r#"filter (text.upper country) == "USA""#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - filter
+              Ident: filter
+              span: "0:0-6"
             args:
               - Binary:
                   left:
                     FuncCall:
                       name:
-                        Ident:
-                          - text
-                          - upper
+                        Indirection:
+                          base:
+                            Ident: text
+                            span: "0:8-12"
+                          field:
+                            Name: upper
+                        span: "0:12-18"
                       args:
-                        - Ident:
-                            - country
+                        - Ident: country
+                          span: "0:19-26"
+                    span: "0:8-26"
                   op: Eq
                   right:
                     Literal:
                       String: USA
+                    span: "0:31-36"
+                span: "0:7-36"
+          span: "0:0-36"
       span: "0:0-36"
-    "###
+    "#
     );
 }
 
 #[test]
 fn test_aggregate() {
-    let aggregate = parse_single(
+    let aggregate = parse_source(
         r"group {title} (
                 aggregate {sum salary, count}
               )",
     )
     .unwrap();
     assert_yaml_snapshot!(
-            aggregate, @r###"
-    ---
+            aggregate, @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - group
+              Ident: group
+              span: "0:0-5"
             args:
               - Tuple:
-                  - Ident:
-                      - title
+                  - Ident: title
+                    span: "0:7-12"
+                span: "0:6-13"
               - FuncCall:
                   name:
-                    Ident:
-                      - aggregate
+                    Ident: aggregate
+                    span: "0:32-41"
                   args:
                     - Tuple:
                         - FuncCall:
                             name:
-                              Ident:
-                                - sum
+                              Ident: sum
+                              span: "0:43-46"
                             args:
-                              - Ident:
-                                  - salary
-                        - Ident:
-                            - count
+                              - Ident: salary
+                                span: "0:47-53"
+                          span: "0:43-53"
+                        - Ident: count
+                          span: "0:55-60"
+                      span: "0:42-61"
+                span: "0:32-61"
+          span: "0:0-77"
       span: "0:0-77"
-    "###);
-    let aggregate = parse_single(
+    "#);
+    let aggregate = parse_source(
         r"group {title} (
                 aggregate {sum salary}
               )",
     )
     .unwrap();
     assert_yaml_snapshot!(
-            aggregate, @r###"
-    ---
+            aggregate, @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - group
+              Ident: group
+              span: "0:0-5"
             args:
               - Tuple:
-                  - Ident:
-                      - title
+                  - Ident: title
+                    span: "0:7-12"
+                span: "0:6-13"
               - FuncCall:
                   name:
-                    Ident:
-                      - aggregate
+                    Ident: aggregate
+                    span: "0:32-41"
                   args:
                     - Tuple:
                         - FuncCall:
                             name:
-                              Ident:
-                                - sum
+                              Ident: sum
+                              span: "0:43-46"
                             args:
-                              - Ident:
-                                  - salary
+                              - Ident: salary
+                                span: "0:47-53"
+                          span: "0:43-53"
+                      span: "0:42-54"
+                span: "0:32-54"
+          span: "0:0-70"
       span: "0:0-70"
-    "###);
+    "#);
 }
 
 #[test]
-fn test_derive() {
-    assert_yaml_snapshot!(
-            parse_expr(r#"derive {x = 5, y = (-x)}"#).unwrap()
-        , @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - derive
-          args:
-            - Tuple:
-                - Literal:
-                    Integer: 5
-                  alias: x
-                - Unary:
-                    op: Neg
-                    expr:
-                      Ident:
-                        - x
-                  alias: y
-        "###);
-}
-
-#[test]
-fn test_select() {
-    assert_yaml_snapshot!(
-            parse_expr(r#"select x"#).unwrap()
-        , @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - select
-          args:
-            - Ident:
-                - x
-        "###);
-
-    assert_yaml_snapshot!(
-            parse_expr(r#"select !{x}"#).unwrap()
-        , @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - select
-          args:
-            - Unary:
-                op: Not
-                expr:
-                  Tuple:
-                    - Ident:
-                        - x
-        "###);
-
-    assert_yaml_snapshot!(
-            parse_expr(r#"select {x, y}"#).unwrap()
-        , @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - select
-          args:
-            - Tuple:
-                - Ident:
-                    - x
-                - Ident:
-                    - y
-        "###);
-}
-
-#[test]
-fn test_expr() {
-    assert_yaml_snapshot!(
-            parse_expr(r#"country == "USA""#).unwrap()
-        , @r###"
-        ---
-        Binary:
-          left:
-            Ident:
-              - country
-          op: Eq
-          right:
-            Literal:
-              String: USA
-        "###);
-    assert_yaml_snapshot!(parse_expr(
-                r#"{
-  gross_salary = salary + payroll_tax,
-  gross_cost   = gross_salary + benefits_cost,
-}"#).unwrap(), @r###"
-        ---
-        Tuple:
-          - Binary:
-              left:
-                Ident:
-                  - salary
-              op: Add
-              right:
-                Ident:
-                  - payroll_tax
-            alias: gross_salary
-          - Binary:
-              left:
-                Ident:
-                  - gross_salary
-              op: Add
-              right:
-                Ident:
-                  - benefits_cost
-            alias: gross_cost
-        "###);
-    assert_yaml_snapshot!(
-            parse_expr(
-                "(salary + payroll_tax) * (1 + tax_rate)"
-            ).unwrap(),
-            @r###"
-        ---
-        Binary:
-          left:
-            Binary:
-              left:
-                Ident:
-                  - salary
-              op: Add
-              right:
-                Ident:
-                  - payroll_tax
-          op: Mul
-          right:
-            Binary:
-              left:
-                Literal:
-                  Integer: 1
-              op: Add
-              right:
-                Ident:
-                  - tax_rate
-        "###);
-}
-
-#[test]
-fn test_regex() {
-    assert_yaml_snapshot!(
-            parse_expr(
-                "'oba' ~= 'foobar'"
-            ).unwrap(),
-            @r###"
-        ---
-        Binary:
-          left:
-            Literal:
-              String: oba
-          op: RegexSearch
-          right:
-            Literal:
-              String: foobar
-        "###);
+fn test_basic_exprs() {
+    // Currently not putting comments in our parse tree, so this is blank.
+    assert_yaml_snapshot!(parse_source(
+            r#"# this is a comment
+        select a"#
+        ).unwrap(), @r#"
+    - VarDef:
+        kind: Main
+        name: main
+        value:
+          FuncCall:
+            name:
+              Ident: select
+              span: "0:28-34"
+            args:
+              - Ident: a
+                span: "0:35-36"
+          span: "0:28-36"
+      span: "0:0-36"
+    "#);
 }
 
 #[test]
 fn test_function() {
-    assert_yaml_snapshot!(parse_single("let plus_one = x ->  x + 1\n").unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source("let plus_one = x ->  x + 1\n").unwrap(), @r#"
     - VarDef:
         kind: Let
         name: plus_one
@@ -1055,22 +376,24 @@ fn test_function() {
             body:
               Binary:
                 left:
-                  Ident:
-                    - x
+                  Ident: x
+                  span: "0:21-22"
                 op: Add
                 right:
                   Literal:
                     Integer: 1
+                  span: "0:25-26"
+              span: "0:21-26"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:15-26"
       span: "0:0-26"
-    "###);
-    assert_yaml_snapshot!(parse_single("let identity = x ->  x\n").unwrap()
-        , @r###"
-    ---
+    "#);
+    assert_yaml_snapshot!(parse_source("let identity = x ->  x\n").unwrap()
+        , @r#"
     - VarDef:
         kind: Let
         name: identity
@@ -1078,18 +401,18 @@ fn test_function() {
           Func:
             return_ty: ~
             body:
-              Ident:
-                - x
+              Ident: x
+              span: "0:21-22"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:15-22"
       span: "0:0-22"
-    "###);
-    assert_yaml_snapshot!(parse_single("let plus_one = x ->  (x + 1)\n").unwrap()
-        , @r###"
-    ---
+    "#);
+    assert_yaml_snapshot!(parse_source("let plus_one = x ->  (x + 1)\n").unwrap()
+        , @r#"
     - VarDef:
         kind: Let
         name: plus_one
@@ -1099,22 +422,24 @@ fn test_function() {
             body:
               Binary:
                 left:
-                  Ident:
-                    - x
+                  Ident: x
+                  span: "0:22-23"
                 op: Add
                 right:
                   Literal:
                     Integer: 1
+                  span: "0:26-27"
+              span: "0:21-28"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:15-28"
       span: "0:0-28"
-    "###);
-    assert_yaml_snapshot!(parse_single("let plus_one = x ->  x + 1\n").unwrap()
-        , @r###"
-    ---
+    "#);
+    assert_yaml_snapshot!(parse_source("let plus_one = x ->  x + 1\n").unwrap()
+        , @r#"
     - VarDef:
         kind: Let
         name: plus_one
@@ -1124,23 +449,25 @@ fn test_function() {
             body:
               Binary:
                 left:
-                  Ident:
-                    - x
+                  Ident: x
+                  span: "0:21-22"
                 op: Add
                 right:
                   Literal:
                     Integer: 1
+                  span: "0:25-26"
+              span: "0:21-26"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:15-26"
       span: "0:0-26"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single("let foo = x -> some_func (foo bar + 1) (plax) - baz\n").unwrap()
-        , @r###"
-    ---
+    assert_yaml_snapshot!(parse_source("let foo = x -> some_func (foo bar + 1) (plax) - baz\n").unwrap()
+        , @r#"
     - VarDef:
         kind: Let
         name: foo
@@ -1150,40 +477,45 @@ fn test_function() {
             body:
               FuncCall:
                 name:
-                  Ident:
-                    - some_func
+                  Ident: some_func
+                  span: "0:15-24"
                 args:
                   - FuncCall:
                       name:
-                        Ident:
-                          - foo
+                        Ident: foo
+                        span: "0:26-29"
                       args:
                         - Binary:
                             left:
-                              Ident:
-                                - bar
+                              Ident: bar
+                              span: "0:30-33"
                             op: Add
                             right:
                               Literal:
                                 Integer: 1
+                              span: "0:36-37"
+                          span: "0:30-37"
+                    span: "0:26-37"
                   - Binary:
                       left:
-                        Ident:
-                          - plax
+                        Ident: plax
+                        span: "0:40-44"
                       op: Sub
                       right:
-                        Ident:
-                          - baz
+                        Ident: baz
+                        span: "0:48-51"
+                    span: "0:39-51"
+              span: "0:15-51"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:10-51"
       span: "0:0-51"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single("func return_constant ->  42\n").unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source("func return_constant ->  42\n").unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -1193,17 +525,18 @@ fn test_function() {
             body:
               Literal:
                 Integer: 42
+              span: "0:25-27"
             params:
               - name: return_constant
                 default_value: ~
             named_params: []
             generic_type_params: []
-      span: "0:0-28"
-    "###);
+          span: "0:0-27"
+      span: "0:0-27"
+    "#);
 
-    assert_yaml_snapshot!(parse_single(r#"let count = X -> s"SUM({X})"
-        "#).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(r#"let count = X -> s"SUM({X})"
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: count
@@ -1215,19 +548,21 @@ fn test_function() {
                 - String: SUM(
                 - Expr:
                     expr:
-                      Ident:
-                        - X
+                      Ident: X
+                      span: "0:24-25"
                     format: ~
                 - String: )
+              span: "0:17-28"
             params:
               - name: X
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:12-28"
       span: "0:0-28"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single(
+    assert_yaml_snapshot!(parse_source(
             r#"
             let lag_day = x ->  (
                 window x
@@ -1237,8 +572,7 @@ fn test_function() {
             )
         "#
         )
-        .unwrap(), @r###"
-    ---
+        .unwrap(), @r#"
     - VarDef:
         kind: Let
         name: lag_day
@@ -1250,42 +584,48 @@ fn test_function() {
                 exprs:
                   - FuncCall:
                       name:
-                        Ident:
-                          - window
+                        Ident: window
+                        span: "0:51-57"
                       args:
-                        - Ident:
-                            - x
+                        - Ident: x
+                          span: "0:58-59"
+                    span: "0:51-59"
                   - FuncCall:
                       name:
-                        Ident:
-                          - by
+                        Ident: by
+                        span: "0:76-78"
                       args:
-                        - Ident:
-                            - sec_id
+                        - Ident: sec_id
+                          span: "0:79-85"
+                    span: "0:76-85"
                   - FuncCall:
                       name:
-                        Ident:
-                          - sort
+                        Ident: sort
+                        span: "0:102-106"
                       args:
-                        - Ident:
-                            - date
+                        - Ident: date
+                          span: "0:107-111"
+                    span: "0:102-111"
                   - FuncCall:
                       name:
-                        Ident:
-                          - lag
+                        Ident: lag
+                        span: "0:128-131"
                       args:
                         - Literal:
                             Integer: 1
+                          span: "0:132-133"
+                    span: "0:128-133"
+              span: "0:33-147"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
-      span: "0:13-147"
-    "###);
+          span: "0:27-147"
+      span: "0:0-147"
+    "#);
 
-    assert_yaml_snapshot!(parse_single("let add = x to:a ->  x + to\n").unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source("let add = x to:a ->  x + to\n").unwrap(), @r#"
     - VarDef:
         kind: Let
         name: add
@@ -1295,240 +635,48 @@ fn test_function() {
             body:
               Binary:
                 left:
-                  Ident:
-                    - x
+                  Ident: x
+                  span: "0:21-22"
                 op: Add
                 right:
-                  Ident:
-                    - to
+                  Ident: to
+                  span: "0:25-27"
+              span: "0:21-27"
             params:
               - name: x
                 default_value: ~
             named_params:
               - name: to
                 default_value:
-                  Ident:
-                    - a
+                  Ident: a
+                  span: "0:15-16"
             generic_type_params: []
+          span: "0:10-27"
       span: "0:0-27"
-    "###);
-}
-
-#[test]
-fn test_func_call() {
-    // Function without argument
-    let ast = parse_expr(r#"count"#).unwrap();
-    let ident = ast.kind.into_ident().unwrap();
-    assert_yaml_snapshot!(
-            ident, @r###"
-        ---
-        - count
-        "###);
-
-    let ast = parse_expr(r#"s 'foo'"#).unwrap();
-    assert_yaml_snapshot!(
-            ast, @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - s
-          args:
-            - Literal:
-                String: foo
-        "###);
-
-    // A non-friendly option for #154
-    let ast = parse_expr(r#"count s'*'"#).unwrap();
-    let func_call: FuncCall = ast.kind.into_func_call().unwrap();
-    assert_yaml_snapshot!(
-            func_call, @r###"
-        ---
-        name:
-          Ident:
-            - count
-        args:
-          - SString:
-              - String: "*"
-        "###);
-
-    parse_expr("plus_one x:0 x:0 ").unwrap_err();
-
-    let ast = parse_expr(r#"add bar to=3"#).unwrap();
-    assert_yaml_snapshot!(
-            ast, @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - add
-          args:
-            - Ident:
-                - bar
-            - Literal:
-                Integer: 3
-              alias: to
-        "###);
-}
-
-#[test]
-fn test_op_precedence() {
-    assert_yaml_snapshot!(parse_expr(r#"1 + 2 - 3 - 4"#).unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Binary:
-              left:
-                Binary:
-                  left:
-                    Literal:
-                      Integer: 1
-                  op: Add
-                  right:
-                    Literal:
-                      Integer: 2
-              op: Sub
-              right:
-                Literal:
-                  Integer: 3
-          op: Sub
-          right:
-            Literal:
-              Integer: 4
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"1 / (3 * 4)"#).unwrap(), @r###"
-    ---
-    Binary:
-      left:
-        Literal:
-          Integer: 1
-      op: DivFloat
-      right:
-        Binary:
-          left:
-            Literal:
-              Integer: 3
-          op: Mul
-          right:
-            Literal:
-              Integer: 4
-    "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"1 / 2 - 3 * 4 + 1"#).unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Binary:
-              left:
-                Binary:
-                  left:
-                    Literal:
-                      Integer: 1
-                  op: DivFloat
-                  right:
-                    Literal:
-                      Integer: 2
-              op: Sub
-              right:
-                Binary:
-                  left:
-                    Literal:
-                      Integer: 3
-                  op: Mul
-                  right:
-                    Literal:
-                      Integer: 4
-          op: Add
-          right:
-            Literal:
-              Integer: 1
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"a && b || !c && d"#).unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Binary:
-              left:
-                Ident:
-                  - a
-              op: And
-              right:
-                Ident:
-                  - b
-          op: Or
-          right:
-            Binary:
-              left:
-                Unary:
-                  op: Not
-                  expr:
-                    Ident:
-                      - c
-              op: And
-              right:
-                Ident:
-                  - d
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"a && b + c || (d e) && f"#).unwrap(), @r###"
-        ---
-        Binary:
-          left:
-            Binary:
-              left:
-                Ident:
-                  - a
-              op: And
-              right:
-                Binary:
-                  left:
-                    Ident:
-                      - b
-                  op: Add
-                  right:
-                    Ident:
-                      - c
-          op: Or
-          right:
-            Binary:
-              left:
-                FuncCall:
-                  name:
-                    Ident:
-                      - d
-                  args:
-                    - Ident:
-                        - e
-              op: And
-              right:
-                Ident:
-                  - f
-        "###);
+    "#);
 }
 
 #[test]
 fn test_var_def() {
-    assert_yaml_snapshot!(parse_single(
+    assert_yaml_snapshot!(parse_source(
             "let newest_employees = (from employees)"
-        ).unwrap(), @r###"
-    ---
+        ).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: newest_employees
         value:
           FuncCall:
             name:
-              Ident:
-                - from
+              Ident: from
+              span: "0:24-28"
             args:
-              - Ident:
-                  - employees
+              - Ident: employees
+                span: "0:29-38"
+          span: "0:23-39"
       span: "0:0-39"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single(
+    assert_yaml_snapshot!(parse_source(
             r#"
         let newest_employees = (
           from employees
@@ -1540,8 +688,7 @@ fn test_var_def() {
           sort tenure
           take 50
         )"#.trim()).unwrap(),
-         @r###"
-    ---
+         @r#"
     - VarDef:
         kind: Let
         name: newest_employees
@@ -1550,63 +697,72 @@ fn test_var_def() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:35-39"
                   args:
-                    - Ident:
-                        - employees
+                    - Ident: employees
+                      span: "0:40-49"
+                span: "0:35-49"
               - FuncCall:
                   name:
-                    Ident:
-                      - group
+                    Ident: group
+                    span: "0:60-65"
                   args:
-                    - Ident:
-                        - country
+                    - Ident: country
+                      span: "0:66-73"
                     - FuncCall:
                         name:
-                          Ident:
-                            - aggregate
+                          Ident: aggregate
+                          span: "0:88-97"
                         args:
                           - Tuple:
                               - FuncCall:
                                   name:
-                                    Ident:
-                                      - average
+                                    Ident: average
+                                    span: "0:141-148"
                                   args:
-                                    - Ident:
-                                        - salary
+                                    - Ident: salary
+                                      span: "0:149-155"
+                                span: "0:141-155"
                                 alias: average_country_salary
+                            span: "0:98-169"
+                      span: "0:88-169"
+                span: "0:60-181"
               - FuncCall:
                   name:
-                    Ident:
-                      - sort
+                    Ident: sort
+                    span: "0:192-196"
                   args:
-                    - Ident:
-                        - tenure
+                    - Ident: tenure
+                      span: "0:197-203"
+                span: "0:192-203"
               - FuncCall:
                   name:
-                    Ident:
-                      - take
+                    Ident: take
+                    span: "0:214-218"
                   args:
                     - Literal:
                         Integer: 50
+                      span: "0:219-221"
+                span: "0:214-221"
+          span: "0:23-231"
       span: "0:0-231"
-    "###);
+    "#);
 
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
             let e = s"SELECT * FROM employees"
-            "#).unwrap(), @r###"
-    ---
+            "#).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: e
         value:
           SString:
             - String: SELECT * FROM employees
-      span: "0:13-47"
-    "###);
+          span: "0:21-47"
+      span: "0:0-47"
+    "#);
 
-    assert_yaml_snapshot!(parse_single(
+    assert_yaml_snapshot!(parse_source(
           "let x = (
 
             from x_table
@@ -1616,8 +772,7 @@ fn test_var_def() {
           )
 
           from x"
-        ).unwrap(), @r###"
-    ---
+        ).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: x
@@ -1626,19 +781,22 @@ fn test_var_def() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:23-27"
                   args:
-                    - Ident:
-                        - x_table
+                    - Ident: x_table
+                      span: "0:28-35"
+                span: "0:23-35"
               - FuncCall:
                   name:
-                    Ident:
-                      - select
+                    Ident: select
+                    span: "0:49-55"
                   args:
-                    - Ident:
-                        - foo
+                    - Ident: foo
+                      span: "0:68-71"
                       alias: only_in_x
+                span: "0:49-71"
+          span: "0:8-84"
       span: "0:0-84"
     - VarDef:
         kind: Main
@@ -1646,33 +804,19 @@ fn test_var_def() {
         value:
           FuncCall:
             name:
-              Ident:
-                - from
+              Ident: from
+              span: "0:96-100"
             args:
-              - Ident:
-                  - x
-      span: "0:96-102"
-    "###);
+              - Ident: x
+                span: "0:101-102"
+          span: "0:96-102"
+      span: "0:84-102"
+    "#);
 }
 
 #[test]
 fn test_inline_pipeline() {
-    assert_yaml_snapshot!(parse_expr("(salary | percentile 50)").unwrap(), @r###"
-        ---
-        Pipeline:
-          exprs:
-            - Ident:
-                - salary
-            - FuncCall:
-                name:
-                  Ident:
-                    - percentile
-                args:
-                  - Literal:
-                      Integer: 50
-        "###);
-    assert_yaml_snapshot!(parse_single("let median = x -> (x | percentile 50)\n").unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source("let median = x -> (x | percentile 50)\n").unwrap(), @r#"
     - VarDef:
         kind: Let
         name: median
@@ -1682,34 +826,37 @@ fn test_inline_pipeline() {
             body:
               Pipeline:
                 exprs:
-                  - Ident:
-                      - x
+                  - Ident: x
+                    span: "0:19-20"
                   - FuncCall:
                       name:
-                        Ident:
-                          - percentile
+                        Ident: percentile
+                        span: "0:23-33"
                       args:
                         - Literal:
                             Integer: 50
+                          span: "0:34-36"
+                    span: "0:23-36"
+              span: "0:18-37"
             params:
               - name: x
                 default_value: ~
             named_params: []
             generic_type_params: []
+          span: "0:13-37"
       span: "0:0-37"
-    "###);
+    "#);
 }
 
 #[test]
 fn test_sql_parameters() {
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
         from mytable
         filter {
           first_name == $1,
           last_name == $2.name
         }
-        "#).unwrap(), @r###"
-    ---
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -1718,39 +865,47 @@ fn test_sql_parameters() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:9-13"
                   args:
-                    - Ident:
-                        - mytable
+                    - Ident: mytable
+                      span: "0:14-21"
+                span: "0:9-21"
               - FuncCall:
                   name:
-                    Ident:
-                      - filter
+                    Ident: filter
+                    span: "0:30-36"
                   args:
                     - Tuple:
                         - Binary:
                             left:
-                              Ident:
-                                - first_name
+                              Ident: first_name
+                              span: "0:49-59"
                             op: Eq
                             right:
                               Param: "1"
+                              span: "0:63-65"
+                          span: "0:49-65"
                         - Binary:
                             left:
-                              Ident:
-                                - last_name
+                              Ident: last_name
+                              span: "0:77-86"
                             op: Eq
                             right:
                               Param: 2.name
-      span: "0:9-108"
-    "###);
+                              span: "0:90-97"
+                          span: "0:77-97"
+                      span: "0:37-107"
+                span: "0:30-107"
+          span: "0:9-107"
+      span: "0:0-107"
+    "#);
 }
 
 #[test]
 fn test_tab_characters() {
     // #284
-    parse_single(
+    parse_source(
         "from c_invoice
 join doc:c_doctype (==c_invoice_id)
 select [
@@ -1771,8 +926,7 @@ join `my-proj.dataset.table`
 join `my-proj`.`dataset`.`table`
 ";
 
-    assert_yaml_snapshot!(parse_single(prql).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(prql).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -1781,67 +935,83 @@ join `my-proj`.`dataset`.`table`
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:1-5"
                   args:
-                    - Ident:
-                        - a/*.parquet
+                    - Ident: a/*.parquet
+                      span: "0:6-19"
+                span: "0:1-19"
               - FuncCall:
                   name:
-                    Ident:
-                      - aggregate
+                    Ident: aggregate
+                    span: "0:20-29"
                   args:
                     - Tuple:
                         - FuncCall:
                             name:
-                              Ident:
-                                - max
+                              Ident: max
+                              span: "0:31-34"
                             args:
-                              - Ident:
-                                  - c
+                              - Ident: c
+                                span: "0:35-36"
+                          span: "0:31-36"
+                      span: "0:30-37"
+                span: "0:20-37"
               - FuncCall:
                   name:
-                    Ident:
-                      - join
+                    Ident: join
+                    span: "0:38-42"
                   args:
-                    - Ident:
-                        - schema.table
+                    - Ident: schema.table
+                      span: "0:43-57"
                     - Unary:
                         op: EqSelf
                         expr:
-                          Ident:
-                            - id
+                          Ident: id
+                          span: "0:61-63"
+                      span: "0:59-63"
+                span: "0:38-64"
               - FuncCall:
                   name:
-                    Ident:
-                      - join
+                    Ident: join
+                    span: "0:65-69"
                   args:
-                    - Ident:
-                        - my-proj.dataset.table
+                    - Ident: my-proj.dataset.table
+                      span: "0:70-93"
+                span: "0:65-93"
               - FuncCall:
                   name:
-                    Ident:
-                      - join
+                    Ident: join
+                    span: "0:94-98"
                   args:
-                    - Ident:
-                        - my-proj
-                        - dataset
-                        - table
-      span: "0:1-127"
-    "###);
+                    - Indirection:
+                        base:
+                          Indirection:
+                            base:
+                              Ident: my-proj
+                              span: "0:99-108"
+                            field:
+                              Name: dataset
+                          span: "0:108-118"
+                        field:
+                          Name: table
+                      span: "0:118-126"
+                span: "0:94-126"
+          span: "0:1-126"
+      span: "0:0-126"
+    "#);
 }
 
 #[test]
 fn test_sort() {
-    assert_yaml_snapshot!(parse_single("
+    assert_yaml_snapshot!(parse_source("
         from invoices
         sort issued_at
         sort (-issued_at)
         sort {issued_at}
         sort {-issued_at}
         sort {issued_at, -amount, +num_of_articles}
-        ").unwrap(), @r###"
-    ---
+        ").unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -1850,76 +1020,89 @@ fn test_sort() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:9-13"
                   args:
-                    - Ident:
-                        - invoices
+                    - Ident: invoices
+                      span: "0:14-22"
+                span: "0:9-22"
               - FuncCall:
                   name:
-                    Ident:
-                      - sort
+                    Ident: sort
+                    span: "0:31-35"
                   args:
-                    - Ident:
-                        - issued_at
+                    - Ident: issued_at
+                      span: "0:36-45"
+                span: "0:31-45"
               - FuncCall:
                   name:
-                    Ident:
-                      - sort
+                    Ident: sort
+                    span: "0:54-58"
                   args:
                     - Unary:
                         op: Neg
                         expr:
-                          Ident:
-                            - issued_at
+                          Ident: issued_at
+                          span: "0:61-70"
+                      span: "0:60-70"
+                span: "0:54-71"
               - FuncCall:
                   name:
-                    Ident:
-                      - sort
+                    Ident: sort
+                    span: "0:80-84"
                   args:
                     - Tuple:
-                        - Ident:
-                            - issued_at
+                        - Ident: issued_at
+                          span: "0:86-95"
+                      span: "0:85-96"
+                span: "0:80-96"
               - FuncCall:
                   name:
-                    Ident:
-                      - sort
+                    Ident: sort
+                    span: "0:105-109"
                   args:
                     - Tuple:
                         - Unary:
                             op: Neg
                             expr:
-                              Ident:
-                                - issued_at
+                              Ident: issued_at
+                              span: "0:112-121"
+                          span: "0:111-121"
+                      span: "0:110-122"
+                span: "0:105-122"
               - FuncCall:
                   name:
-                    Ident:
-                      - sort
+                    Ident: sort
+                    span: "0:131-135"
                   args:
                     - Tuple:
-                        - Ident:
-                            - issued_at
+                        - Ident: issued_at
+                          span: "0:137-146"
                         - Unary:
                             op: Neg
                             expr:
-                              Ident:
-                                - amount
+                              Ident: amount
+                              span: "0:149-155"
+                          span: "0:148-155"
                         - Unary:
                             op: Add
                             expr:
-                              Ident:
-                                - num_of_articles
-      span: "0:9-175"
-    "###);
+                              Ident: num_of_articles
+                              span: "0:158-173"
+                          span: "0:157-173"
+                      span: "0:136-174"
+                span: "0:131-174"
+          span: "0:9-174"
+      span: "0:0-174"
+    "#);
 }
 
 #[test]
 fn test_dates() {
-    assert_yaml_snapshot!(parse_single("
+    assert_yaml_snapshot!(parse_source("
         from employees
         derive {age_plus_two_years = (age + 2years)}
-        ").unwrap(), @r###"
-    ---
+        ").unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -1928,84 +1111,107 @@ fn test_dates() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:9-13"
                   args:
-                    - Ident:
-                        - employees
+                    - Ident: employees
+                      span: "0:14-23"
+                span: "0:9-23"
               - FuncCall:
                   name:
-                    Ident:
-                      - derive
+                    Ident: derive
+                    span: "0:32-38"
                   args:
                     - Tuple:
                         - Binary:
                             left:
-                              Ident:
-                                - age
+                              Ident: age
+                              span: "0:62-65"
                             op: Add
                             right:
                               Literal:
                                 ValueAndUnit:
                                   n: 2
                                   unit: years
+                              span: "0:68-74"
+                          span: "0:61-75"
                           alias: age_plus_two_years
-      span: "0:9-77"
-    "###);
-
-    assert_yaml_snapshot!(parse_expr("@2011-02-01").unwrap(), @r###"
-        ---
-        Literal:
-          Date: 2011-02-01
-        "###);
-    assert_yaml_snapshot!(parse_expr("@2011-02-01T10:00").unwrap(), @r###"
-        ---
-        Literal:
-          Timestamp: "2011-02-01T10:00"
-        "###);
-    assert_yaml_snapshot!(parse_expr("@14:00").unwrap(), @r###"
-        ---
-        Literal:
-          Time: "14:00"
-        "###);
-    // assert_yaml_snapshot!(parse_expr("@2011-02-01T10:00<datetime>").unwrap(), @"");
-
-    parse_expr("@2020-01-0").unwrap_err();
-
-    parse_expr("@2020-01-011").unwrap_err();
-
-    parse_expr("@2020-01-01T111").unwrap_err();
+                      span: "0:39-76"
+                span: "0:32-76"
+          span: "0:9-76"
+      span: "0:0-76"
+    "#);
 }
 
 #[test]
 fn test_multiline_string() {
-    assert_yaml_snapshot!(parse_single(r##"
-        derive x = r#"r-string test"#
-        "##).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(r##"
+        derive x = r"r-string test"
+        "##).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - derive
+              Ident: derive
+              span: "0:9-15"
             args:
-              - Ident:
-                  - r
+              - Literal:
+                  RawString: r-string test
+                span: "0:20-36"
                 alias: x
-      span: "0:9-39"
-    "### )
+          span: "0:9-36"
+      span: "0:0-36"
+    "# )
+}
+
+#[test]
+fn test_empty_lines() {
+    // The span of the Pipeline shouldn't include the empty lines; the VarDef
+    // should have a larger span
+    assert_yaml_snapshot!(parse_source(r#"
+from artists
+derive x = 5
+
+ 
+
+"#).unwrap(), @r#"
+    - VarDef:
+        kind: Main
+        name: main
+        value:
+          Pipeline:
+            exprs:
+              - FuncCall:
+                  name:
+                    Ident: from
+                    span: "0:1-5"
+                  args:
+                    - Ident: artists
+                      span: "0:6-13"
+                span: "0:1-13"
+              - FuncCall:
+                  name:
+                    Ident: derive
+                    span: "0:14-20"
+                  args:
+                    - Literal:
+                        Integer: 5
+                      span: "0:25-26"
+                      alias: x
+                span: "0:14-26"
+          span: "0:1-26"
+      span: "0:0-26"
+    "# )
 }
 
 #[test]
 fn test_coalesce() {
-    assert_yaml_snapshot!(parse_single(r###"
+    assert_yaml_snapshot!(parse_source(r###"
         from employees
         derive amount = amount ?? 0
-        "###).unwrap(), @r###"
-    ---
+        "###).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -2014,60 +1220,65 @@ fn test_coalesce() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:9-13"
                   args:
-                    - Ident:
-                        - employees
+                    - Ident: employees
+                      span: "0:14-23"
+                span: "0:9-23"
               - FuncCall:
                   name:
-                    Ident:
-                      - derive
+                    Ident: derive
+                    span: "0:32-38"
                   args:
                     - Binary:
                         left:
-                          Ident:
-                            - amount
+                          Ident: amount
+                          span: "0:48-54"
                         op: Coalesce
                         right:
                           Literal:
                             Integer: 0
+                          span: "0:58-59"
+                      span: "0:48-59"
                       alias: amount
-      span: "0:9-60"
-    "### )
+                span: "0:32-59"
+          span: "0:9-59"
+      span: "0:0-59"
+    "# )
 }
 
 #[test]
 fn test_literal() {
-    assert_yaml_snapshot!(parse_single(r###"
+    assert_yaml_snapshot!(parse_source(r###"
         derive x = true
-        "###).unwrap(), @r###"
-    ---
+        "###).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - derive
+              Ident: derive
+              span: "0:9-15"
             args:
               - Literal:
                   Boolean: true
+                span: "0:20-24"
                 alias: x
-      span: "0:9-25"
-    "###)
+          span: "0:9-24"
+      span: "0:0-24"
+    "#)
 }
 
 #[test]
 fn test_allowed_idents() {
-    assert_yaml_snapshot!(parse_single(r###"
+    assert_yaml_snapshot!(parse_source(r###"
         from employees
         join _salary (==employee_id) # table with leading underscore
         filter first_name == $1
         select {_employees._underscored_column}
-        "###).unwrap(), @r###"
-    ---
+        "###).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -2076,58 +1287,70 @@ fn test_allowed_idents() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:9-13"
                   args:
-                    - Ident:
-                        - employees
+                    - Ident: employees
+                      span: "0:14-23"
+                span: "0:9-23"
               - FuncCall:
                   name:
-                    Ident:
-                      - join
+                    Ident: join
+                    span: "0:32-36"
                   args:
-                    - Ident:
-                        - _salary
+                    - Ident: _salary
+                      span: "0:37-44"
                     - Unary:
                         op: EqSelf
                         expr:
-                          Ident:
-                            - employee_id
+                          Ident: employee_id
+                          span: "0:48-59"
+                      span: "0:46-59"
+                span: "0:32-60"
               - FuncCall:
                   name:
-                    Ident:
-                      - filter
+                    Ident: filter
+                    span: "0:101-107"
                   args:
                     - Binary:
                         left:
-                          Ident:
-                            - first_name
+                          Ident: first_name
+                          span: "0:108-118"
                         op: Eq
                         right:
                           Param: "1"
+                          span: "0:122-124"
+                      span: "0:108-124"
+                span: "0:101-124"
               - FuncCall:
                   name:
-                    Ident:
-                      - select
+                    Ident: select
+                    span: "0:133-139"
                   args:
                     - Tuple:
-                        - Ident:
-                            - _employees
-                            - _underscored_column
-      span: "0:9-173"
-    "###)
+                        - Indirection:
+                            base:
+                              Ident: _employees
+                              span: "0:141-151"
+                            field:
+                              Name: _underscored_column
+                          span: "0:141-171"
+                      span: "0:140-172"
+                span: "0:133-172"
+          span: "0:9-172"
+      span: "0:0-172"
+    "#)
 }
 
 #[test]
 fn test_gt_lt_gte_lte() {
-    assert_yaml_snapshot!(parse_single(r###"
+    assert_yaml_snapshot!(parse_source(r###"
         from people
         filter age >= 100
         filter num_grandchildren <= 10
         filter salary > 0
         filter num_eyes < 2
-        "###).unwrap(), @r###"
-    ---
+        "###).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -2136,74 +1359,87 @@ fn test_gt_lt_gte_lte() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:9-13"
                   args:
-                    - Ident:
-                        - people
+                    - Ident: people
+                      span: "0:14-20"
+                span: "0:9-20"
               - FuncCall:
                   name:
-                    Ident:
-                      - filter
+                    Ident: filter
+                    span: "0:29-35"
                   args:
                     - Binary:
                         left:
-                          Ident:
-                            - age
+                          Ident: age
+                          span: "0:36-39"
                         op: Gte
                         right:
                           Literal:
                             Integer: 100
+                          span: "0:43-46"
+                      span: "0:36-46"
+                span: "0:29-46"
               - FuncCall:
                   name:
-                    Ident:
-                      - filter
+                    Ident: filter
+                    span: "0:55-61"
                   args:
                     - Binary:
                         left:
-                          Ident:
-                            - num_grandchildren
+                          Ident: num_grandchildren
+                          span: "0:62-79"
                         op: Lte
                         right:
                           Literal:
                             Integer: 10
+                          span: "0:83-85"
+                      span: "0:62-85"
+                span: "0:55-85"
               - FuncCall:
                   name:
-                    Ident:
-                      - filter
+                    Ident: filter
+                    span: "0:94-100"
                   args:
                     - Binary:
                         left:
-                          Ident:
-                            - salary
+                          Ident: salary
+                          span: "0:101-107"
                         op: Gt
                         right:
                           Literal:
                             Integer: 0
+                          span: "0:110-111"
+                      span: "0:101-111"
+                span: "0:94-111"
               - FuncCall:
                   name:
-                    Ident:
-                      - filter
+                    Ident: filter
+                    span: "0:120-126"
                   args:
                     - Binary:
                         left:
-                          Ident:
-                            - num_eyes
+                          Ident: num_eyes
+                          span: "0:127-135"
                         op: Lt
                         right:
                           Literal:
                             Integer: 2
-      span: "0:9-140"
-    "###)
+                          span: "0:138-139"
+                      span: "0:127-139"
+                span: "0:120-139"
+          span: "0:9-139"
+      span: "0:0-139"
+    "#)
 }
 
 #[test]
 fn test_assign() {
-    assert_yaml_snapshot!(parse_single(r###"
+    assert_yaml_snapshot!(parse_source(r###"
 from employees
 join s=salaries (==id)
-        "###).unwrap(), @r###"
-    ---
+        "###).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
@@ -2212,170 +1448,100 @@ join s=salaries (==id)
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:1-5"
                   args:
-                    - Ident:
-                        - employees
+                    - Ident: employees
+                      span: "0:6-15"
+                span: "0:1-15"
               - FuncCall:
                   name:
-                    Ident:
-                      - join
+                    Ident: join
+                    span: "0:16-20"
                   args:
-                    - Ident:
-                        - salaries
+                    - Ident: salaries
+                      span: "0:23-31"
                       alias: s
                     - Unary:
                         op: EqSelf
                         expr:
-                          Ident:
-                            - id
-      span: "0:1-39"
-    "###);
-}
-
-#[test]
-fn test_ident_with_keywords() {
-    assert_yaml_snapshot!(parse_expr(r"select {andrew, orion, lettuce, falsehood, null0}").unwrap(), @r###"
-        ---
-        FuncCall:
-          name:
-            Ident:
-              - select
-          args:
-            - Tuple:
-                - Ident:
-                    - andrew
-                - Ident:
-                    - orion
-                - Ident:
-                    - lettuce
-                - Ident:
-                    - falsehood
-                - Ident:
-                    - null0
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r"{false}").unwrap(), @r###"
-        ---
-        Tuple:
-          - Literal:
-              Boolean: false
-        "###);
-}
-
-#[test]
-fn test_case() {
-    assert_yaml_snapshot!(parse_expr(r#"case [
-            nickname != null => nickname,
-            true => null
-        ]"#).unwrap(), @r###"
-        ---
-        Case:
-          - condition:
-              Binary:
-                left:
-                  Ident:
-                    - nickname
-                op: Ne
-                right:
-                  Literal: "Null"
-            value:
-              Ident:
-                - nickname
-          - condition:
-              Literal:
-                Boolean: true
-            value:
-              Literal: "Null"
-        "###);
-}
-
-#[test]
-fn test_params() {
-    assert_yaml_snapshot!(parse_expr(r#"$2"#).unwrap(), @r###"
-        ---
-        Param: "2"
-        "###);
-
-    assert_yaml_snapshot!(parse_expr(r#"$2_any_text"#).unwrap(), @r###"
-        ---
-        Param: 2_any_text
-        "###);
+                          Ident: id
+                          span: "0:35-37"
+                      span: "0:33-37"
+                span: "0:16-38"
+          span: "0:1-38"
+      span: "0:0-38"
+    "#);
 }
 
 #[test]
 fn test_unicode() {
     let source = "from tète";
-    assert_yaml_snapshot!(parse_single(source).unwrap(), @r###"
-    ---
+    assert_yaml_snapshot!(parse_source(source).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
           FuncCall:
             name:
-              Ident:
-                - from
+              Ident: from
+              span: "0:0-4"
             args:
-              - Ident:
-                  - tète
+              - Ident: tète
+                span: "0:5-9"
+          span: "0:0-9"
       span: "0:0-9"
-    "###);
+    "#);
 }
 
 #[test]
 fn test_var_defs() {
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
         let a = (
             x
         )
-        "#).unwrap(), @r###"
-    ---
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: a
         value:
-          Ident:
-            - x
-      span: "0:9-42"
-    "###);
+          Ident: x
+          span: "0:17-42"
+      span: "0:0-42"
+    "#);
 
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
         x
         into a
-        "#).unwrap(), @r###"
-    ---
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Into
         name: a
         value:
-          Ident:
-            - x
-      span: "0:9-25"
-    "###);
+          Ident: x
+          span: "0:9-10"
+      span: "0:0-25"
+    "#);
 
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
         x
-        "#).unwrap(), @r###"
-    ---
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Main
         name: main
         value:
-          Ident:
-            - x
-      span: "0:9-11"
-    "###);
+          Ident: x
+          span: "0:9-10"
+      span: "0:0-10"
+    "#);
 }
 
 #[test]
 fn test_array() {
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
         let a = [1, 2,]
         let a = [false, "hello"]
-        "#).unwrap(), @r###"
-    ---
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: a
@@ -2383,9 +1549,12 @@ fn test_array() {
           Array:
             - Literal:
                 Integer: 1
+              span: "0:18-19"
             - Literal:
                 Integer: 2
-      span: "0:9-24"
+              span: "0:21-22"
+          span: "0:17-24"
+      span: "0:0-24"
     - VarDef:
         kind: Let
         name: a
@@ -2393,19 +1562,21 @@ fn test_array() {
           Array:
             - Literal:
                 Boolean: false
+              span: "0:42-47"
             - Literal:
                 String: hello
-      span: "0:33-57"
-    "###);
+              span: "0:49-56"
+          span: "0:41-57"
+      span: "0:24-57"
+    "#);
 }
 
 #[test]
 fn test_annotation() {
-    assert_yaml_snapshot!(parse_single(r#"
+    assert_yaml_snapshot!(parse_source(r#"
         @{binding_strength=1}
         let add = a b -> a + b
-        "#).unwrap(), @r###"
-    ---
+        "#).unwrap(), @r#"
     - VarDef:
         kind: Let
         name: add
@@ -2415,12 +1586,13 @@ fn test_annotation() {
             body:
               Binary:
                 left:
-                  Ident:
-                    - a
+                  Ident: a
+                  span: "0:56-57"
                 op: Add
                 right:
-                  Ident:
-                    - b
+                  Ident: b
+                  span: "0:60-61"
+              span: "0:56-61"
             params:
               - name: a
                 default_value: ~
@@ -2428,22 +1600,26 @@ fn test_annotation() {
                 default_value: ~
             named_params: []
             generic_type_params: []
-      span: "0:9-61"
+          span: "0:49-61"
+      span: "0:0-61"
       annotations:
         - expr:
             Tuple:
               - Literal:
                   Integer: 1
+                span: "0:28-29"
                 alias: binding_strength
-    "###);
-    parse_single(
+            span: "0:10-30"
+    "#);
+    parse_source(
         r#"
-        @{binding_strength=1} let add = a b -> a + b
+        @{binding_strength=1}
+        let add = a b -> a + b
         "#,
     )
     .unwrap();
 
-    parse_single(
+    parse_source(
         r#"
         @{binding_strength=1}
         # comment
@@ -2452,7 +1628,7 @@ fn test_annotation() {
     )
     .unwrap();
 
-    parse_single(
+    parse_source(
         r#"
         @{binding_strength=1}
 
@@ -2461,6 +1637,14 @@ fn test_annotation() {
         "#,
     )
     .unwrap();
+
+    parse_source(
+        r#"
+        @{binding_strength=1}@{binding_strength=2}
+        let add = a b -> a + b
+        "#,
+    )
+    .unwrap_err();
 }
 
 #[test]
@@ -2471,7 +1655,7 @@ fn check_valid_version() {
         "#,
         env!("CARGO_PKG_VERSION_MAJOR")
     );
-    assert!(parse_single(&stmt).is_ok());
+    assert!(parse_source(&stmt).is_ok());
 
     let stmt = format!(
         r#"
@@ -2480,7 +1664,7 @@ fn check_valid_version() {
         env!("CARGO_PKG_VERSION_MAJOR"),
         env!("CARGO_PKG_VERSION_MINOR")
     );
-    assert!(parse_single(&stmt).is_ok());
+    assert!(parse_source(&stmt).is_ok());
 
     let stmt = format!(
         r#"
@@ -2490,7 +1674,7 @@ fn check_valid_version() {
         env!("CARGO_PKG_VERSION_MINOR"),
         env!("CARGO_PKG_VERSION_PATCH"),
     );
-    assert!(parse_single(&stmt).is_ok());
+    assert!(parse_source(&stmt).is_ok());
 }
 
 #[test]
@@ -2499,12 +1683,12 @@ fn check_invalid_version() {
         "prql version:{}\n",
         env!("CARGO_PKG_VERSION_MAJOR").parse::<usize>().unwrap() + 1
     );
-    assert!(parse_single(&stmt).is_err());
+    assert!(parse_source(&stmt).is_err());
 }
 
 #[test]
 fn test_target() {
-    assert_yaml_snapshot!(parse_single(
+    assert_yaml_snapshot!(parse_source(
             r#"
           prql target:sql.sqlite
 
@@ -2512,8 +1696,7 @@ fn test_target() {
           remove film2
         "#,
         )
-        .unwrap(), @r###"
-    ---
+        .unwrap(), @r#"
     - QueryDef:
         version: ~
         other:
@@ -2527,18 +1710,159 @@ fn test_target() {
             exprs:
               - FuncCall:
                   name:
-                    Ident:
-                      - from
+                    Ident: from
+                    span: "0:45-49"
                   args:
-                    - Ident:
-                        - film
+                    - Ident: film
+                      span: "0:50-54"
+                span: "0:45-54"
               - FuncCall:
                   name:
-                    Ident:
-                      - remove
+                    Ident: remove
+                    span: "0:65-71"
                   args:
-                    - Ident:
-                        - film2
-      span: "0:45-78"
-    "###);
+                    - Ident: film2
+                      span: "0:72-77"
+                span: "0:65-77"
+          span: "0:45-77"
+      span: "0:34-77"
+    "#);
+}
+
+#[test]
+fn test_number() {
+    // We don't allow trailing periods
+    assert!(parse_source(
+        r#"
+    from artists
+    derive x = 1."#
+    )
+    .is_err());
+}
+
+#[test]
+fn doc_comment() {
+    use insta::assert_yaml_snapshot;
+
+    assert_yaml_snapshot!(parse_source(r###"
+    from artists
+    derive x = 5
+    "###).unwrap(), @r#"
+    - VarDef:
+        kind: Main
+        name: main
+        value:
+          Pipeline:
+            exprs:
+              - FuncCall:
+                  name:
+                    Ident: from
+                    span: "0:5-9"
+                  args:
+                    - Ident: artists
+                      span: "0:10-17"
+                span: "0:5-17"
+              - FuncCall:
+                  name:
+                    Ident: derive
+                    span: "0:22-28"
+                  args:
+                    - Literal:
+                        Integer: 5
+                      span: "0:33-34"
+                      alias: x
+                span: "0:22-34"
+          span: "0:5-34"
+      span: "0:0-34"
+    "#);
+
+    assert_yaml_snapshot!(parse_source(r###"
+    from artists
+
+    #! This is a doc comment
+
+    derive x = 5
+    "###).unwrap(), @r#"
+    - VarDef:
+        kind: Main
+        name: main
+        value:
+          FuncCall:
+            name:
+              Ident: from
+              span: "0:5-9"
+            args:
+              - Ident: artists
+                span: "0:10-17"
+          span: "0:5-17"
+      span: "0:0-17"
+    - VarDef:
+        kind: Main
+        name: main
+        value:
+          FuncCall:
+            name:
+              Ident: derive
+              span: "0:53-59"
+            args:
+              - Literal:
+                  Integer: 5
+                span: "0:64-65"
+                alias: x
+          span: "0:53-65"
+      span: "0:47-65"
+      doc_comment: " This is a doc comment"
+    "#);
+
+    assert_yaml_snapshot!(parse_source(r###"
+    #! This is a doc comment
+    from artists
+    derive x = 5
+    "###).unwrap(), @r#"
+    - VarDef:
+        kind: Main
+        name: main
+        value:
+          Pipeline:
+            exprs:
+              - FuncCall:
+                  name:
+                    Ident: from
+                    span: "0:34-38"
+                  args:
+                    - Ident: artists
+                      span: "0:39-46"
+                span: "0:34-46"
+              - FuncCall:
+                  name:
+                    Ident: derive
+                    span: "0:51-57"
+                  args:
+                    - Literal:
+                        Integer: 5
+                      span: "0:62-63"
+                      alias: x
+                span: "0:51-63"
+          span: "0:34-63"
+      span: "0:29-63"
+      doc_comment: " This is a doc comment"
+    "#);
+
+    assert_debug_snapshot!(parse_source(r###"
+    from artists #! This is a doc comment
+    "###).unwrap_err(), @r#"
+    [
+        Error {
+            kind: Error,
+            span: Some(
+                0:18-42,
+            ),
+            reason: Simple(
+                "unexpected #! This is a doc comment\n",
+            ),
+            hints: [],
+            code: None,
+        },
+    ]
+    "#);
 }

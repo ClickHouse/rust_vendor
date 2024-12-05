@@ -18,7 +18,10 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use minijinja::machinery::{Span, Token};
+use minijinja::{
+    machinery::{Span, Token, WhitespaceConfig},
+    syntax::SyntaxConfig,
+};
 use regex::Regex;
 
 const ANCHOR_PREFIX: &str = "_jinja_";
@@ -41,7 +44,9 @@ pub fn pre_process(source: &str) -> Result<(String, JinjaContext)> {
     let mut blocks = Vec::new();
     let mut current_block = Vec::new();
 
-    for res in minijinja::machinery::tokenize(source, false) {
+    for res in
+        minijinja::machinery::tokenize(source, false, SyntaxConfig, WhitespaceConfig::default())
+    {
         let (token, span) = res?;
 
         if let Token::TemplateData(data) = token {
@@ -159,14 +164,18 @@ mod test {
                     Span {
                         start_line: 2,
                         start_col: 9,
+                        start_offset: 0,
                         end_line: 12_123_123,
                         end_col: 2_930_293,
+                        end_offset: 0
                     },
                     Span {
                         start_line: 7_893_648,
                         start_col: 79678,
+                        start_offset: 0,
                         end_line: 3,
                         end_col: 31,
+                        end_offset: 0
                     }
                 ]
             ),
@@ -179,14 +188,8 @@ mod test {
     fn test_pre_process() {
         let src = r###"from in_process = {{ source('salesforce', 'in_process') }}"###;
         let (pre_proc_text, ctx) = pre_process(src).unwrap();
-        insta::assert_yaml_snapshot!(pre_proc_text, @r###"
-        ---
-        from in_process = _jinja_0
-        "###);
-        insta::assert_yaml_snapshot!(ctx.anchor_map["_jinja_0"], @r###"
-        ---
-        " {{ source('salesforce', 'in_process') }}"
-        "###);
+        insta::assert_yaml_snapshot!(pre_proc_text, @"from in_process = _jinja_0");
+        insta::assert_yaml_snapshot!(ctx.anchor_map["_jinja_0"], @r#"" {{ source('salesforce', 'in_process') }}""#);
     }
 
     #[test]
@@ -194,24 +197,15 @@ mod test {
         let src = r###"from in_process = {{ source('salesforce', 'in_process') }}"###;
         let (pre_proc_text, ctx) = pre_process(src).unwrap();
         let post_proc_text = post_process(&pre_proc_text, ctx);
-        insta::assert_yaml_snapshot!(post_proc_text, @r###"
-        ---
-        "from in_process =  {{ source('salesforce', 'in_process') }}"
-        "###);
+        insta::assert_yaml_snapshot!(post_proc_text, @r#""from in_process =  {{ source('salesforce', 'in_process') }}""#);
     }
 
     #[test]
     fn test_config_interpolation() {
         let src = r###"{{ config(materialized = "table") }}\nfrom in_process = {{ source('salesforce', 'in_process') }}"###;
         let (pre_proc_text, ctx) = pre_process(src).unwrap();
-        insta::assert_yaml_snapshot!(ctx.header, @r###"
-        ---
-        - "{{ config(materialized = \"table\") }}"
-        "###);
+        insta::assert_yaml_snapshot!(ctx.header, @r#"- "{{ config(materialized = \"table\") }}""#);
         let post_proc_text = post_process(&pre_proc_text, ctx);
-        insta::assert_yaml_snapshot!(post_proc_text, @r###"
-        ---
-        "{{ config(materialized = \"table\") }}\n\\nfrom in_process =  {{ source('salesforce', 'in_process') }}"
-        "###);
+        insta::assert_yaml_snapshot!(post_proc_text, @r#""{{ config(materialized = \"table\") }}\n\\nfrom in_process =  {{ source('salesforce', 'in_process') }}""#);
     }
 }

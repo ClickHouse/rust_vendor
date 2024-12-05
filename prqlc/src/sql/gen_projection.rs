@@ -1,20 +1,19 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::Result;
 use itertools::Itertools;
 use sqlparser::ast::{
     self as sql_ast, ExceptSelectItem, ExcludeSelectItem, ObjectName, SelectItem,
     WildcardAdditionalOptions,
 };
 
-use crate::ir::pl::Ident;
-use crate::ir::rq::{CId, RelationColumn};
-use crate::{Error, Span, WithErrorInfo};
-
 use super::dialect::ColumnExclude;
 use super::gen_expr::*;
-use super::srq::context::{AnchorContext, ColumnDecl};
+use super::pq::context::{AnchorContext, ColumnDecl};
 use super::Context;
+use crate::ir::pl::Ident;
+use crate::ir::rq::{CId, RelationColumn};
+use crate::Result;
+use crate::{Error, Span, WithErrorInfo};
 
 pub(super) fn try_into_exprs(
     cids: Vec<CId>,
@@ -42,8 +41,7 @@ pub(super) fn try_into_exprs(
             if !excluded.is_empty() {
                 return Err(
                     Error::new_simple("Excluding columns not supported as this position")
-                        .with_span(span)
-                        .into(),
+                        .with_span(span),
                 );
             }
         }
@@ -158,9 +156,14 @@ pub(super) fn translate_select_items(
         })
         .try_collect()?;
 
-    if res.is_empty() {
-        // in some cases, no columns will appear in the projection
+    if res.is_empty() && !ctx.dialect.supports_zero_columns() {
+        // In some cases, no columns will appear in the projection
         // for SQL to parse correctly, we inject a `NULL`.
+        // This is not strictly correct and should probably generate an error
+        // instead.
+        // Example: `from x | take 10 | aggregate { count this }`.
+        // Here, first SELECT does not need to emit any columns as we don't need
+        // any since we just count the number of rows.
         res.push(SelectItem::UnnamedExpr(sql_ast::Expr::Value(
             sql_ast::Value::Null,
         )));
