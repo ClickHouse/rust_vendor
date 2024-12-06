@@ -7,7 +7,6 @@
 extern crate alloc as alloc_crate;
 
 #[cfg(not(feature = "nightly"))]
-#[macro_use]
 mod stable;
 
 #[cfg(feature = "nightly")]

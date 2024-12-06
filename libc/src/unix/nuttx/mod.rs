@@ -1,5 +1,8 @@
-use crate::prelude::*;
-use crate::{in6_addr, in_addr_t, timespec, DIR};
+use c_void;
+use in6_addr;
+use in_addr_t;
+use timespec;
+use DIR;
 
 pub type nlink_t = u16;
 pub type ino_t = u16;
@@ -60,28 +63,18 @@ s! {
         pub pw_gecos: *const c_char,
         pub pw_dir: *const c_char,
         pub pw_shell: *const c_char,
-        __reserved: [usize; __DEFAULT_RESERVED_SIZE__],
+        __reserved: [usize; __DEFAULT_RESERVED_SIZE__]
     }
 
-    pub struct sem_t {
-        __val: [usize; __SEM_SIZE__],
-    }
+    pub struct sem_t { __val: [usize; __SEM_SIZE__] }
 
-    pub struct pthread_attr_t {
-        __val: [usize; __PTHREAD_ATTR_SIZE__],
-    }
+    pub struct pthread_attr_t { __val: [usize; __PTHREAD_ATTR_SIZE__] }
 
-    pub struct pthread_mutex_t {
-        __val: [usize; __PTHREAD_MUTEX_SIZE__],
-    }
+    pub struct pthread_mutex_t { __val: [usize; __PTHREAD_MUTEX_SIZE__] }
 
-    pub struct pthread_cond_t {
-        __val: [usize; __PTHREAD_COND_SIZE__],
-    }
+    pub struct pthread_cond_t { __val: [usize; __PTHREAD_COND_SIZE__] }
 
-    pub struct pthread_condattr_t {
-        __val: [usize; __PTHREAD_CONDATTR_SIZE__],
-    }
+    pub struct pthread_condattr_t { __val: [usize; __PTHREAD_CONDATTR_SIZE__] }
 
     pub struct Dl_info {
         pub dli_fname: *const c_char,
@@ -201,16 +194,16 @@ s! {
 
     pub struct sockaddr_in {
         pub sin_family: sa_family_t,
-        pub sin_port: crate::in_port_t,
-        pub sin_addr: crate::in_addr,
+        pub sin_port: ::in_port_t,
+        pub sin_addr: ::in_addr,
         pub sin_zero: [u8; 8],
     }
 
     pub struct sockaddr_in6 {
         pub sin6_family: sa_family_t,
-        pub sin6_port: crate::in_port_t,
+        pub sin6_port: ::in_port_t,
         pub sin6_flowinfo: u32,
-        pub sin6_addr: crate::in6_addr,
+        pub sin6_addr: ::in6_addr,
         pub sin6_scope_id: u32,
     }
 
