@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "unicode-width"
-version = "0.2.0"
+version = "0.1.14"
 authors = [
     "kwantam <kwantam@gmail.com>",
     "Manish Goregaokar <manishsmail@gmail.com>",
