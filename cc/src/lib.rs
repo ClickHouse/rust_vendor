@@ -89,6 +89,13 @@
 //!   For example, with `CFLAGS='a "b c"'`, the compiler will be invoked with 2 arguments -
 //!   `a` and `b c` - rather than 3: `a`, `"b` and `c"`.
 //! * `CXX...` - see [C++ Support](#c-support).
+//! * `CC_FORCE_DISABLE` - If set, `cc` will never run any [`Command`]s, and methods that
+//!   would return an [`Error`]. This is intended for use by third-party build systems
+//!   which want to be absolutely sure that they are in control of building all
+//!   dependencies. Note that operations that return [`Tool`]s such as
+//!   [`Build::get_compiler`] may produce less accurate results as in some cases `cc` runs
+//!   commands in order to locate compilers. Additionally, this does nothing to prevent
+//!   users from running [`Tool::to_command`] and executing the [`Command`] themselves.//!
 //!
 //! Furthermore, projects using this crate may specify custom environment variables
 //! to be inspected, for example via the `Build::try_flags_from_environment`
@@ -226,7 +233,10 @@ use std::path::{Component, Path, PathBuf};
 #[cfg(feature = "parallel")]
 use std::process::Child;
 use std::process::Command;
-use std::sync::{Arc, RwLock};
+use std::sync::{
+    atomic::{AtomicU8, Ordering::Relaxed},
+    Arc, RwLock,
+};
 
 use shlex::Shlex;
 
@@ -250,6 +260,9 @@ mod tempfile;
 
 mod utilities;
 use utilities::*;
+
+mod flags;
+use flags::*;
 
 #[derive(Debug, Eq, PartialEq, Hash)]
 struct CompilerFlag {
@@ -318,6 +331,7 @@ pub struct Build {
     emit_rerun_if_env_changed: bool,
     shell_escaped_flags: Option<bool>,
     build_cache: Arc<BuildCache>,
+    inherit_rustflags: bool,
 }
 
 /// Represents the types of errors that may occur while using cc-rs.
@@ -333,13 +347,19 @@ enum ErrorKind {
     ToolNotFound,
     /// One of the function arguments failed validation.
     InvalidArgument,
-    /// No known macro is defined for the compiler when discovering tool family
+    /// No known macro is defined for the compiler when discovering tool family.
     ToolFamilyMacroNotFound,
-    /// Invalid target
+    /// Invalid target.
     InvalidTarget,
+    /// Unknown target.
+    UnknownTarget,
+    /// Invalid rustc flag.
+    InvalidFlag,
     #[cfg(feature = "parallel")]
     /// jobserver helpthread failure
     JobserverHelpThreadError,
+    /// `cc` has been disabled by an environment variable.
+    Disabled,
 }
 
 /// Represents an internal error that occurred, with an explanation.
@@ -437,6 +457,7 @@ impl Build {
             emit_rerun_if_env_changed: true,
             shell_escaped_flags: None,
             build_cache: Arc::default(),
+            inherit_rustflags: true,
         }
     }
 
@@ -551,7 +572,6 @@ impl Build {
     ///     .flag("unwanted_flag")
     ///     .remove_flag("unwanted_flag");
     /// ```
-
     pub fn remove_flag(&mut self, flag: &str) -> &mut Build {
         self.flags.retain(|other_flag| &**other_flag != flag);
         self
@@ -665,6 +685,7 @@ impl Build {
                 .debug(false)
                 .cpp(self.cpp)
                 .cuda(self.cuda)
+                .inherit_rustflags(false)
                 .emit_rerun_if_env_changed(self.emit_rerun_if_env_changed);
             if let Some(target) = &self.target {
                 cfg.target(target);
@@ -1076,10 +1097,16 @@ impl Build {
         self
     }
 
-    /// Configures the target this configuration will be compiling for.
+    /// Configures the `rustc` target this configuration will be compiling
+    /// for.
     ///
-    /// This option is automatically scraped from the `TARGET` environment
-    /// variable by build scripts, so it's not required to call this function.
+    /// This will fail if using a target not in a pre-compiled list taken from
+    /// `rustc +nightly --print target-list`. The list will be updated
+    /// periodically.
+    ///
+    /// You should avoid setting this in build scripts, target information
+    /// will instead be retrieved from the environment variables `TARGET` and
+    /// `CARGO_CFG_TARGET_*` that Cargo sets.
     ///
     /// # Example
     ///
@@ -1315,6 +1342,15 @@ impl Build {
         self
     }
 
+    /// Configure whether cc should automatically inherit compatible flags passed to rustc
+    /// from `CARGO_ENCODED_RUSTFLAGS`.
+    ///
+    /// This option defaults to `true`.
+    pub fn inherit_rustflags(&mut self, inherit_rustflags: bool) -> &mut Build {
+        self.inherit_rustflags = inherit_rustflags;
+        self
+    }
+
     #[doc(hidden)]
     pub fn __set_env<A, B>(&mut self, a: A, b: B) -> &mut Build
     where
@@ -1542,6 +1578,8 @@ impl Build {
 
         use parallel::async_executor::{block_on, YieldOnce};
 
+        check_disabled()?;
+
         if objs.len() <= 1 {
             for obj in objs {
                 let (mut cmd, name) = self.create_compile_object_cmd(obj)?;
@@ -1688,6 +1726,8 @@ impl Build {
 
     #[cfg(not(feature = "parallel"))]
     fn compile_objects(&self, objs: &[Object]) -> Result<(), Error> {
+        check_disabled()?;
+
         for obj in objs {
             let (mut cmd, name) = self.create_compile_object_cmd(obj)?;
             run(&mut cmd, &name, &self.cargo_output)?;
@@ -1906,6 +1946,11 @@ impl Build {
             cmd.args.push((**flag).into());
         }
 
+        // Add cc flags inherited from matching rustc flags
+        if self.inherit_rustflags {
+            self.add_inherited_rustflags(&mut cmd, &target)?;
+        }
+
         for flag in self.flags_supported.iter() {
             if self
                 .is_flag_supported_inner(flag, &cmd.path, &target)
@@ -1926,6 +1971,19 @@ impl Build {
         if self.warnings_into_errors {
             let warnings_to_errors_flag = cmd.family.warnings_to_errors_flag().into();
             cmd.push_cc_arg(warnings_to_errors_flag);
+        }
+
+        // Copied from <https://github.com/rust-lang/rust/blob/5db81020006d2920fc9c62ffc0f4322f90bffa04/compiler/rustc_codegen_ssa/src/back/linker.rs#L27-L38>
+        //
+        // Disables non-English messages from localized linkers.
+        // Such messages may cause issues with text encoding on Windows
+        // and prevent inspection of msvc output in case of errors, which we occasionally do.
+        // This should be acceptable because other messages from rustc are in English anyway,
+        // and may also be desirable to improve searchability of the compiler diagnostics.
+        if matches!(cmd.family, ToolFamily::Msvc { clang_cl: false }) {
+            cmd.env.push(("VSLANG".into(), "1033".into()));
+        } else {
+            cmd.env.push(("LC_ALL".into(), "C".into()));
         }
 
         Ok(cmd)
@@ -2171,6 +2229,7 @@ impl Build {
                     if target.abi == "eabihf" {
                         // lowest common denominator FPU
                         cmd.args.push("-mfpu=vfpv3-d16".into());
+                        cmd.args.push("-mfloat-abi=hard".into());
                     }
                 }
 
@@ -2339,6 +2398,23 @@ impl Build {
             }
         }
 
+        Ok(())
+    }
+
+    fn add_inherited_rustflags(&self, cmd: &mut Tool, target: &TargetInfo) -> Result<(), Error> {
+        let env_os = match self.getenv("CARGO_ENCODED_RUSTFLAGS") {
+            Some(env) => env,
+            // No encoded RUSTFLAGS -> nothing to do
+            None => return Ok(()),
+        };
+
+        let Tool {
+            family, path, args, ..
+        } = cmd;
+
+        let env = env_os.to_string_lossy();
+        let codegen_flags = RustcCodegenFlags::parse(&env)?;
+        codegen_flags.cc_flags(self, path, *family, target, args);
         Ok(())
     }
 
@@ -2776,6 +2852,9 @@ impl Build {
                 nvcc_tool
                     .args
                     .push(format!("-ccbin={}", tool.path.display()).into());
+            }
+            if let Some(cc_wrapper) = self.rustc_wrapper_fallback() {
+                nvcc_tool.cc_wrapper_path = Some(Path::new(&cc_wrapper).to_owned());
             }
             nvcc_tool.family = tool.family;
             nvcc_tool
@@ -3395,8 +3474,11 @@ impl Build {
 
     fn get_target(&self) -> Result<TargetInfo<'_>, Error> {
         match &self.target {
-            Some(t) => t.parse(),
-            None => self
+            Some(t) if Some(&**t) != self.getenv_unwrap_str("TARGET").ok().as_deref() => t.parse(),
+            // Fetch target information from environment if not set, or if the
+            // target was the same as the TARGET environment variable, in
+            // case the user did `build.target(&env::var("TARGET").unwrap())`.
+            _ => self
                 .build_cache
                 .target_info_parser
                 .parse_from_cargo_environment_variables(),
@@ -3899,7 +3981,7 @@ impl Default for Build {
 }
 
 fn fail(s: &str) -> ! {
-    eprintln!("\n\nerror occurred: {}\n\n", s);
+    eprintln!("\n\nerror occurred in cc-rs: {}\n\n", s);
     std::process::exit(1);
 }
 
@@ -4021,6 +4103,51 @@ impl AsmFileExt {
         }
         None
     }
+}
+
+/// Returns true if `cc` has been disabled by `CC_FORCE_DISABLE`.
+fn is_disabled() -> bool {
+    static CACHE: AtomicU8 = AtomicU8::new(0);
+
+    let val = CACHE.load(Relaxed);
+    // We manually cache the environment var, since we need it in some places
+    // where we don't have access to a `Build` instance.
+    #[allow(clippy::disallowed_methods)]
+    fn compute_is_disabled() -> bool {
+        match std::env::var_os("CC_FORCE_DISABLE") {
+            // Not set? Not disabled.
+            None => false,
+            // Respect `CC_FORCE_DISABLE=0` and some simple synonyms.
+            Some(v) if &*v != "0" && &*v != "false" && &*v != "no" => false,
+            // Otherwise, we're disabled. This intentionally includes `CC_FORCE_DISABLE=""`
+            Some(_) => true,
+        }
+    }
+    match val {
+        2 => true,
+        1 => false,
+        0 => {
+            let truth = compute_is_disabled();
+            let encoded_truth = if truth { 2u8 } else { 1 };
+            // Might race against another thread, but we'd both be setting the
+            // same value so it should be fine.
+            CACHE.store(encoded_truth, Relaxed);
+            truth
+        }
+        _ => unreachable!(),
+    }
+}
+
+/// Automates the `if is_disabled() { return error }` check and ensures
+/// we produce a consistent error message for it.
+fn check_disabled() -> Result<(), Error> {
+    if is_disabled() {
+        return Err(Error::new(
+            ErrorKind::Disabled,
+            "the `cc` crate's functionality has been disabled by the `CC_FORCE_DISABLE` environment variable."
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

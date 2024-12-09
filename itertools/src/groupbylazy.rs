@@ -1,7 +1,7 @@
 use alloc::vec::{self, Vec};
 use std::cell::{Cell, RefCell};
 
-/// A trait to unify `FnMut` for `ChunkBy` with the chunk key in `IntoChunks`
+/// A trait to unify `FnMut` for `GroupBy` with the chunk key in `IntoChunks`
 trait KeyFunction<A> {
     type Key;
     fn call_mut(&mut self, arg: A) -> Self::Key;
@@ -66,13 +66,12 @@ where
     /// Least index for which we still have elements buffered
     oldest_buffered_group: usize,
     /// Group index for `buffer[0]` -- the slots
-    /// `bottom_group..oldest_buffered_group` are unused and will be erased when
+    /// bottom_group..oldest_buffered_group are unused and will be erased when
     /// that range is large enough.
     bottom_group: usize,
     /// Buffered groups, from `bottom_group` (index 0) to `top_group`.
     buffer: Vec<vec::IntoIter<I::Item>>,
-    /// index of last group iter that was dropped,
-    /// `usize::MAX` initially when no group was dropped
+    /// index of last group iter that was dropped, usize::MAX == none
     dropped_group: usize,
 }
 
@@ -283,14 +282,10 @@ where
     }
 }
 
-#[deprecated(note = "Use `ChunkBy` instead", since = "0.13.0")]
-/// See [`ChunkBy`](crate::structs::ChunkBy).
-pub type GroupBy<K, I, F> = ChunkBy<K, I, F>;
-
-/// `ChunkBy` is the storage for the lazy grouping operation.
+/// `GroupBy` is the storage for the lazy grouping operation.
 ///
 /// If the groups are consumed in their original order, or if each
-/// group is dropped without keeping it around, then `ChunkBy` uses
+/// group is dropped without keeping it around, then `GroupBy` uses
 /// no allocations. It needs allocations only if several group iterators
 /// are alive at the same time.
 ///
@@ -299,9 +294,9 @@ pub type GroupBy<K, I, F> = ChunkBy<K, I, F>;
 /// value. It should be stored in a local variable or temporary and
 /// iterated.
 ///
-/// See [`.chunk_by()`](crate::Itertools::chunk_by) for more information.
+/// See [`.group_by()`](crate::Itertools::group_by) for more information.
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
-pub struct ChunkBy<K, I, F>
+pub struct GroupBy<K, I, F>
 where
     I: Iterator,
 {
@@ -312,12 +307,12 @@ where
 }
 
 /// Create a new
-pub fn new<K, J, F>(iter: J, f: F) -> ChunkBy<K, J::IntoIter, F>
+pub fn new<K, J, F>(iter: J, f: F) -> GroupBy<K, J::IntoIter, F>
 where
     J: IntoIterator,
     F: FnMut(&J::Item) -> K,
 {
-    ChunkBy {
+    GroupBy {
         inner: RefCell::new(GroupInner {
             key: f,
             iter: iter.into_iter(),
@@ -334,7 +329,7 @@ where
     }
 }
 
-impl<K, I, F> ChunkBy<K, I, F>
+impl<K, I, F> GroupBy<K, I, F>
 where
     I: Iterator,
 {
@@ -353,7 +348,7 @@ where
     }
 }
 
-impl<'a, K, I, F> IntoIterator for &'a ChunkBy<K, I, F>
+impl<'a, K, I, F> IntoIterator for &'a GroupBy<K, I, F>
 where
     I: Iterator,
     I::Item: 'a,
@@ -373,7 +368,7 @@ where
 /// Iterator element type is `(K, Group)`:
 /// the group's key `K` and the group's iterator.
 ///
-/// See [`.chunk_by()`](crate::Itertools::chunk_by) for more information.
+/// See [`.group_by()`](crate::Itertools::group_by) for more information.
 #[must_use = "iterator adaptors are lazy and do nothing unless consumed"]
 pub struct Groups<'a, K, I, F>
 where
@@ -382,7 +377,7 @@ where
     K: 'a,
     F: 'a,
 {
-    parent: &'a ChunkBy<K, I, F>,
+    parent: &'a GroupBy<K, I, F>,
 }
 
 impl<'a, K, I, F> Iterator for Groups<'a, K, I, F>
@@ -423,7 +418,7 @@ where
     K: 'a,
     F: 'a,
 {
-    parent: &'a ChunkBy<K, I, F>,
+    parent: &'a GroupBy<K, I, F>,
     index: usize,
     first: Option<I::Item>,
 }
@@ -481,7 +476,7 @@ where
 
 /// `ChunkLazy` is the storage for a lazy chunking operation.
 ///
-/// `IntoChunks` behaves just like `ChunkBy`: it is iterable, and
+/// `IntoChunks` behaves just like `GroupBy`: it is iterable, and
 /// it only buffers if several chunk iterators are alive at the same time.
 ///
 /// This type implements [`IntoIterator`] (it is **not** an iterator

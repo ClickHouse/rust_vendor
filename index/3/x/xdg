@@ -1,0 +1,1 @@
+{"name":"xdg","vers":"2.5.2","deps":[{"name":"serde","req":"^1.0","features":["derive"],"optional":true,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"213b7324336b53d2414b2db8537e56544d981803139155afa84f76eeebb7a546","features":{"serde":["dep:serde"]},"yanked":false}

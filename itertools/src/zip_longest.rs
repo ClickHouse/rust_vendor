@@ -8,7 +8,6 @@ use crate::either_or_both::EitherOrBoth;
 // and dedicated to itertools https://github.com/rust-lang/rust/pull/19283
 
 /// An iterator which iterates two other iterators simultaneously
-/// and wraps the elements in [`EitherOrBoth`].
 ///
 /// This iterator is *fused*.
 ///

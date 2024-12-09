@@ -1,0 +1,1 @@
+{"name":"httparse","vers":"1.9.5","deps":[{"name":"criterion","req":"^0.3.5","features":[],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"7d71d3574edd2771538b901e6549113b4006ece66150fb69c0fb6d9a2adae946","features":{"default":["std"],"std":[]},"yanked":false}
