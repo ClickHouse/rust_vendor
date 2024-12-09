@@ -13,8 +13,7 @@
 edition = "2018"
 rust-version = "1.65"
 name = "object"
-version = "0.36.5"
-build = false
+version = "0.36.2"
 include = [
     "/Cargo.toml",
     "/CHANGELOG.md",
@@ -24,10 +23,6 @@ include = [
     "/src",
     "/tests",
 ]
-autobins = false
-autoexamples = false
-autotests = false
-autobenches = false
 description = "A unified interface for reading and writing object file formats."
 readme = "README.md"
 keywords = [
@@ -43,18 +38,6 @@ resolver = "2"
 
 [package.metadata.docs.rs]
 features = ["doc"]
-
-[lib]
-name = "object"
-path = "src/lib.rs"
-
-[[test]]
-name = "integration"
-path = "tests/integration.rs"
-
-[[test]]
-name = "parse_self"
-path = "tests/parse_self.rs"
 
 [dependencies.alloc]
 version = "1.0.0"
@@ -80,8 +63,8 @@ version = "1"
 optional = true
 
 [dependencies.hashbrown]
-version = "0.15.0"
-features = ["default-hasher"]
+version = "0.14.0"
+features = ["ahash"]
 optional = true
 default-features = false
 
@@ -99,7 +82,7 @@ version = "0.7.0"
 optional = true
 
 [dependencies.wasmparser]
-version = "0.218.0"
+version = "0.214.0"
 optional = true
 default-features = false
 

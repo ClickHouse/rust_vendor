@@ -14,7 +14,7 @@ intrinsics! {
         not(feature = "no-asm")
     ))]
     pub unsafe extern "C" fn ___chkstk_ms() {
-        core::arch::naked_asm!(
+        core::arch::asm!(
             "push   %rcx",
             "push   %rax",
             "cmp    $0x1000,%rax",
@@ -32,7 +32,7 @@ intrinsics! {
             "pop    %rax",
             "pop    %rcx",
             "ret",
-            options(att_syntax)
+            options(noreturn, att_syntax)
         );
     }
 }

@@ -489,7 +489,7 @@ impl<'a> Object<'a> {
         &mut self,
         symbol_id: SymbolId,
         section: SectionId,
-        #[cfg_attr(not(feature = "macho"), allow(unused_mut))] mut data: &[u8],
+        mut data: &[u8],
         align: u64,
     ) -> u64 {
         #[cfg(feature = "macho")]
@@ -517,7 +517,7 @@ impl<'a> Object<'a> {
         &mut self,
         symbol_id: SymbolId,
         section: SectionId,
-        #[cfg_attr(not(feature = "macho"), allow(unused_mut))] mut size: u64,
+        mut size: u64,
         align: u64,
     ) -> u64 {
         #[cfg(feature = "macho")]

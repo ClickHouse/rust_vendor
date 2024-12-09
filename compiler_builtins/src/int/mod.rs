@@ -83,7 +83,6 @@ pub(crate) trait Int: MinInt
 
     fn unsigned(self) -> Self::UnsignedInt;
     fn from_unsigned(unsigned: Self::UnsignedInt) -> Self;
-    fn unsigned_abs(self) -> Self::UnsignedInt;
 
     fn from_bool(b: bool) -> Self;
 
@@ -179,6 +178,7 @@ macro_rules! int_impl_common {
         fn wrapping_mul(self, other: Self) -> Self {
             <Self>::wrapping_mul(self, other)
         }
+
         fn wrapping_sub(self, other: Self) -> Self {
             <Self>::wrapping_sub(self, other)
         }
@@ -235,10 +235,6 @@ macro_rules! int_impl {
                 me
             }
 
-            fn unsigned_abs(self) -> Self {
-                self
-            }
-
             fn abs_diff(self, other: Self) -> Self {
                 if self < other {
                     other.wrapping_sub(self)
@@ -270,10 +266,6 @@ macro_rules! int_impl {
 
             fn from_unsigned(me: $uty) -> Self {
                 me as $ity
-            }
-
-            fn unsigned_abs(self) -> Self::UnsignedInt {
-                self.unsigned_abs()
             }
 
             fn abs_diff(self, other: Self) -> $uty {
@@ -321,17 +313,15 @@ pub(crate) trait HInt: Int {
     /// Integer that is double the bit width of the integer this trait is implemented for
     type D: DInt<H = Self> + MinInt;
 
-    // NB: some of the below methods could have default implementations (e.g. `widen_hi`), but for
-    // unknown reasons this can cause infinite recursion when optimizations are disabled. See
-    // <https://github.com/rust-lang/compiler-builtins/pull/707> for context.
-
     /// Widens (using default extension) the integer to have double bit width
     fn widen(self) -> Self::D;
     /// Widens (zero extension only) the integer to have double bit width. This is needed to get
     /// around problems with associated type bounds (such as `Int<Othersign: DInt>`) being unstable
     fn zero_widen(self) -> Self::D;
     /// Widens the integer to have double bit width and shifts the integer into the higher bits
-    fn widen_hi(self) -> Self::D;
+    fn widen_hi(self) -> Self::D {
+        self.widen() << <Self as MinInt>::BITS
+    }
     /// Widening multiplication with zero widening. This cannot overflow.
     fn zero_widen_mul(self, rhs: Self) -> Self::D;
     /// Widening multiplication. This cannot overflow.
@@ -373,9 +363,6 @@ macro_rules! impl_h_int {
                 }
                 fn widen_mul(self, rhs: Self) -> Self::D {
                     self.widen().wrapping_mul(rhs.widen())
-                }
-                fn widen_hi(self) -> Self::D {
-                    (self as $X) << <Self as MinInt>::BITS
                 }
             }
         )*

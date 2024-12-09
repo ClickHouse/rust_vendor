@@ -1,6 +1,6 @@
 use crate::Dlmalloc;
 use core::alloc::{GlobalAlloc, Layout};
-use core::ptr;
+use core::ops::{Deref, DerefMut};
 
 pub use crate::sys::enable_alloc_after_fork;
 
@@ -10,47 +10,52 @@ pub use crate::sys::enable_alloc_after_fork;
 /// implements the `GlobalAlloc` trait in the standard library.
 pub struct GlobalDlmalloc;
 
-static mut DLMALLOC: Dlmalloc = Dlmalloc::new();
-
 unsafe impl GlobalAlloc for GlobalDlmalloc {
     #[inline]
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        let _guard = lock();
-        let dlmalloc = ptr::addr_of_mut!(DLMALLOC);
-        (*dlmalloc).malloc(layout.size(), layout.align())
+        <Dlmalloc>::malloc(&mut get(), layout.size(), layout.align())
     }
 
     #[inline]
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        let _guard = lock();
-        let dlmalloc = ptr::addr_of_mut!(DLMALLOC);
-        (*dlmalloc).free(ptr, layout.size(), layout.align())
+        <Dlmalloc>::free(&mut get(), ptr, layout.size(), layout.align())
     }
 
     #[inline]
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let _guard = lock();
-        let dlmalloc = ptr::addr_of_mut!(DLMALLOC);
-        (*dlmalloc).calloc(layout.size(), layout.align())
+        <Dlmalloc>::calloc(&mut get(), layout.size(), layout.align())
     }
 
     #[inline]
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
-        let _guard = lock();
-        let dlmalloc = ptr::addr_of_mut!(DLMALLOC);
-        (*dlmalloc).realloc(ptr, layout.size(), layout.align(), new_size)
+        <Dlmalloc>::realloc(&mut get(), ptr, layout.size(), layout.align(), new_size)
     }
 }
 
-unsafe fn lock() -> impl Drop {
+static mut DLMALLOC: Dlmalloc = Dlmalloc::new();
+
+struct Instance;
+
+unsafe fn get() -> Instance {
     crate::sys::acquire_global_lock();
+    Instance
+}
 
-    struct Guard;
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            crate::sys::release_global_lock()
-        }
+impl Deref for Instance {
+    type Target = Dlmalloc;
+    fn deref(&self) -> &Dlmalloc {
+        unsafe { &DLMALLOC }
     }
+}
 
-    Guard
+impl DerefMut for Instance {
+    fn deref_mut(&mut self) -> &mut Dlmalloc {
+        unsafe { &mut DLMALLOC }
+    }
+}
+
+impl Drop for Instance {
+    fn drop(&mut self) {
+        crate::sys::release_global_lock()
+    }
 }

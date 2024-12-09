@@ -1,3 +1,4 @@
+use core::arch::asm;
 use core::fmt;
 use core::ops;
 use gimli::{Register, X86};
@@ -58,10 +59,9 @@ impl ops::IndexMut<gimli::Register> for Context {
 pub extern "C-unwind" fn save_context(f: extern "C" fn(&mut Context, *mut ()), ptr: *mut ()) {
     // No need to save caller-saved registers here.
     unsafe {
-        core::arch::naked_asm!(
+        asm!(
             "
             sub esp, 52
-            .cfi_def_cfa_offset 56
 
             mov [esp + 4], ecx
             mov [esp + 8], edx
@@ -85,23 +85,24 @@ pub extern "C-unwind" fn save_context(f: extern "C" fn(&mut Context, *mut ()), p
             mov eax, [esp + 60]
             mov ecx, esp
             push eax
-            .cfi_adjust_cfa_offset 4
             push ecx
-            .cfi_adjust_cfa_offset 4
             call [esp + 64]
 
             add esp, 60
-            .cfi_def_cfa_offset 4
             ret
             ",
+            options(noreturn)
         );
     }
 }
 
-pub unsafe fn restore_context(ctx: &Context) -> ! {
+#[naked]
+pub unsafe extern "C" fn restore_context(ctx: &Context) -> ! {
     unsafe {
-        core::arch::asm!(
+        asm!(
             "
+            mov edx, [esp + 4]
+
             /* Restore stack */
             mov esp, [edx + 16]
 
@@ -129,7 +130,6 @@ pub unsafe fn restore_context(ctx: &Context) -> ! {
 
             ret
             ",
-            in("edx") ctx,
             options(noreturn)
         );
     }
