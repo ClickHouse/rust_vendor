@@ -2,6 +2,7 @@
 //!
 
 use std::cmp;
+use std::usize;
 
 /// `SizeHint` is the return type of `Iterator::size_hint()`.
 pub type SizeHint = (usize, Option<usize>);

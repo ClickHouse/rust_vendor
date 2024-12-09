@@ -1,0 +1,1 @@
+{"name":"zerofrom","vers":"0.1.5","deps":[{"name":"zerofrom-derive","req":"^0.1.3","features":[],"optional":true,"default_features":false,"target":null,"kind":null,"package":null}],"cksum":"cff3ee08c995dee1859d998dea82f7374f2826091dd9cd47def953cae446cd2e","features":{"alloc":[],"default":["alloc"],"derive":["dep:zerofrom-derive"]},"yanked":false}

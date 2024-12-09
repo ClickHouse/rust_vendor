@@ -1,17 +1,15 @@
-#![allow(unstable_name_collisions, clippy::incompatible_msrv)]
+#![allow(unstable_name_collisions)]
 
 use criterion::black_box;
-use criterion::BenchmarkId;
+use itertools::iproduct;
 use itertools::Itertools;
-
-const NTH_INPUTS: &[usize] = &[0, 1, 2, 4, 8];
 
 /// Create multiple functions each defining a benchmark group about iterator methods.
 ///
 /// Each created group has functions with the following ids:
 ///
 /// - `next`, `size_hint`, `count`, `last`, `nth`, `collect`, `fold`
-/// - and when marked as `DoubleEndedIterator`: `next_back`, `nth_back`, `rfold`
+/// - and when marked as `DoubleEndedIterator`: `next_back`, `rfold`
 /// - and when marked as `ExactSizeIterator`: `len`
 ///
 /// Note that this macro can be called only once.
@@ -75,19 +73,19 @@ macro_rules! bench_specializations {
         $group.bench_function("last", |bencher| bencher.iter(|| {
             $iterator.last()
         }));
-        for n in NTH_INPUTS {
-            $group.bench_with_input(BenchmarkId::new("nth", n), n, |bencher, n| bencher.iter(|| {
-                for start in 0_usize..10 {
+        $group.bench_function("nth", |bencher| bencher.iter(|| {
+            for start in 0_usize..10 {
+                for n in 0..10 {
                     let mut it = $iterator;
                     if let Some(s) = start.checked_sub(1) {
                         black_box(it.nth(s));
                     }
-                    while let Some(x) = it.nth(*n) {
+                    while let Some(x) = it.nth(n) {
                         black_box(x);
                     }
                 }
-            }));
-        }
+            }
+        }));
         $group.bench_function("collect", |bencher| bencher.iter(|| {
             $iterator.collect::<Vec<_>>()
         }));
@@ -105,19 +103,19 @@ macro_rules! bench_specializations {
                 black_box(x);
             }
         }));
-        for n in NTH_INPUTS {
-            $group.bench_with_input(BenchmarkId::new("nth_back", n), n, |bencher, n| bencher.iter(|| {
-                for start in 0_usize..10 {
+        $group.bench_function("nth_back", |bencher| bencher.iter(|| {
+            for start in 0_usize..10 {
+                for n in 0..10 {
                     let mut it = $iterator;
                     if let Some(s) = start.checked_sub(1) {
                         black_box(it.nth_back(s));
                     }
-                    while let Some(x) = it.nth_back(*n) {
+                    while let Some(x) = it.nth_back(n) {
                         black_box(x);
                     }
                 }
-            }));
-        }
+            }
+        }));
         $group.bench_function("rfold", |bencher| bencher.iter(|| {
             $iterator.rfold((), |(), x| {
                 black_box(x);
@@ -134,11 +132,8 @@ macro_rules! bench_specializations {
     };
 }
 
-// Usage examples:
-// - For `ZipLongest::fold` only:
+// Example: To bench only `ZipLongest::fold`, you can do
 //     cargo bench --bench specializations zip_longest/fold
-// - For `.combinations(k).nth(8)`:
-//     cargo bench --bench specializations combinations./nth/8
 bench_specializations! {
     interleave {
         {
@@ -260,7 +255,7 @@ bench_specializations! {
         {
             let v = black_box(vec![0; 16]);
         }
-        itertools::iproduct!(&v, &v, &v)
+        iproduct!(&v, &v, &v)
     }
     multi_cartesian_product {
         {
@@ -582,29 +577,29 @@ bench_specializations! {
     }
     merge {
         {
-            let v1 = black_box((0..1024).collect_vec());
-            let v2 = black_box((0..768).collect_vec());
+            let v1 = black_box(vec![0; 1024]);
+            let v2 = black_box(vec![0; 768]);
         }
         v1.iter().merge(&v2)
     }
     merge_by {
         {
-            let v1 = black_box((0..1024).collect_vec());
-            let v2 = black_box((0..768).collect_vec());
+            let v1 = black_box(vec![0; 1024]);
+            let v2 = black_box(vec![0; 768]);
         }
         v1.iter().merge_by(&v2, PartialOrd::ge)
     }
     merge_join_by_ordering {
         {
-            let v1 = black_box((0..1024).collect_vec());
-            let v2 = black_box((0..768).collect_vec());
+            let v1 = black_box(vec![0; 1024]);
+            let v2 = black_box(vec![0; 768]);
         }
         v1.iter().merge_join_by(&v2, Ord::cmp)
     }
     merge_join_by_bool {
         {
-            let v1 = black_box((0..1024).collect_vec());
-            let v2 = black_box((0..768).collect_vec());
+            let v1 = black_box(vec![0; 1024]);
+            let v2 = black_box(vec![0; 768]);
         }
         v1.iter().merge_join_by(&v2, PartialOrd::ge)
     }

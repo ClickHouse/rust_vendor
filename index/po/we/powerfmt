@@ -1,1 +1,0 @@
-{"name":"powerfmt","vers":"0.2.0","deps":[{"name":"powerfmt-macros","req":"=0.1.0","features":[],"optional":true,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391","features":{"alloc":[],"default":["macros","std"],"macros":["dep:powerfmt-macros"],"std":["alloc"]},"yanked":false}

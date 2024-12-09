@@ -1,1 +1,0 @@
-{"name":"windows-core","vers":"0.52.0","deps":[{"name":"windows-targets","req":"^0.52.0","features":[],"optional":false,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"33ab640c8d7e35bf8ba19b884ba838ceb4fba93a4e8c65a9059d08afcfc683d9","features":{"default":[],"implement":[]},"yanked":false}
