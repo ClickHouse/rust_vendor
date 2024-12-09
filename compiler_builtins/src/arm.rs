@@ -23,7 +23,7 @@ intrinsics! {
     #[naked]
     #[cfg(not(target_env = "msvc"))]
     pub unsafe extern "C" fn __aeabi_uidivmod() {
-        core::arch::naked_asm!(
+        core::arch::asm!(
             "push {{lr}}",
             "sub sp, sp, #4",
             "mov r2, sp",
@@ -31,12 +31,13 @@ intrinsics! {
             "ldr r1, [sp]",
             "add sp, sp, #4",
             "pop {{pc}}",
+            options(noreturn)
         );
     }
 
     #[naked]
     pub unsafe extern "C" fn __aeabi_uldivmod() {
-        core::arch::naked_asm!(
+        core::arch::asm!(
             "push {{r4, lr}}",
             "sub sp, sp, #16",
             "add r4, sp, #8",
@@ -46,24 +47,26 @@ intrinsics! {
             "ldr r3, [sp, #12]",
             "add sp, sp, #16",
             "pop {{r4, pc}}",
+            options(noreturn)
         );
     }
 
     #[naked]
     pub unsafe extern "C" fn __aeabi_idivmod() {
-        core::arch::naked_asm!(
+        core::arch::asm!(
             "push {{r0, r1, r4, lr}}",
             bl!("__aeabi_idiv"),
             "pop {{r1, r2}}",
             "muls r2, r2, r0",
             "subs r1, r1, r2",
             "pop {{r4, pc}}",
+            options(noreturn)
         );
     }
 
     #[naked]
     pub unsafe extern "C" fn __aeabi_ldivmod() {
-        core::arch::naked_asm!(
+        core::arch::asm!(
             "push {{r4, lr}}",
             "sub sp, sp, #16",
             "add r4, sp, #8",
@@ -73,6 +76,7 @@ intrinsics! {
             "ldr r3, [sp, #12]",
             "add sp, sp, #16",
             "pop {{r4, pc}}",
+            options(noreturn)
         );
     }
 

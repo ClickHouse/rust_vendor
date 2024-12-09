@@ -89,8 +89,8 @@ to test against, located in a directory called `compiler-rt`. This can be
 obtained with the following:
 
 ```sh
-curl -L -o rustc-llvm-19.1.tar.gz https://github.com/rust-lang/llvm-project/archive/rustc/19.1-2024-09-17.tar.gz
-tar xzf rustc-llvm-19.1.tar.gz --strip-components 1 llvm-project-rustc-19.1-2024-09-17/compiler-rt
+curl -L -o rustc-llvm-18.0.tar.gz https://github.com/rust-lang/llvm-project/archive/rustc/18.0-2024-02-13.tar.gz
+tar xzf rustc-llvm-18.0.tar.gz --strip-components 1 llvm-project-rustc-18.0-2024-02-13/compiler-rt
 ```
 
 Local targets may also be tested with `./ci/run.sh [target]`.
@@ -103,7 +103,9 @@ rely on CI.
 - [x] aarch64/chkstk.S
 - [x] adddf3.c
 - [x] addsf3.c
+- [x] arm/adddf3vfp.S
 - [x] arm/addsf3.S
+- [x] arm/addsf3vfp.S
 - [x] arm/aeabi_dcmp.S
 - [x] arm/aeabi_fcmp.S
 - [x] arm/aeabi_idivmod.S
@@ -114,13 +116,45 @@ rely on CI.
 - [x] arm/aeabi_uidivmod.S
 - [x] arm/aeabi_uldivmod.S
 - [ ] arm/chkstk.S
+- [x] arm/divdf3vfp.S
 - [ ] arm/divmodsi4.S (generic version is done)
+- [x] arm/divsf3vfp.S
 - [ ] arm/divsi3.S (generic version is done)
+- [x] arm/eqdf2vfp.S
+- [x] arm/eqsf2vfp.S
+- [x] arm/extendsfdf2vfp.S
+- [ ] arm/fixdfsivfp.S
+- [ ] arm/fixsfsivfp.S
+- [ ] arm/fixunsdfsivfp.S
+- [ ] arm/fixunssfsivfp.S
+- [ ] arm/floatsidfvfp.S
+- [ ] arm/floatsisfvfp.S
+- [ ] arm/floatunssidfvfp.S
+- [ ] arm/floatunssisfvfp.S
+- [x] arm/gedf2vfp.S
+- [x] arm/gesf2vfp.S
+- [x] arm/gtdf2vfp.S
+- [x] arm/gtsf2vfp.S
+- [x] arm/ledf2vfp.S
+- [x] arm/lesf2vfp.S
+- [x] arm/ltdf2vfp.S
+- [x] arm/ltsf2vfp.S
 - [ ] arm/modsi3.S (generic version is done)
+- [x] arm/muldf3vfp.S
+- [x] arm/mulsf3vfp.S
+- [x] arm/nedf2vfp.S
+- [ ] arm/negdf2vfp.S
+- [ ] arm/negsf2vfp.S
+- [x] arm/nesf2vfp.S
 - [x] arm/softfloat-alias.list
+- [x] arm/subdf3vfp.S
+- [x] arm/subsf3vfp.S
+- [x] arm/truncdfsf2vfp.S
 - [ ] arm/udivmodsi4.S (generic version is done)
 - [ ] arm/udivsi3.S (generic version is done)
 - [ ] arm/umodsi3.S (generic version is done)
+- [ ] arm/unorddf2vfp.S
+- [ ] arm/unordsf2vfp.S
 - [x] ashldi3.c
 - [x] ashrdi3.c
 - [ ] avr/divmodhi4.S
@@ -222,7 +256,7 @@ of being added to Rust.
 
 - [x] addtf3.c
 - [x] comparetf2.c
-- [x] divtf3.c
+- [ ] divtf3.c
 - [x] extenddftf2.c
 - [x] extendhfsf2.c
 - [x] extendhftf2.c
@@ -233,14 +267,14 @@ of being added to Rust.
 - [x] fixunstfdi.c
 - [x] fixunstfsi.c
 - [x] fixunstfti.c
-- [x] floatditf.c
-- [x] floatsitf.c
-- [x] floattitf.c
-- [x] floatunditf.c
-- [x] floatunsitf.c
-- [x] floatuntitf.c
+- [ ] floatditf.c
+- [ ] floatsitf.c
+- [ ] floattitf.c
+- [ ] floatunditf.c
+- [ ] floatunsitf.c
+- [ ] floatuntitf.c
 - [x] multf3.c
-- [x] powitf2.c
+- [ ] powitf2.c
 - [x] subtf3.c
 - [x] truncdfhf2.c
 - [x] truncsfhf2.c
@@ -466,43 +500,6 @@ Floating-point implementations of builtins that are only called from soft-float 
 - ~~x86_64/floatundisf.S~~
 - ~~x86_64/floatdidf.c~~
 - ~~x86_64/floatdisf.c~~
-
-Unsupported in any current target: used on old versions of 32-bit iOS with ARMv5.
-
-- ~~arm/adddf3vfp.S~~
-- ~~arm/addsf3vfp.S~~
-- ~~arm/divdf3vfp.S~~
-- ~~arm/divsf3vfp.S~~
-- ~~arm/eqdf2vfp.S~~
-- ~~arm/eqsf2vfp.S~~
-- ~~arm/extendsfdf2vfp.S~~
-- ~~arm/fixdfsivfp.S~~
-- ~~arm/fixsfsivfp.S~~
-- ~~arm/fixunsdfsivfp.S~~
-- ~~arm/fixunssfsivfp.S~~
-- ~~arm/floatsidfvfp.S~~
-- ~~arm/floatsisfvfp.S~~
-- ~~arm/floatunssidfvfp.S~~
-- ~~arm/floatunssisfvfp.S~~
-- ~~arm/gedf2vfp.S~~
-- ~~arm/gesf2vfp.S~~
-- ~~arm/gtdf2vfp.S~~
-- ~~arm/gtsf2vfp.S~~
-- ~~arm/ledf2vfp.S~~
-- ~~arm/lesf2vfp.S~~
-- ~~arm/ltdf2vfp.S~~
-- ~~arm/ltsf2vfp.S~~
-- ~~arm/muldf3vfp.S~~
-- ~~arm/mulsf3vfp.S~~
-- ~~arm/nedf2vfp.S~~
-- ~~arm/negdf2vfp.S~~
-- ~~arm/negsf2vfp.S~~
-- ~~arm/nesf2vfp.S~~
-- ~~arm/subdf3vfp.S~~
-- ~~arm/subsf3vfp.S~~
-- ~~arm/truncdfsf2vfp.S~~
-- ~~arm/unorddf2vfp.S~~
-- ~~arm/unordsf2vfp.S~~
 
 ## License
 

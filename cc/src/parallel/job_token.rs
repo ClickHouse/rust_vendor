@@ -1,6 +1,8 @@
 use std::marker::PhantomData;
 
-use crate::{utilities::OnceLock, Error};
+use crate::Error;
+
+use once_cell::sync::OnceCell;
 
 pub(crate) struct JobToken(PhantomData<()>);
 
@@ -35,7 +37,7 @@ impl JobTokenServer {
     ///    compilation.
     fn new() -> &'static Self {
         // TODO: Replace with a OnceLock once MSRV is 1.70
-        static JOBSERVER: OnceLock<JobTokenServer> = OnceLock::new();
+        static JOBSERVER: OnceCell<JobTokenServer> = OnceCell::new();
 
         JOBSERVER.get_or_init(|| {
             unsafe { inherited_jobserver::JobServer::from_env() }
@@ -60,8 +62,8 @@ impl ActiveJobTokenServer {
         }
     }
 
-    pub(crate) async fn acquire(&mut self) -> Result<JobToken, Error> {
-        match self {
+    pub(crate) async fn acquire(&self) -> Result<JobToken, Error> {
+        match &self {
             Self::Inherited(jobserver) => jobserver.acquire().await,
             Self::InProcess(jobserver) => Ok(jobserver.acquire().await),
         }
@@ -69,7 +71,7 @@ impl ActiveJobTokenServer {
 }
 
 mod inherited_jobserver {
-    use super::JobToken;
+    use super::{JobToken, OnceCell};
 
     use crate::{parallel::async_executor::YieldOnce, Error, ErrorKind};
 
@@ -135,7 +137,7 @@ mod inherited_jobserver {
         pub(super) fn enter_active(&self) -> ActiveJobServer<'_> {
             ActiveJobServer {
                 jobserver: self,
-                helper_thread: None,
+                helper_thread: OnceCell::new(),
             }
         }
     }
@@ -161,11 +163,11 @@ mod inherited_jobserver {
 
     pub(crate) struct ActiveJobServer<'a> {
         jobserver: &'a JobServer,
-        helper_thread: Option<HelperThread>,
+        helper_thread: OnceCell<HelperThread>,
     }
 
     impl<'a> ActiveJobServer<'a> {
-        pub(super) async fn acquire(&mut self) -> Result<JobToken, Error> {
+        pub(super) async fn acquire(&self) -> Result<JobToken, Error> {
             let mut has_requested_token = false;
 
             loop {
@@ -182,12 +184,9 @@ mod inherited_jobserver {
                     Ok(None) => YieldOnce::default().await,
                     Err(err) if err.kind() == io::ErrorKind::Unsupported => {
                         // Fallback to creating a help thread with blocking acquire
-                        let helper_thread = if let Some(thread) = self.helper_thread.as_ref() {
-                            thread
-                        } else {
-                            self.helper_thread
-                                .insert(HelperThread::new(self.jobserver)?)
-                        };
+                        let helper_thread = self
+                            .helper_thread
+                            .get_or_try_init(|| HelperThread::new(&self.jobserver))?;
 
                         match helper_thread.rx.try_recv() {
                             Ok(res) => {

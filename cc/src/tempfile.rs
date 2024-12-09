@@ -1,5 +1,3 @@
-#![cfg_attr(target_family = "wasm", allow(unused))]
-
 use std::{
     collections::hash_map::RandomState,
     fs::{remove_file, File, OpenOptions},
@@ -8,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-#[cfg(not(any(unix, target_family = "wasm", windows)))]
+#[cfg(not(any(unix, target_os = "wasi", windows)))]
 compile_error!("Your system is not supported since cc cannot create named tempfile");
 
 fn rand() -> u64 {
@@ -71,8 +69,8 @@ impl NamedTempfile {
         &self.path
     }
 
-    pub(super) fn take_file(&mut self) -> Option<File> {
-        self.file.take()
+    pub(super) fn file(&self) -> &File {
+        self.file.as_ref().unwrap()
     }
 }
 

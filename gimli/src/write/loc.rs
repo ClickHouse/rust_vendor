@@ -43,17 +43,6 @@ impl LocationListTable {
         LocationListId::new(self.base_id, index)
     }
 
-    /// Get a reference to a location list.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `id` is invalid.
-    #[inline]
-    pub fn get(&self, id: LocationListId) -> &LocationList {
-        debug_assert_eq!(self.base_id, id.base_id);
-        &self.locations[id.index]
-    }
-
     /// Write the location list table to the appropriate section for the given DWARF version.
     pub(crate) fn write<W: Writer>(
         &self,
@@ -316,7 +305,7 @@ mod convert {
         /// Create a location list by reading the data from the give location list iter.
         pub(crate) fn from<R: Reader<Offset = usize>>(
             mut from: read::RawLocListIter<R>,
-            context: &ConvertUnitContext<'_, R>,
+            context: &ConvertUnitContext<R>,
         ) -> ConvertResult<Self> {
             let mut have_base_address = context.base_address != Address::Constant(0);
             let convert_address =

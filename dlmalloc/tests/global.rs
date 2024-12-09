@@ -26,7 +26,6 @@ fn strings() {
 }
 
 #[test]
-#[cfg(not(target_family = "wasm"))]
 fn threads() {
     assert!(thread::spawn(|| panic!()).join().is_err());
 }
