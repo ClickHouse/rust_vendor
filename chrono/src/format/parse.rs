@@ -6,7 +6,6 @@
 
 use core::borrow::Borrow;
 use core::str;
-use core::usize;
 
 use super::scan;
 use super::{Fixed, InternalFixed, InternalInternal, Item, Numeric, Pad, Parsed};
@@ -509,7 +508,7 @@ where
 }
 
 /// Accepts a relaxed form of RFC3339.
-/// A space or a 'T' are acepted as the separator between the date and time
+/// A space or a 'T' are accepted as the separator between the date and time
 /// parts. Additional spaces are allowed between each component.
 ///
 /// All of these examples are equivalent:

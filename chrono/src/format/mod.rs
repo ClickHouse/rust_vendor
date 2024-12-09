@@ -366,7 +366,7 @@ const fn internal_fixed(val: InternalInternal) -> Item<'static> {
     Item::Fixed(Fixed::Internal(InternalFixed { val }))
 }
 
-impl<'a> Item<'a> {
+impl Item<'_> {
     /// Convert items that contain a reference to the format string into an owned variant.
     #[cfg(any(feature = "alloc", feature = "std"))]
     pub fn to_owned(self) -> Item<'static> {
@@ -422,7 +422,7 @@ pub enum ParseErrorKind {
     /// All formatting items have been read but there is a remaining input.
     TooLong,
 
-    /// There was an error on the formatting string, or there were non-supported formating items.
+    /// There was an error on the formatting string, or there were non-supported formatting items.
     BadFormat,
 
     // TODO: Change this to `#[non_exhaustive]` (on the enum) with the next breaking release.

@@ -128,7 +128,7 @@ fn _which<T: AsRef<OsStr>>(f: &TestFixture, path: T) -> which::Result<which::Can
 fn _which_all<'a, T: AsRef<OsStr> + 'a>(
     f: &'a TestFixture,
     path: T,
-) -> which::Result<impl Iterator<Item = which::Result<which::CanonicalPath>> + '_> {
+) -> which::Result<impl Iterator<Item = which::Result<which::CanonicalPath>> + 'a> {
     which::CanonicalPath::all_in(path, Some(f.paths.clone()), f.tempdir.path())
 }
 
@@ -448,4 +448,21 @@ fn test_failure() {
     };
 
     let _ = run();
+}
+
+#[test]
+#[cfg(windows)]
+fn windows_no_extension_but_executable() {
+    let this_executable = std::env::current_exe().unwrap();
+    let new_name = this_executable.parent().unwrap().join("test_executable");
+    std::fs::copy(&this_executable, &new_name).unwrap();
+    let found_executable = which::which_in_global(
+        new_name.file_name().unwrap(),
+        Some(this_executable.parent().unwrap()),
+    )
+    .unwrap()
+    .next()
+    .unwrap();
+    assert_eq!(found_executable, new_name);
+    std::fs::remove_file(new_name).unwrap();
 }

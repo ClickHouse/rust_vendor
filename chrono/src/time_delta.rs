@@ -10,9 +10,9 @@
 
 //! Temporal quantification
 
+use core::fmt;
 use core::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 use core::time::Duration;
-use core::{fmt, i64};
 #[cfg(feature = "std")]
 use std::error::Error;
 
@@ -281,6 +281,7 @@ impl TimeDelta {
     }
 
     /// Returns the total number of whole days in the `TimeDelta`.
+    #[inline]
     pub const fn num_days(&self) -> i64 {
         self.num_seconds() / SECS_PER_DAY
     }
@@ -417,12 +418,14 @@ impl TimeDelta {
     }
 
     /// The minimum possible `TimeDelta`: `-i64::MAX` milliseconds.
+    #[deprecated(since = "0.4.39", note = "Use `TimeDelta::MIN` instead")]
     #[inline]
     pub const fn min_value() -> TimeDelta {
         MIN
     }
 
     /// The maximum possible `TimeDelta`: `i64::MAX` milliseconds.
+    #[deprecated(since = "0.4.39", note = "Use `TimeDelta::MAX` instead")]
     #[inline]
     pub const fn max_value() -> TimeDelta {
         MAX
@@ -474,6 +477,12 @@ impl TimeDelta {
         };
         TimeDelta { secs: -self.secs - secs_diff, nanos }
     }
+
+    /// The minimum possible `TimeDelta`: `-i64::MAX` milliseconds.
+    pub const MIN: Self = MIN;
+
+    /// The maximum possible `TimeDelta`: `i64::MAX` milliseconds.
+    pub const MAX: Self = MAX;
 }
 
 impl Neg for TimeDelta {
@@ -626,6 +635,47 @@ impl arbitrary::Arbitrary<'_> for TimeDelta {
             Err(arbitrary::Error::IncorrectFormat)
         } else {
             Ok(duration)
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde {
+    use super::TimeDelta;
+    use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
+
+    impl Serialize for TimeDelta {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            <(i64, i32) as Serialize>::serialize(&(self.secs, self.nanos), serializer)
+        }
+    }
+
+    impl<'de> Deserialize<'de> for TimeDelta {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            let (secs, nanos) = <(i64, i32) as Deserialize>::deserialize(deserializer)?;
+            TimeDelta::new(secs, nanos as u32).ok_or(Error::custom("TimeDelta out of bounds"))
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{super::MAX, TimeDelta};
+
+        #[test]
+        fn test_serde() {
+            let duration = TimeDelta::new(123, 456).unwrap();
+            assert_eq!(
+                serde_json::from_value::<TimeDelta>(serde_json::to_value(duration).unwrap())
+                    .unwrap(),
+                duration
+            );
+        }
+
+        #[test]
+        #[should_panic(expected = "TimeDelta out of bounds")]
+        fn test_serde_oob_panic() {
+            let _ =
+                serde_json::from_value::<TimeDelta>(serde_json::json!([MAX.secs + 1, 0])).unwrap();
         }
     }
 }

@@ -8,6 +8,9 @@ use std::{cmp::Ordering, fmt, str};
 use super::rule::{AlternateTime, TransitionRule};
 use super::{parser, Error, DAYS_PER_WEEK, SECONDS_PER_DAY};
 
+#[cfg(target_env = "ohos")]
+use crate::offset::local::tz_info::parser::Cursor;
+
 /// Time zone
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub(crate) struct TimeZone {
@@ -48,6 +51,12 @@ impl TimeZone {
             if let Ok(bytes) = android_tzdata::find_tz_data(tz_string) {
                 return Self::from_tz_data(&bytes);
             }
+        }
+
+        // ohos merge all file into tzdata since ver35
+        #[cfg(target_env = "ohos")]
+        {
+            return Self::from_tz_data(&find_ohos_tz_data(tz_string)?);
         }
 
         let mut chars = tz_string.chars();
@@ -243,7 +252,7 @@ impl<'a> TimeZoneRef<'a> {
 
                 match transition_start.cmp(&transition_end) {
                     Ordering::Greater => {
-                        // bakwards transition, eg from DST to regular
+                        // backwards transition, eg from DST to regular
                         // this means a given local time could have one of two possible offsets
                         if local_leap_time < transition_end {
                             return Ok(crate::MappedLocalTime::Single(prev));
@@ -415,7 +424,7 @@ impl<'a> TimeZoneRef<'a> {
 
     /// Convert Unix leap time to Unix time, from the list of leap seconds in a time zone
     fn unix_leap_time_to_unix_time(&self, unix_leap_time: i64) -> Result<i64, Error> {
-        if unix_leap_time == i64::min_value() {
+        if unix_leap_time == i64::MIN {
             return Err(Error::OutOfRange("out of range operation"));
         }
 
@@ -572,7 +581,7 @@ pub(crate) struct LocalTimeType {
 impl LocalTimeType {
     /// Construct a local time type
     pub(super) fn new(ut_offset: i32, is_dst: bool, name: Option<&[u8]>) -> Result<Self, Error> {
-        if ut_offset == i32::min_value() {
+        if ut_offset == i32::MIN {
             return Err(Error::LocalTimeType("invalid UTC offset"));
         }
 
@@ -586,7 +595,7 @@ impl LocalTimeType {
 
     /// Construct a local time type with the specified UTC offset in seconds
     pub(super) const fn with_offset(ut_offset: i32) -> Result<Self, Error> {
-        if ut_offset == i32::min_value() {
+        if ut_offset == i32::MIN {
             return Err(Error::LocalTimeType("invalid UTC offset"));
         }
 
@@ -626,6 +635,58 @@ fn find_tz_file(path: impl AsRef<Path>) -> Result<File, Error> {
         }
 
         Err(Error::Io(io::ErrorKind::NotFound.into()))
+    }
+}
+
+#[cfg(target_env = "ohos")]
+fn from_tzdata_bytes(bytes: &mut Vec<u8>, tz_string: &str) -> Result<Vec<u8>, Error> {
+    const VERSION_SIZE: usize = 12;
+    const OFFSET_SIZE: usize = 4;
+    const INDEX_CHUNK_SIZE: usize = 48;
+    const ZONENAME_SIZE: usize = 40;
+
+    let mut cursor = Cursor::new(&bytes);
+    // version head
+    let _ = cursor.read_exact(VERSION_SIZE)?;
+    let index_offset_offset = cursor.read_be_u32()?;
+    let data_offset_offset = cursor.read_be_u32()?;
+    // final offset
+    let _ = cursor.read_be_u32()?;
+
+    cursor.seek_after(index_offset_offset as usize)?;
+    let mut idx = index_offset_offset;
+    while idx < data_offset_offset {
+        let index_buf = cursor.read_exact(ZONENAME_SIZE)?;
+        let offset = cursor.read_be_u32()?;
+        let length = cursor.read_be_u32()?;
+        let zone_name = str::from_utf8(index_buf)?.trim_end_matches('\0');
+        if zone_name != tz_string {
+            idx += INDEX_CHUNK_SIZE as u32;
+            continue;
+        }
+        cursor.seek_after((data_offset_offset + offset) as usize)?;
+        return match cursor.read_exact(length as usize) {
+            Ok(result) => Ok(result.to_vec()),
+            Err(_err) => Err(Error::InvalidTzFile("invalid ohos tzdata chunk")),
+        };
+    }
+
+    Err(Error::InvalidTzString("cannot find tz string within tzdata"))
+}
+
+#[cfg(target_env = "ohos")]
+fn from_tzdata_file(file: &mut File, tz_string: &str) -> Result<Vec<u8>, Error> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    from_tzdata_bytes(&mut bytes, tz_string)
+}
+
+#[cfg(target_env = "ohos")]
+fn find_ohos_tz_data(tz_string: &str) -> Result<Vec<u8>, Error> {
+    const TZDATA_PATH: &str = "/system/etc/zoneinfo/tzdata";
+    match File::open(TZDATA_PATH) {
+        Ok(mut file) => from_tzdata_file(&mut file, tz_string),
+        Err(err) => Err(err.into()),
     }
 }
 
@@ -818,7 +879,7 @@ mod tests {
         let time_zone_3 =
             TimeZone::new(vec![Transition::new(0, 0)], utc_local_time_types.clone(), vec![], None)?;
         let time_zone_4 = TimeZone::new(
-            vec![Transition::new(i32::min_value().into(), 0), Transition::new(0, 1)],
+            vec![Transition::new(i32::MIN.into(), 0), Transition::new(0, 1)],
             vec![utc, cet],
             Vec::new(),
             Some(fixed_extra_rule),
@@ -926,7 +987,7 @@ mod tests {
     #[test]
     fn test_leap_seconds_overflow() -> Result<(), Error> {
         let time_zone_err = TimeZone::new(
-            vec![Transition::new(i64::min_value(), 0)],
+            vec![Transition::new(i64::MIN, 0)],
             vec![LocalTimeType::UTC],
             vec![LeapSecond::new(0, 1)],
             Some(TransitionRule::from(LocalTimeType::UTC)),
@@ -934,13 +995,13 @@ mod tests {
         assert!(time_zone_err.is_err());
 
         let time_zone = TimeZone::new(
-            vec![Transition::new(i64::max_value(), 0)],
+            vec![Transition::new(i64::MAX, 0)],
             vec![LocalTimeType::UTC],
             vec![LeapSecond::new(0, 1)],
             None,
         )?;
         assert!(matches!(
-            time_zone.find_local_time_type(i64::max_value()),
+            time_zone.find_local_time_type(i64::MAX),
             Err(Error::FindLocalTimeType(_))
         ));
 

@@ -13,13 +13,19 @@
 edition = "2021"
 rust-version = "1.61.0"
 name = "chrono"
-version = "0.4.38"
+version = "0.4.39"
+build = false
 include = [
     "src/*",
     "tests/*.rs",
     "LICENSE.txt",
     "CITATION.cff",
 ]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Date and time library for Rust"
 homepage = "https://github.com/chronotope/chrono"
 documentation = "https://docs.rs/chrono/"
@@ -50,6 +56,19 @@ features = ["serde"]
 
 [lib]
 name = "chrono"
+path = "src/lib.rs"
+
+[[test]]
+name = "dateutils"
+path = "tests/dateutils.rs"
+
+[[test]]
+name = "wasm"
+path = "tests/wasm.rs"
+
+[[test]]
+name = "win_bindings"
+path = "tests/win_bindings.rs"
 
 [dependencies.arbitrary]
 version = "1.0.0"
@@ -127,18 +146,18 @@ wasmbind = [
 ]
 winapi = ["windows-targets"]
 
-[target."cfg(all(target_arch = \"wasm32\", not(any(target_os = \"emscripten\", target_os = \"wasi\"))))".dependencies.js-sys]
+[target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi"))))'.dependencies.js-sys]
 version = "0.3"
 optional = true
 
-[target."cfg(all(target_arch = \"wasm32\", not(any(target_os = \"emscripten\", target_os = \"wasi\"))))".dependencies.wasm-bindgen]
+[target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi"))))'.dependencies.wasm-bindgen]
 version = "0.2"
 optional = true
 
-[target."cfg(all(target_arch = \"wasm32\", not(any(target_os = \"emscripten\", target_os = \"wasi\"))))".dev-dependencies.wasm-bindgen-test]
+[target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi"))))'.dev-dependencies.wasm-bindgen-test]
 version = "0.3"
 
-[target."cfg(target_os = \"android\")".dependencies.android-tzdata]
+[target.'cfg(target_os = "android")'.dependencies.android-tzdata]
 version = "0.1.1"
 optional = true
 
@@ -152,4 +171,4 @@ version = "0.52"
 optional = true
 
 [target."cfg(windows)".dev-dependencies.windows-bindgen]
-version = "0.56"
+version = "0.58"

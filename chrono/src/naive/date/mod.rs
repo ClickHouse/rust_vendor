@@ -834,7 +834,7 @@ impl NaiveDate {
 
     /// Makes a new `NaiveDateTime` from the current date, hour, minute, second and microsecond.
     ///
-    /// The microsecond part is allowed to exceed 1,000,000,000 in order to represent a [leap second](
+    /// The microsecond part is allowed to exceed 1,000,000 in order to represent a [leap second](
     /// ./struct.NaiveTime.html#leap-second-handling), but only when `sec == 59`.
     ///
     /// # Errors
@@ -1136,7 +1136,7 @@ impl NaiveDate {
     ///
     /// # Errors
     ///
-    /// Returns `None` if `base < self`.
+    /// Returns `None` if `base > self`.
     #[must_use]
     pub const fn years_since(&self, base: Self) -> Option<u32> {
         let mut years = self.year() - base.year();
@@ -1200,9 +1200,11 @@ impl NaiveDate {
     /// or just feed it into `print!` and other formatting macros.
     /// (In this way it avoids the redundant memory allocation.)
     ///
-    /// A wrong format string does *not* issue an error immediately.
-    /// Rather, converting or formatting the `DelayedFormat` fails.
-    /// You are recommended to immediately use `DelayedFormat` for this reason.
+    /// # Panics
+    ///
+    /// Converting or formatting the returned `DelayedFormat` panics if the format string is wrong.
+    /// Because of this delayed failure, you are recommended to immediately use the `DelayedFormat`
+    /// value.
     ///
     /// # Example
     ///
@@ -2404,7 +2406,7 @@ mod serde {
                 inner: &'a D,
             }
 
-            impl<'a, D: fmt::Debug> fmt::Display for FormatWrapped<'a, D> {
+            impl<D: fmt::Debug> fmt::Display for FormatWrapped<'_, D> {
                 fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                     self.inner.fmt(f)
                 }
@@ -2416,7 +2418,7 @@ mod serde {
 
     struct NaiveDateVisitor;
 
-    impl<'de> de::Visitor<'de> for NaiveDateVisitor {
+    impl de::Visitor<'_> for NaiveDateVisitor {
         type Value = NaiveDate;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
