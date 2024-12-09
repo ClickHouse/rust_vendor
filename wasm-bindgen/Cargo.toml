@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.57"
 name = "wasm-bindgen"
-version = "0.2.97"
+version = "0.2.99"
 authors = ["The wasm-bindgen Developers"]
 build = "build.rs"
 include = [
@@ -60,7 +60,7 @@ version = "1.0"
 optional = true
 
 [dependencies.wasm-bindgen-macro]
-version = "=0.2.97"
+version = "=0.2.99"
 default-features = false
 
 [dev-dependencies]
@@ -85,15 +85,8 @@ std = [
 strict-macro = ["wasm-bindgen-macro/strict-macro"]
 xxx_debug_only_print_generated_code = ["wasm-bindgen-macro/xxx_debug_only_print_generated_code"]
 
-[target.'cfg(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"), target_feature = "atomics"))'.dependencies.wasm-bindgen-macro]
-version = "=0.2.97"
-features = ["atomics"]
-default-features = false
-
-[target.'cfg(all(target_arch = "wasm32", any(target_os = "unknown", target_os = "none"), wasm_bindgen_unstable_test_coverage))'.dependencies.wasm-bindgen-macro]
-version = "=0.2.97"
-features = ["coverage"]
-default-features = false
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies.paste]
+version = "1"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies.serde_derive]
 version = "1.0"

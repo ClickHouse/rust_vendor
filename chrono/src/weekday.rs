@@ -171,7 +171,7 @@ impl Weekday {
 
 impl fmt::Display for Weekday {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        f.write_str(match *self {
+        f.pad(match *self {
             Weekday::Mon => "Mon",
             Weekday::Tue => "Tue",
             Weekday::Wed => "Wed",
@@ -276,7 +276,7 @@ mod weekday_serde {
 
     struct WeekdayVisitor;
 
-    impl<'de> de::Visitor<'de> for WeekdayVisitor {
+    impl de::Visitor<'_> for WeekdayVisitor {
         type Value = Weekday;
 
         fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -329,6 +329,16 @@ mod tests {
             assert_eq!(base_day.days_since(base_day.succ().succ().succ().succ().succ()), 2);
             assert_eq!(base_day.days_since(base_day.succ().succ().succ().succ().succ().succ()), 1);
         }
+    }
+
+    #[test]
+    fn test_formatting_alignment() {
+        // No exhaustive testing here as we just delegate the
+        // implementation to Formatter::pad. Just some basic smoke
+        // testing to ensure that it's in fact being done.
+        assert_eq!(format!("{:x>7}", Weekday::Mon), "xxxxMon");
+        assert_eq!(format!("{:^7}", Weekday::Mon), "  Mon  ");
+        assert_eq!(format!("{:Z<7}", Weekday::Mon), "MonZZZZ");
     }
 
     #[test]

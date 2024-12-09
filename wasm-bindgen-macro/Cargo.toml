@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.57"
 name = "wasm-bindgen-macro"
-version = "0.2.97"
+version = "0.2.99"
 authors = ["The wasm-bindgen Developers"]
 build = false
 include = [
@@ -43,15 +43,13 @@ proc-macro = true
 version = "1.0"
 
 [dependencies.wasm-bindgen-macro-support]
-version = "=0.2.97"
+version = "=0.2.99"
 default-features = false
 
 [dev-dependencies.trybuild]
 version = "1.0"
 
 [features]
-atomics = ["wasm-bindgen-macro-support/atomics"]
-coverage = ["wasm-bindgen-macro-support/coverage"]
 default = ["std"]
 spans = ["wasm-bindgen-macro-support/spans"]
 std = ["wasm-bindgen-macro-support/std"]
