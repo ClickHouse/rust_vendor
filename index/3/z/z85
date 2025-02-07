@@ -1,0 +1,1 @@
+{"name":"z85","vers":"3.0.6","deps":[{"name":"proptest","req":"^1","features":[],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"9b3a41ce106832b4da1c065baa4c31cf640cf965fa1483816402b7f6b96f0a64","features":{},"yanked":false}

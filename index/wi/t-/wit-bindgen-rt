@@ -1,0 +1,1 @@
+{"name":"wit-bindgen-rt","vers":"0.33.0","deps":[{"name":"bitflags","req":"^2.3.3","features":[],"optional":true,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"3268f3d866458b787f390cf61f4bbb563b922d091359f9608842999eaee3943c","features":{"bitflags":["dep:bitflags"]},"yanked":false}

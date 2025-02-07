@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.66.0"
 name = "anstyle-wincon"
-version = "3.0.6"
+version = "3.0.7"
 build = false
 include = [
     "build.rs",
@@ -25,6 +25,7 @@ include = [
     "benches/**/*",
     "examples/**/*",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -47,6 +48,7 @@ all-features = true
 rustdoc-args = [
     "--cfg",
     "docsrs",
+    "--generate-link-to-definition",
 ]
 targets = ["x86_64-pc-windows-msvc"]
 
@@ -103,6 +105,9 @@ version = "1.0.0"
 [dev-dependencies.lexopt]
 version = "0.3.0"
 
+[target."cfg(windows)".dependencies.once_cell]
+version = "1.20.2"
+
 [target."cfg(windows)".dependencies.windows-sys]
 version = "0.59.0"
 features = [
@@ -155,6 +160,7 @@ rc_mutex = "warn"
 redundant_feature_names = "warn"
 ref_option_ref = "warn"
 rest_pat_in_fully_bound_structs = "warn"
+result_large_err = "allow"
 same_functions_in_if_condition = "warn"
 self_named_module_files = "warn"
 semicolon_if_nothing_returned = "warn"

@@ -1,0 +1,1 @@
+{"name":"snap","vers":"1.1.1","deps":[{"name":"doc-comment","req":"^0.3.1","features":[],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b","features":{},"yanked":false}

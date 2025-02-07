@@ -2,6 +2,73 @@
 
 --------------------------------------------------------------------------------
 
+## 0.36.5
+
+Released 2024/10/04.
+
+### Added
+
+* Added `Architecture::E2K32` and `Architecture::E2K64`.
+  [#727](https://github.com/gimli-rs/object/pull/727)
+
+* Added read and write support for `pe::IMAGE_REL_ARM64_BRANCH26`.
+  [#731](https://github.com/gimli-rs/object/pull/731)
+
+### Changed
+
+* Fixed decompression of multi-frame Zstandard data in `read::CompressedData::decompress`.
+  [#730](https://github.com/gimli-rs/object/pull/730)
+
+--------------------------------------------------------------------------------
+
+## 0.36.4
+
+Released 2024/08/30.
+
+### Added
+
+* Added `pe::IMAGE_FILE_MACHINE_ARM64X` and `pe::IMAGE_FILE_MACHINE_CHPE_X86`.
+  [#717](https://github.com/gimli-rs/object/pull/717)
+
+* Added `elf::SHF_GNU_RETAIN` and `elf::SHF_GNU_MBIND`.
+  [#720](https://github.com/gimli-rs/object/pull/720)
+
+### Changed
+
+* Fixed the checksum for COFF BSS section symbols in `write::Object`.
+  [#718](https://github.com/gimli-rs/object/pull/718)
+
+* Changed `read::CompressedData::decompress` to validate the decompressed size.
+  [#723](https://github.com/gimli-rs/object/pull/723)
+
+* Updated `wasmparser` dependency.
+
+--------------------------------------------------------------------------------
+
+## 0.36.3
+
+Released 2024/08/07.
+
+### Added
+
+* Added `Iterator` implementations for various types in the low level read API.
+  [#713](https://github.com/gimli-rs/object/pull/713)
+  [#714](https://github.com/gimli-rs/object/pull/714)
+
+### Changed
+
+* Changed `from_bytes` constructors for integer endian types to `const`.
+  [#712](https://github.com/gimli-rs/object/pull/712)
+
+* Changed `next` methods in the low level read API to fuse after returning an
+  error.
+  [#714](https://github.com/gimli-rs/object/pull/714)
+
+* Updated `wasmparser` dependency.
+  [#715](https://github.com/gimli-rs/object/pull/715)
+
+--------------------------------------------------------------------------------
+
 ## 0.36.2
 
 Released 2024/07/24.

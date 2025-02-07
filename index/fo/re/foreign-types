@@ -1,0 +1,1 @@
+{"name":"foreign-types","vers":"0.3.2","deps":[{"name":"foreign-types-shared","req":"^0.1","features":[],"optional":false,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1","features":{},"yanked":false}

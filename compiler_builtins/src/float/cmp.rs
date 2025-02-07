@@ -41,8 +41,8 @@ fn cmp<F: Float>(a: F, b: F) -> Result {
     let exponent_mask = F::EXPONENT_MASK;
     let inf_rep = exponent_mask;
 
-    let a_rep = a.repr();
-    let b_rep = b.repr();
+    let a_rep = a.to_bits();
+    let b_rep = b.to_bits();
     let a_abs = a_rep & abs_mask;
     let b_abs = b_rep & abs_mask;
 
@@ -56,8 +56,8 @@ fn cmp<F: Float>(a: F, b: F) -> Result {
         return Result::Equal;
     }
 
-    let a_srep = a.signed_repr();
-    let b_srep = b.signed_repr();
+    let a_srep = a.to_bits_signed();
+    let b_srep = b.to_bits_signed();
 
     // If at least one of a and b is positive, we get the same result comparing
     // a and b as signed integers as we would with a fp_ting-point compare.
@@ -90,8 +90,8 @@ fn unord<F: Float>(a: F, b: F) -> bool {
     let exponent_mask = F::EXPONENT_MASK;
     let inf_rep = exponent_mask;
 
-    let a_rep = a.repr();
-    let b_rep = b.repr();
+    let a_rep = a.to_bits();
+    let b_rep = b.to_bits();
     let a_abs = a_rep & abs_mask;
     let b_abs = b_rep & abs_mask;
 
@@ -257,56 +257,5 @@ intrinsics! {
 
     pub extern "aapcs" fn __aeabi_dcmpgt(a: f64, b: f64) -> i32 {
         (__gtdf2(a, b) > 0) as i32
-    }
-
-    // On hard-float targets LLVM will use native instructions
-    // for all VFP intrinsics below
-
-    pub extern "C" fn __gesf2vfp(a: f32, b: f32) -> i32 {
-        (a >= b) as i32
-    }
-
-    pub extern "C" fn __gedf2vfp(a: f64, b: f64) -> i32 {
-        (a >= b) as i32
-    }
-
-    pub extern "C" fn __gtsf2vfp(a: f32, b: f32) -> i32 {
-        (a > b) as i32
-    }
-
-    pub extern "C" fn __gtdf2vfp(a: f64, b: f64) -> i32 {
-        (a > b) as i32
-    }
-
-    pub extern "C" fn __ltsf2vfp(a: f32, b: f32) -> i32 {
-        (a < b) as i32
-    }
-
-    pub extern "C" fn __ltdf2vfp(a: f64, b: f64) -> i32 {
-        (a < b) as i32
-    }
-
-    pub extern "C" fn __lesf2vfp(a: f32, b: f32) -> i32 {
-        (a <= b) as i32
-    }
-
-    pub extern "C" fn __ledf2vfp(a: f64, b: f64) -> i32 {
-        (a <= b) as i32
-    }
-
-    pub extern "C" fn __nesf2vfp(a: f32, b: f32) -> i32 {
-        (a != b) as i32
-    }
-
-    pub extern "C" fn __nedf2vfp(a: f64, b: f64) -> i32 {
-        (a != b) as i32
-    }
-
-    pub extern "C" fn __eqsf2vfp(a: f32, b: f32) -> i32 {
-        (a == b) as i32
-    }
-
-    pub extern "C" fn __eqdf2vfp(a: f64, b: f64) -> i32 {
-        (a == b) as i32
     }
 }

@@ -1,0 +1,1 @@
+{"name":"windows-result","vers":"0.2.0","deps":[{"name":"windows-targets","req":"^0.52.6","features":[],"optional":false,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"1d1043d8214f791817bab27572aaa8af63732e11bf84aa21a45a78d6c317ae0e","features":{"default":["std"],"std":[]},"yanked":false}
