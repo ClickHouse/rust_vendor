@@ -1,0 +1,47 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: tokens
+input_file: prqlc/prqlc/tests/integration/queries/aggregation.prql
+snapshot_kind: text
+---
+Tokens(
+    [
+        0..0: Start,
+        0..12: Comment(" mysql:skip"),
+        12..13: NewLine,
+        13..30: Comment(" clickhouse:skip"),
+        30..31: NewLine,
+        31..88: Comment(" glaredb:skip (the string_agg function is not supported)"),
+        88..89: NewLine,
+        89..93: Ident("from"),
+        94..100: Ident("tracks"),
+        100..101: NewLine,
+        101..107: Ident("filter"),
+        108..116: Ident("genre_id"),
+        117..119: Eq,
+        120..123: Literal(Integer(100)),
+        123..124: NewLine,
+        124..130: Ident("derive"),
+        131..141: Ident("empty_name"),
+        142..143: Control('='),
+        144..148: Ident("name"),
+        149..151: Eq,
+        152..154: Literal(String("")),
+        154..155: NewLine,
+        155..164: Ident("aggregate"),
+        165..166: Control('{'),
+        166..169: Ident("sum"),
+        170..178: Ident("track_id"),
+        178..179: Control(','),
+        180..192: Ident("concat_array"),
+        193..197: Ident("name"),
+        197..198: Control(','),
+        199..202: Ident("all"),
+        203..213: Ident("empty_name"),
+        213..214: Control(','),
+        215..218: Ident("any"),
+        219..229: Ident("empty_name"),
+        229..230: Control('}'),
+        230..231: NewLine,
+    ],
+)

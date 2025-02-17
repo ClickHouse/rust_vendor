@@ -1,0 +1,949 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# mssql:test\n# sqlite:skip (see https://github.com/rusqlite/rusqlite/issues/1211)\nfrom invoices\ntake 5\nselect {\n    total_original = (total | math.round 2),\n    total_x = (math.pi - total | math.round 2 | math.abs),\n    total_floor = (math.floor total),\n    total_ceil = (math.ceil total),\n    total_log10 = (math.log10 total | math.round 3),\n    total_log2 = (math.log 2 total | math.round 3),\n    total_sqrt = (math.sqrt total | math.round 3),\n    total_ln = (math.ln total | math.exp | math.round 2),\n    total_cos = (math.cos total | math.acos | math.round 2),\n    total_sin = (math.sin total | math.asin | math.round 2),\n    total_tan = (math.tan total | math.atan | math.round 2),\n    total_deg = (total | math.degrees | math.radians | math.round 2),\n    total_square = (total | math.pow 2 | math.round 2),\n    total_square_op = ((total ** 2) | math.round 2),\n}\n"
+input_file: prqlc/prqlc/tests/integration/queries/math_module.prql
+snapshot_kind: text
+---
+frames:
+- - 1:96-102
+  - columns:
+    - !All
+      input_id: 121
+      except: []
+    inputs:
+    - id: 121
+      name: invoices
+      table:
+      - default_db
+      - invoices
+- - 1:103-867
+  - columns:
+    - !Single
+      name:
+      - total_original
+      target_id: 126
+      target_name: null
+    - !Single
+      name:
+      - total_x
+      target_id: 131
+      target_name: null
+    - !Single
+      name:
+      - total_floor
+      target_id: 142
+      target_name: null
+    - !Single
+      name:
+      - total_ceil
+      target_id: 145
+      target_name: null
+    - !Single
+      name:
+      - total_log10
+      target_id: 148
+      target_name: null
+    - !Single
+      name:
+      - total_log2
+      target_id: 155
+      target_name: null
+    - !Single
+      name:
+      - total_sqrt
+      target_id: 163
+      target_name: null
+    - !Single
+      name:
+      - total_ln
+      target_id: 170
+      target_name: null
+    - !Single
+      name:
+      - total_cos
+      target_id: 179
+      target_name: null
+    - !Single
+      name:
+      - total_sin
+      target_id: 188
+      target_name: null
+    - !Single
+      name:
+      - total_tan
+      target_id: 197
+      target_name: null
+    - !Single
+      name:
+      - total_deg
+      target_id: 206
+      target_name: null
+    - !Single
+      name:
+      - total_square
+      target_id: 215
+      target_name: null
+    - !Single
+      name:
+      - total_square_op
+      target_id: 224
+      target_name: null
+    inputs:
+    - id: 121
+      name: invoices
+      table:
+      - default_db
+      - invoices
+nodes:
+- id: 121
+  kind: Ident
+  span: 1:82-95
+  ident: !Ident
+  - default_db
+  - invoices
+  parent: 124
+- id: 124
+  kind: 'TransformCall: Take'
+  span: 1:96-102
+  children:
+  - 121
+  - 125
+  parent: 233
+- id: 125
+  kind: Literal
+  parent: 124
+- id: 126
+  kind: RqOperator
+  span: 1:142-154
+  alias: total_original
+  targets:
+  - 129
+  - 130
+  parent: 232
+- id: 129
+  kind: Literal
+  span: 1:153-154
+- id: 130
+  kind: Ident
+  span: 1:134-139
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 131
+  kind: RqOperator
+  span: 1:205-213
+  alias: total_x
+  targets:
+  - 133
+  parent: 232
+- id: 133
+  kind: RqOperator
+  span: 1:190-202
+  targets:
+  - 136
+  - 137
+- id: 136
+  kind: Literal
+  span: 1:201-202
+- id: 137
+  kind: RqOperator
+  span: 1:172-187
+  targets:
+  - 140
+  - 141
+- id: 140
+  kind: RqOperator
+  span: 1:176-179
+- id: 141
+  kind: Ident
+  span: 1:182-187
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 142
+  kind: RqOperator
+  span: 1:234-252
+  alias: total_floor
+  targets:
+  - 144
+  parent: 232
+- id: 144
+  kind: Ident
+  span: 1:246-251
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 145
+  kind: RqOperator
+  span: 1:271-288
+  alias: total_ceil
+  targets:
+  - 147
+  parent: 232
+- id: 147
+  kind: Ident
+  span: 1:282-287
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 148
+  kind: RqOperator
+  span: 1:328-340
+  alias: total_log10
+  targets:
+  - 151
+  - 152
+  parent: 232
+- id: 151
+  kind: Literal
+  span: 1:339-340
+- id: 152
+  kind: RqOperator
+  span: 1:309-325
+  targets:
+  - 154
+- id: 154
+  kind: Ident
+  span: 1:320-325
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 155
+  kind: RqOperator
+  span: 1:380-392
+  alias: total_log2
+  targets:
+  - 158
+  - 159
+  parent: 232
+- id: 158
+  kind: Literal
+  span: 1:391-392
+- id: 159
+  kind: RqOperator
+  span: 1:361-377
+  targets:
+  - 161
+  - 162
+- id: 161
+  kind: Literal
+  span: 1:370-371
+- id: 162
+  kind: Ident
+  span: 1:372-377
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 163
+  kind: RqOperator
+  span: 1:431-443
+  alias: total_sqrt
+  targets:
+  - 166
+  - 167
+  parent: 232
+- id: 166
+  kind: Literal
+  span: 1:442-443
+- id: 167
+  kind: RqOperator
+  span: 1:413-428
+  targets:
+  - 169
+- id: 169
+  kind: Ident
+  span: 1:423-428
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 170
+  kind: RqOperator
+  span: 1:489-501
+  alias: total_ln
+  targets:
+  - 173
+  - 174
+  parent: 232
+- id: 173
+  kind: Literal
+  span: 1:500-501
+- id: 174
+  kind: RqOperator
+  span: 1:478-486
+  targets:
+  - 176
+- id: 176
+  kind: RqOperator
+  span: 1:462-475
+  targets:
+  - 178
+- id: 178
+  kind: Ident
+  span: 1:470-475
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 179
+  kind: RqOperator
+  span: 1:550-562
+  alias: total_cos
+  targets:
+  - 182
+  - 183
+  parent: 232
+- id: 182
+  kind: Literal
+  span: 1:561-562
+- id: 183
+  kind: RqOperator
+  span: 1:538-547
+  targets:
+  - 185
+- id: 185
+  kind: RqOperator
+  span: 1:521-535
+  targets:
+  - 187
+- id: 187
+  kind: Ident
+  span: 1:530-535
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 188
+  kind: RqOperator
+  span: 1:611-623
+  alias: total_sin
+  targets:
+  - 191
+  - 192
+  parent: 232
+- id: 191
+  kind: Literal
+  span: 1:622-623
+- id: 192
+  kind: RqOperator
+  span: 1:599-608
+  targets:
+  - 194
+- id: 194
+  kind: RqOperator
+  span: 1:582-596
+  targets:
+  - 196
+- id: 196
+  kind: Ident
+  span: 1:591-596
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 197
+  kind: RqOperator
+  span: 1:672-684
+  alias: total_tan
+  targets:
+  - 200
+  - 201
+  parent: 232
+- id: 200
+  kind: Literal
+  span: 1:683-684
+- id: 201
+  kind: RqOperator
+  span: 1:660-669
+  targets:
+  - 203
+- id: 203
+  kind: RqOperator
+  span: 1:643-657
+  targets:
+  - 205
+- id: 205
+  kind: Ident
+  span: 1:652-657
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 206
+  kind: RqOperator
+  span: 1:742-754
+  alias: total_deg
+  targets:
+  - 209
+  - 210
+  parent: 232
+- id: 209
+  kind: Literal
+  span: 1:753-754
+- id: 210
+  kind: RqOperator
+  span: 1:727-739
+  targets:
+  - 212
+- id: 212
+  kind: RqOperator
+  span: 1:712-724
+  targets:
+  - 214
+- id: 214
+  kind: Ident
+  span: 1:704-709
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 215
+  kind: RqOperator
+  span: 1:798-810
+  alias: total_square
+  targets:
+  - 218
+  - 219
+  parent: 232
+- id: 218
+  kind: Literal
+  span: 1:809-810
+- id: 219
+  kind: RqOperator
+  span: 1:785-795
+  targets:
+  - 222
+  - 223
+- id: 222
+  kind: Literal
+  span: 1:794-795
+- id: 223
+  kind: Ident
+  span: 1:777-782
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 224
+  kind: RqOperator
+  span: 1:851-863
+  alias: total_square_op
+  targets:
+  - 227
+  - 228
+  parent: 232
+- id: 227
+  kind: Literal
+  span: 1:862-863
+- id: 228
+  kind: RqOperator
+  span: 1:836-848
+  targets:
+  - 230
+  - 231
+- id: 230
+  kind: Literal
+  span: 1:846-847
+- id: 231
+  kind: Ident
+  span: 1:837-842
+  ident: !Ident
+  - this
+  - invoices
+  - total
+  targets:
+  - 121
+- id: 232
+  kind: Tuple
+  span: 1:110-867
+  children:
+  - 126
+  - 131
+  - 142
+  - 145
+  - 148
+  - 155
+  - 163
+  - 170
+  - 179
+  - 188
+  - 197
+  - 206
+  - 215
+  - 224
+  parent: 233
+- id: 233
+  kind: 'TransformCall: Select'
+  span: 1:103-867
+  children:
+  - 124
+  - 232
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident: from
+                span: 1:82-86
+              args:
+              - Ident: invoices
+                span: 1:87-95
+            span: 1:82-95
+          - FuncCall:
+              name:
+                Ident: take
+                span: 1:96-100
+              args:
+              - Literal:
+                  Integer: 5
+                span: 1:101-102
+            span: 1:96-102
+          - FuncCall:
+              name:
+                Ident: select
+                span: 1:103-109
+              args:
+              - Tuple:
+                - Pipeline:
+                    exprs:
+                    - Ident: total
+                      span: 1:134-139
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:142-146
+                            field: !Name round
+                          span: 1:146-152
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:153-154
+                      span: 1:142-154
+                  span: 1:133-155
+                  alias: total_original
+                - Pipeline:
+                    exprs:
+                    - Binary:
+                        left:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:172-176
+                            field: !Name pi
+                          span: 1:176-179
+                        op: Sub
+                        right:
+                          Ident: total
+                          span: 1:182-187
+                      span: 1:172-187
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:190-194
+                            field: !Name round
+                          span: 1:194-200
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:201-202
+                      span: 1:190-202
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:205-209
+                        field: !Name abs
+                      span: 1:205-213
+                  span: 1:171-214
+                  alias: total_x
+                - FuncCall:
+                    name:
+                      Indirection:
+                        base:
+                          Ident: math
+                          span: 1:235-239
+                        field: !Name floor
+                      span: 1:239-245
+                    args:
+                    - Ident: total
+                      span: 1:246-251
+                  span: 1:234-252
+                  alias: total_floor
+                - FuncCall:
+                    name:
+                      Indirection:
+                        base:
+                          Ident: math
+                          span: 1:272-276
+                        field: !Name ceil
+                      span: 1:276-281
+                    args:
+                    - Ident: total
+                      span: 1:282-287
+                  span: 1:271-288
+                  alias: total_ceil
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:309-313
+                            field: !Name log10
+                          span: 1:313-319
+                        args:
+                        - Ident: total
+                          span: 1:320-325
+                      span: 1:309-325
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:328-332
+                            field: !Name round
+                          span: 1:332-338
+                        args:
+                        - Literal:
+                            Integer: 3
+                          span: 1:339-340
+                      span: 1:328-340
+                  span: 1:308-341
+                  alias: total_log10
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:361-365
+                            field: !Name log
+                          span: 1:365-369
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:370-371
+                        - Ident: total
+                          span: 1:372-377
+                      span: 1:361-377
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:380-384
+                            field: !Name round
+                          span: 1:384-390
+                        args:
+                        - Literal:
+                            Integer: 3
+                          span: 1:391-392
+                      span: 1:380-392
+                  span: 1:360-393
+                  alias: total_log2
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:413-417
+                            field: !Name sqrt
+                          span: 1:417-422
+                        args:
+                        - Ident: total
+                          span: 1:423-428
+                      span: 1:413-428
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:431-435
+                            field: !Name round
+                          span: 1:435-441
+                        args:
+                        - Literal:
+                            Integer: 3
+                          span: 1:442-443
+                      span: 1:431-443
+                  span: 1:412-444
+                  alias: total_sqrt
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:462-466
+                            field: !Name ln
+                          span: 1:466-469
+                        args:
+                        - Ident: total
+                          span: 1:470-475
+                      span: 1:462-475
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:478-482
+                        field: !Name exp
+                      span: 1:478-486
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:489-493
+                            field: !Name round
+                          span: 1:493-499
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:500-501
+                      span: 1:489-501
+                  span: 1:461-502
+                  alias: total_ln
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:521-525
+                            field: !Name cos
+                          span: 1:525-529
+                        args:
+                        - Ident: total
+                          span: 1:530-535
+                      span: 1:521-535
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:538-542
+                        field: !Name acos
+                      span: 1:538-547
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:550-554
+                            field: !Name round
+                          span: 1:554-560
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:561-562
+                      span: 1:550-562
+                  span: 1:520-563
+                  alias: total_cos
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:582-586
+                            field: !Name sin
+                          span: 1:586-590
+                        args:
+                        - Ident: total
+                          span: 1:591-596
+                      span: 1:582-596
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:599-603
+                        field: !Name asin
+                      span: 1:599-608
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:611-615
+                            field: !Name round
+                          span: 1:615-621
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:622-623
+                      span: 1:611-623
+                  span: 1:581-624
+                  alias: total_sin
+                - Pipeline:
+                    exprs:
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:643-647
+                            field: !Name tan
+                          span: 1:647-651
+                        args:
+                        - Ident: total
+                          span: 1:652-657
+                      span: 1:643-657
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:660-664
+                        field: !Name atan
+                      span: 1:660-669
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:672-676
+                            field: !Name round
+                          span: 1:676-682
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:683-684
+                      span: 1:672-684
+                  span: 1:642-685
+                  alias: total_tan
+                - Pipeline:
+                    exprs:
+                    - Ident: total
+                      span: 1:704-709
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:712-716
+                        field: !Name degrees
+                      span: 1:712-724
+                    - Indirection:
+                        base:
+                          Ident: math
+                          span: 1:727-731
+                        field: !Name radians
+                      span: 1:727-739
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:742-746
+                            field: !Name round
+                          span: 1:746-752
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:753-754
+                      span: 1:742-754
+                  span: 1:703-755
+                  alias: total_deg
+                - Pipeline:
+                    exprs:
+                    - Ident: total
+                      span: 1:777-782
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:785-789
+                            field: !Name pow
+                          span: 1:789-793
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:794-795
+                      span: 1:785-795
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:798-802
+                            field: !Name round
+                          span: 1:802-808
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:809-810
+                      span: 1:798-810
+                  span: 1:776-811
+                  alias: total_square
+                - Pipeline:
+                    exprs:
+                    - Binary:
+                        left:
+                          Ident: total
+                          span: 1:837-842
+                        op: Pow
+                        right:
+                          Literal:
+                            Integer: 2
+                          span: 1:846-847
+                      span: 1:836-848
+                    - FuncCall:
+                        name:
+                          Indirection:
+                            base:
+                              Ident: math
+                              span: 1:851-855
+                            field: !Name round
+                          span: 1:855-861
+                        args:
+                        - Literal:
+                            Integer: 2
+                          span: 1:862-863
+                      span: 1:851-863
+                  span: 1:835-864
+                  alias: total_square_op
+                span: 1:110-867
+            span: 1:103-867
+        span: 1:82-867
+    span: 1:0-867
