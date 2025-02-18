@@ -21,6 +21,7 @@ use crate::{
     arithmetic::{
         bigint,
         montgomery::{R, RR, RRR},
+        LimbSliceError,
     },
     bits::BitLength,
     cpu, digest,
@@ -126,7 +127,7 @@ impl KeyPair {
             der::nested(
                 input,
                 der::Tag::Sequence,
-                error::KeyRejected::invalid_encoding(),
+                KeyRejected::invalid_encoding(),
                 Self::from_der_reader,
             )
         })
@@ -192,13 +193,13 @@ impl KeyPair {
     ///   performance reasons and to avoid any side channels that such tests
     ///   would provide.
     /// * Section 6.4.1.2.1, Step 6, and 6.4.1.4.3, Step 7:
-    ///     * *ring* has a slightly looser lower bound for the values of `p`
+    ///   * *ring* has a slightly looser lower bound for the values of `p`
     ///     and `q` than what the NIST document specifies. This looser lower
     ///     bound matches what most other crypto libraries do. The check might
     ///     be tightened to meet NIST's requirements in the future. Similarly,
     ///     the check that `p` and `q` are not too close together is skipped
     ///     currently, but may be added in the future.
-    ///     - The validity of the mathematical relationship of `dP`, `dQ`, `e`
+    ///   * The validity of the mathematical relationship of `dP`, `dQ`, `e`
     ///     and `n` is verified only during signing. Some size checks of `d`,
     ///     `dP` and `dQ` are performed at construction, but some NIST checks
     ///     are skipped because they would be expensive and/or they would leak
@@ -207,7 +208,7 @@ impl KeyPair {
     ///     necessary, that can be done by signing any message with the key
     ///     pair.
     ///
-    ///     * `d` is not fully validated, neither at construction nor during
+    ///   * `d` is not fully validated, neither at construction nor during
     ///     signing. This is OK as far as *ring*'s usage of the key is
     ///     concerned because *ring* never uses the value of `d` (*ring* always
     ///     uses `p`, `q`, `dP` and `dQ` via the Chinese Remainder Theorem,
@@ -278,7 +279,7 @@ impl KeyPair {
         let public_key = PublicKey::from_modulus_and_exponent(
             n,
             e,
-            BitLength::from_usize_bits(2048),
+            BitLength::from_bits(2048),
             super::PRIVATE_KEY_PUBLIC_MODULUS_MAX_BITS,
             PublicExponent::_65537,
             cpu_features,
@@ -338,8 +339,8 @@ impl KeyPair {
         // First, validate `2**half_n_bits < d`. Since 2**half_n_bits has a bit
         // length of half_n_bits + 1, this check gives us 2**half_n_bits <= d,
         // and knowing d is odd makes the inequality strict.
-        let d = bigint::OwnedModulus::<D>::from_be_bytes(d)
-            .map_err(|_| error::KeyRejected::invalid_component())?;
+        let d = bigint::OwnedModulusValue::<D>::from_be_bytes(d)
+            .map_err(|_| KeyRejected::invalid_component())?;
         if !(n_bits.half_rounded_up() < d.len_bits()) {
             return Err(KeyRejected::inconsistent_components());
         }
@@ -364,7 +365,7 @@ impl KeyPair {
 
         // Step 7.f.
         let qInv = bigint::elem_mul(p.oneRR.as_ref(), qInv, pm);
-        let q_mod_p = bigint::elem_reduced(&q_mod_n, pm, q.modulus.len_bits());
+        let q_mod_p = bigint::elem_reduced(pm.alloc_zero(), &q_mod_n, pm, q.modulus.len_bits());
         let q_mod_p = bigint::elem_mul(p.oneRR.as_ref(), q_mod_p, pm);
         bigint::verify_inverses_consttime(&qInv, q_mod_p, pm)
             .map_err(|error::Unspecified| KeyRejected::inconsistent_components())?;
@@ -416,7 +417,7 @@ impl<M> PrivatePrime<M> {
         n_bits: BitLength,
         cpu_features: cpu::Features,
     ) -> Result<Self, KeyRejected> {
-        let p = bigint::OwnedModulus::from_be_bytes(p)?;
+        let p = bigint::OwnedModulusValue::from_be_bytes(p)?;
 
         // 5.c / 5.g:
         //
@@ -430,15 +431,16 @@ impl<M> PrivatePrime<M> {
         }
 
         if p.len_bits().as_bits() % 512 != 0 {
-            return Err(error::KeyRejected::private_modulus_len_not_multiple_of_512_bits());
+            return Err(KeyRejected::private_modulus_len_not_multiple_of_512_bits());
         }
 
         // TODO: Step 5.d: Verify GCD(p - 1, e) == 1.
         // TODO: Step 5.h: Verify GCD(q - 1, e) == 1.
 
         // Steps 5.e and 5.f are omitted as explained above.
-
-        let oneRR = bigint::One::newRR(&p.modulus(cpu_features));
+        let p = bigint::OwnedModulus::from(p);
+        let pm = p.modulus(cpu_features);
+        let oneRR = bigint::One::newRR(pm.alloc_zero(), &pm);
 
         Ok(Self { modulus: p, oneRR })
     }
@@ -489,9 +491,15 @@ fn elem_exp_consttime<M>(
     cpu_features: cpu::Features,
 ) -> Result<bigint::Elem<M>, error::Unspecified> {
     let m = &p.modulus.modulus(cpu_features);
-    let c_mod_m = bigint::elem_reduced(c, m, other_prime_len_bits);
-    let c_mod_m = bigint::elem_mul(p.oneRRR.as_ref(), c_mod_m, m);
-    bigint::elem_exp_consttime(c_mod_m, &p.exponent, m)
+    bigint::elem_exp_consttime(
+        m.alloc_zero(),
+        c,
+        &p.oneRRR,
+        &p.exponent,
+        m,
+        other_prime_len_bits,
+    )
+    .map_err(error::erase::<LimbSliceError>)
 }
 
 // Type-level representations of the different moduli used in RSA signing, in
@@ -588,7 +596,7 @@ impl KeyPair {
         // Step 2.b.iii.
         let h = {
             let p = &self.p.modulus.modulus(cpu_features);
-            let m_2 = bigint::elem_reduced_once(&m_2, p, q_bits);
+            let m_2 = bigint::elem_reduced_once(p.alloc_zero(), &m_2, p, q_bits);
             let m_1_minus_m_2 = bigint::elem_sub(m_1, &m_2, p);
             bigint::elem_mul(&self.qInv, m_1_minus_m_2, p)
         };
@@ -598,11 +606,11 @@ impl KeyPair {
         // Modular arithmetic is used simply to avoid implementing
         // non-modular arithmetic.
         let p_bits = self.p.modulus.len_bits();
-        let h = bigint::elem_widen(h, n, p_bits)?;
+        let h = bigint::elem_widen(n.alloc_zero(), h, n, p_bits)?;
         let q_mod_n = self.q.modulus.to_elem(n)?;
         let q_mod_n = bigint::elem_mul(n_one, q_mod_n, n);
         let q_times_h = bigint::elem_mul(&q_mod_n, h, n);
-        let m_2 = bigint::elem_widen(m_2, n, q_bits)?;
+        let m_2 = bigint::elem_widen(n.alloc_zero(), m_2, n, q_bits)?;
         let m = bigint::elem_add(m_2, q_times_h, n);
 
         // Step 2.b.v isn't needed since there are only two primes.
@@ -616,7 +624,11 @@ impl KeyPair {
         // minimum value, since the relationship of `e` to `d`, `p`, and `q` is
         // not verified during `KeyPair` construction.
         {
-            let verify = self.public.inner().exponentiate_elem(&m, cpu_features);
+            let verify = n.alloc_zero();
+            let verify = self
+                .public
+                .inner()
+                .exponentiate_elem(verify, &m, cpu_features);
             bigint::elem_verify_equal_consttime(&verify, &c)?;
         }
 

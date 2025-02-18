@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.70"
 name = "arrow-ipc"
-version = "54.1.0"
+version = "54.2.0"
 authors = ["Apache Arrow <dev@arrow.apache.org>"]
 build = false
 include = [
@@ -38,17 +38,27 @@ name = "arrow_ipc"
 path = "src/lib.rs"
 bench = false
 
+[[bench]]
+name = "ipc_reader"
+path = "benches/ipc_reader.rs"
+harness = false
+
+[[bench]]
+name = "ipc_writer"
+path = "benches/ipc_writer.rs"
+harness = false
+
 [dependencies.arrow-array]
-version = "54.1.0"
+version = "54.2.0"
 
 [dependencies.arrow-buffer]
-version = "54.1.0"
+version = "54.2.0"
 
 [dependencies.arrow-data]
-version = "54.1.0"
+version = "54.2.0"
 
 [dependencies.arrow-schema]
-version = "54.1.0"
+version = "54.2.0"
 
 [dependencies.flatbuffers]
 version = "24.12.23"
@@ -68,8 +78,20 @@ version = "0.13.0"
 optional = true
 default-features = false
 
+[dev-dependencies.bytes]
+version = "1.9"
+
+[dev-dependencies.criterion]
+version = "0.5.1"
+
+[dev-dependencies.memmap2]
+version = "0.9.3"
+
 [dev-dependencies.tempfile]
 version = "3.3"
+
+[dev-dependencies.tokio]
+version = "1.43.0"
 
 [features]
 default = []

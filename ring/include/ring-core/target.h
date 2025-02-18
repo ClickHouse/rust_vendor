@@ -34,12 +34,6 @@
 #elif defined(__ARMEL__) || defined(_M_ARM)
 #define OPENSSL_32_BIT
 #define OPENSSL_ARM
-#elif defined(__loongarch_lp64)
-#define OPENSSL_64_BIT
-#elif defined(__riscv) && __SIZEOF_POINTER__ == 8
-#define OPENSSL_64_BIT
-#elif defined(__wasm__)
-#define OPENSSL_32_BIT
 // All of following architectures are only supported when `__BYTE_ORDER__` can be used to detect
 // endianness (in crypto/internal.h).
 #elif !defined(__BYTE_ORDER__)
@@ -48,18 +42,13 @@
 #elif !(defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)) && \
       !(defined(__ORDER_BIG_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_BIG_ENDIAN__))
 #error "Unsupported endianness"
-#elif defined(__MIPSEL__) && !defined(__LP64__)
-#define OPENSSL_32_BIT
-#elif defined(__MIPSEL__) && defined(__LP64__)
+#elif defined(__LP64__)
 #define OPENSSL_64_BIT
-#elif defined(__MIPSEB__) && !defined(__LP64__)
+#elif defined(__ILP32__)
 #define OPENSSL_32_BIT
-#elif defined(__PPC64__) || defined(__powerpc64__)
-#define OPENSSL_64_BIT
-#elif (defined(__PPC__) || defined(__powerpc__)) && defined(_BIG_ENDIAN)
+// Versions of GCC before 10.0 didn't define `__ILP32__` for all 32-bit targets.
+#elif defined(__MIPSEL__) || defined(__MIPSEB__) || defined(__PPC__) || defined(__powerpc__) || defined(__csky__) || defined(__XTENSA__)
 #define OPENSSL_32_BIT
-#elif defined(__s390x__)
-#define OPENSSL_64_BIT
 #else
 #error "Unknown target CPU"
 #endif
@@ -70,64 +59,6 @@
 
 #if defined(_WIN32)
 #define OPENSSL_WINDOWS
-#endif
-
-// Trusty isn't Linux but currently defines __linux__. As a workaround, we
-// exclude it here.
-// TODO(b/169780122): Remove this workaround once Trusty no longer defines it.
-#if defined(__linux__) && !defined(__TRUSTY__)
-#define OPENSSL_LINUX
-#endif
-
-#if defined(__Fuchsia__)
-#define OPENSSL_FUCHSIA
-#endif
-
-#if defined(__TRUSTY__)
-#define OPENSSL_TRUSTY
-#define OPENSSL_NO_POSIX_IO
-#define OPENSSL_NO_SOCK
-#define OPENSSL_NO_THREADS_CORRUPT_MEMORY_AND_LEAK_SECRETS_IF_THREADED
-#endif
-
-#if defined(OPENSSL_NANOLIBC)
-#define OPENSSL_NO_POSIX_IO
-#define OPENSSL_NO_SOCK
-#define OPENSSL_NO_THREADS_CORRUPT_MEMORY_AND_LEAK_SECRETS_IF_THREADED
-#endif
-
-#if defined(__ANDROID_API__)
-#define OPENSSL_ANDROID
-#endif
-
-#if defined(__FreeBSD__)
-#define OPENSSL_FREEBSD
-#endif
-
-#if defined(__OpenBSD__)
-#define OPENSSL_OPENBSD
-#endif
-
-// BoringSSL requires platform's locking APIs to make internal global state
-// thread-safe, including the PRNG. On some single-threaded embedded platforms,
-// locking APIs may not exist, so this dependency may be disabled with the
-// following build flag.
-//
-// IMPORTANT: Doing so means the consumer promises the library will never be
-// used in any multi-threaded context. It causes BoringSSL to be globally
-// thread-unsafe. Setting it inappropriately will subtly and unpredictably
-// corrupt memory and leak secret keys.
-//
-// Do not set this flag on any platform where threads are possible. BoringSSL
-// maintainers will not provide support for any consumers that do so. Changes
-// which break such unsupported configurations will not be reverted.
-#if !defined(OPENSSL_NO_THREADS_CORRUPT_MEMORY_AND_LEAK_SECRETS_IF_THREADED)
-#define OPENSSL_THREADS
-#endif
-
-#if defined(BORINGSSL_UNSAFE_FUZZER_MODE) && \
-    !defined(BORINGSSL_UNSAFE_DETERMINISTIC_MODE)
-#define BORINGSSL_UNSAFE_DETERMINISTIC_MODE
 #endif
 
 #if defined(__has_feature)
@@ -144,6 +75,12 @@
 #if __has_feature(hwaddress_sanitizer)
 #define OPENSSL_HWASAN
 #endif
+#endif
+
+// Disable 32-bit Arm assembly on Apple platforms. The last iOS version that
+// supported 32-bit Arm was iOS 10.
+#if defined(OPENSSL_APPLE) && defined(OPENSSL_ARM)
+#define OPENSSL_ASM_INCOMPATIBLE
 #endif
 
 #if defined(OPENSSL_ASM_INCOMPATIBLE)

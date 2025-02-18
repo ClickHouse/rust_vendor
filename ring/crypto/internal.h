@@ -159,6 +159,32 @@ typedef __int128_t int128_t;
 typedef __uint128_t uint128_t;
 #endif
 
+// GCC-like compilers indicate SSE2 with |__SSE2__|. MSVC leaves the caller to
+// know that x86_64 has SSE2, and uses _M_IX86_FP to indicate SSE2 on x86.
+// https://learn.microsoft.com/en-us/cpp/preprocessor/predefined-macros?view=msvc-170
+#if defined(OPENSSL_X86) || defined(OPENSSL_X86_64)
+# if defined(_MSC_VER) && !defined(__clang__)
+#  if defined(_M_AMD64) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#   define OPENSSL_SSE2
+#  else
+#   error "SSE2 is required."
+#  endif
+# elif !defined(__SSE2__)
+#  error "SSE2 is required."
+# endif
+#endif
+
+// For convenience in testing the fallback code, we allow disabling SSE2
+// intrinsics via |OPENSSL_NO_SSE2_FOR_TESTING|. We require SSE2 on x86 and
+// x86_64, so we would otherwise need to test such code on a non-x86 platform.
+//
+// This does not remove the above requirement for SSE2 support with assembly
+// optimizations. It only disables some intrinsics-based optimizations so that
+// we can test the fallback code on CI.
+#if defined(OPENSSL_SSE2) && defined(OPENSSL_NO_SSE2_FOR_TESTING)
+#undef OPENSSL_SSE2
+#endif
+
 // Pointer utility functions.
 
 // buffers_alias returns one if |a| and |b| alias and zero otherwise.
@@ -194,6 +220,7 @@ static inline int buffers_alias(const void *a, size_t a_bytes,
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wconversion"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
 #endif
 #if defined(_MSC_VER) && !defined(__clang__)
 #pragma warning(push)
@@ -230,6 +257,14 @@ typedef uint32_t crypto_word_t;
 // always has the same output for a given input. This allows it to eliminate
 // dead code, move computations across loops, and vectorize.
 static inline crypto_word_t value_barrier_w(crypto_word_t a) {
+#if defined(__GNUC__) || defined(__clang__)
+  __asm__("" : "+r"(a) : /* no inputs */);
+#endif
+  return a;
+}
+
+// value_barrier_u32 behaves like |value_barrier_w| but takes a |uint32_t|.
+static inline uint32_t value_barrier_u32(uint32_t a) {
 #if defined(__GNUC__) || defined(__clang__)
   __asm__("" : "+r"(a) : /* no inputs */);
 #endif
@@ -318,23 +353,26 @@ static inline void constant_time_conditional_memcpy(void *dst, const void *src,
 // |mask| is 0xff..ff and does nothing if |mask| is 0. The |n|-byte memory
 // ranges at |dst| and |src| must not overlap, as when calling |memcpy|.
 static inline void constant_time_conditional_memxor(void *dst, const void *src,
-                                                    const size_t n,
+                                                    size_t n,
                                                     const crypto_word_t mask) {
   debug_assert_nonsecret(!buffers_alias(dst, n, src, n));
   aliasing_uint8_t *out = dst;
   const aliasing_uint8_t *in = src;
+#if defined(__GNUC__) && !defined(__clang__)
+  // gcc 13.2.0 doesn't automatically vectorize this loop regardless of barrier
+  typedef aliasing_uint8_t v32u8 __attribute__((vector_size(32), aligned(1), may_alias));
+  size_t n_vec = n&~(size_t)31;
+  v32u8 masks = ((aliasing_uint8_t)mask-(v32u8){}); // broadcast
+  for (size_t i = 0; i < n_vec; i += 32) {
+    *(v32u8*)&out[i] ^= masks & *(v32u8 const*)&in[i];
+  }
+  out += n_vec;
+  n -= n_vec;
+#endif
   for (size_t i = 0; i < n; i++) {
     out[i] ^= value_barrier_w(mask) & in[i];
   }
 }
-
-#if defined(_MSC_VER) && !defined(__clang__)
-// '=': conversion from 'int64_t' to 'int32_t', possible loss of data
-#pragma warning(pop)
-#endif
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 #if defined(BORINGSSL_CONSTANT_TIME_VALIDATION)
 
@@ -372,6 +410,28 @@ static inline crypto_word_t constant_time_declassify_w(crypto_word_t v) {
   return value_barrier_w(v);
 }
 
+static inline int constant_time_declassify_int(int v) {
+  OPENSSL_STATIC_ASSERT(sizeof(uint32_t) == sizeof(int),
+                "int is not the same size as uint32_t");
+  // See comment above.
+  CONSTTIME_DECLASSIFY(&v, sizeof(v));
+  return value_barrier_u32((uint32_t)v);
+}
+
+#if defined(_MSC_VER) && !defined(__clang__)
+// '=': conversion from 'int64_t' to 'int32_t', possible loss of data
+#pragma warning(pop)
+#endif
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
+// declassify_assert behaves like |assert| but declassifies the result of
+// evaluating |expr|. This allows the assertion to branch on the (presumably
+// public) result, but still ensures that values leading up to the computation
+// were secret.
+#define declassify_assert(expr) dev_assert_secret(constant_time_declassify_int(expr))
+
 // Endianness conversions.
 
 #if defined(__GNUC__) && __GNUC__ >= 2
@@ -386,13 +446,9 @@ static inline uint64_t CRYPTO_bswap8(uint64_t x) {
 #pragma warning(push, 3)
 #include <stdlib.h>
 #pragma warning(pop)
-#pragma intrinsic(_byteswap_uint64, _byteswap_ulong)
+#pragma intrinsic(_byteswap_ulong)
 static inline uint32_t CRYPTO_bswap4(uint32_t x) {
   return _byteswap_ulong(x);
-}
-
-static inline uint64_t CRYPTO_bswap8(uint64_t x) {
-  return _byteswap_uint64(x);
 }
 #endif
 
@@ -478,41 +534,6 @@ static inline void CRYPTO_store_u32_be(void *out, uint32_t v) {
   OPENSSL_memcpy(out, &v, sizeof(v));
 }
 
-static inline uint64_t CRYPTO_load_u64_le(const void *in) {
-  uint64_t v;
-  OPENSSL_memcpy(&v, in, sizeof(v));
-#if defined(RING_BIG_ENDIAN)
-  return CRYPTO_bswap8(v);
-#else
-  return v;
-#endif
-}
-
-static inline void CRYPTO_store_u64_le(void *out, uint64_t v) {
-#if defined(RING_BIG_ENDIAN)
-  v = CRYPTO_bswap8(v);
-#endif
-  OPENSSL_memcpy(out, &v, sizeof(v));
-}
-
-static inline uint64_t CRYPTO_load_u64_be(const void *ptr) {
-  uint64_t ret;
-  OPENSSL_memcpy(&ret, ptr, sizeof(ret));
-#if !defined(RING_BIG_ENDIAN)
-  return CRYPTO_bswap8(ret);
-#else
-  return ret;
-#endif
-}
-
-static inline void CRYPTO_store_u64_be(void *out, uint64_t v) {
-#if !defined(RING_BIG_ENDIAN)
-  v = CRYPTO_bswap8(v);
-#endif
-  OPENSSL_memcpy(out, &v, sizeof(v));
-}
-
-
 // Runtime CPU feature support
 
 #if defined(OPENSSL_X86) || defined(OPENSSL_X86_64)
@@ -529,13 +550,24 @@ static inline void CRYPTO_store_u64_be(void *out, uint64_t v) {
 //     ECX for CPUID where EAX = 1
 //     Bit 11 is used to indicate AMD XOP support, not SDBG
 //   Index 2:
-//     EBX for CPUID where EAX = 7
+//     EBX for CPUID where EAX = 7, ECX = 0
+//     Bit 14 (for removed feature MPX) is used to indicate a preference for ymm
+//       registers over zmm even when zmm registers are supported
 //   Index 3:
-//     ECX for CPUID where EAX = 7
+//     ECX for CPUID where EAX = 7, ECX = 0
 //
-// Note: the CPUID bits are pre-adjusted for the OSXSAVE bit and the YMM and XMM
-// bits in XCR0, so it is not necessary to check those.
-extern uint32_t OPENSSL_ia32cap_P[4];
+// Note: the CPUID bits are pre-adjusted for the OSXSAVE bit and the XMM, YMM,
+// and AVX512 bits in XCR0, so it is not necessary to check those. (WARNING: See
+// caveats in cpu_intel.c.)
+#if defined(OPENSSL_X86_64)
+extern uint32_t avx2_available;
+extern uint32_t adx_bmi2_available;
 #endif
+#endif
+
+
+#if defined(OPENSSL_ARM)
+extern alignas(4) uint32_t neon_available;
+#endif  // OPENSSL_ARM
 
 #endif  // OPENSSL_HEADER_CRYPTO_INTERNAL_H

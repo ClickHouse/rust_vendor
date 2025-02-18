@@ -11,12 +11,12 @@
 
 [package]
 edition = "2021"
-rust-version = "1.61.0"
+rust-version = "1.63.0"
 name = "ring"
-version = "0.17.8"
+version = "0.17.9"
 authors = ["Brian Smith <brian@briansmith.org>"]
 build = "build.rs"
-links = "ring_core_0_17_8"
+links = "ring_core_0_17_9_"
 include = [
     "LICENSE",
     "Cargo.toml",
@@ -44,6 +44,8 @@ include = [
     "crypto/fipsmodule/aes/asm/bsaes-armv7.pl",
     "crypto/fipsmodule/aes/asm/bsaes-x86_64.pl",
     "crypto/fipsmodule/aes/asm/vsaes-armv7.pl",
+    "crypto/fipsmodule/aes/asm/vpaes-armv7.pl",
+    "crypto/fipsmodule/aes/asm/vpaes-armv8.pl",
     "crypto/fipsmodule/aes/asm/vpaes-x86.pl",
     "crypto/fipsmodule/aes/asm/vpaes-x86_64.pl",
     "crypto/fipsmodule/bn/asm/armv4-mont.pl",
@@ -72,6 +74,7 @@ include = [
     "crypto/fipsmodule/ecdsa/ecdsa_verify_tests.txt",
     "crypto/fipsmodule/modes/asm/aesni-gcm-x86_64.pl",
     "crypto/fipsmodule/modes/asm/ghash-armv4.pl",
+    "crypto/fipsmodule/modes/asm/ghash-neon-armv8.pl",
     "crypto/fipsmodule/modes/asm/ghash-x86.pl",
     "crypto/fipsmodule/modes/asm/ghash-x86_64.pl",
     "crypto/fipsmodule/modes/asm/ghashv8-armx.pl",
@@ -90,11 +93,9 @@ include = [
     "crypto/perlasm/x86gas.pl",
     "crypto/perlasm/x86nasm.pl",
     "crypto/perlasm/x86_64-xlate.pl",
-    "crypto/poly1305/internal.h",
     "crypto/poly1305/poly1305.c",
     "crypto/poly1305/poly1305_arm.c",
     "crypto/poly1305/poly1305_arm_asm.S",
-    "crypto/poly1305/poly1305_vec.c",
     "crypto/cipher_extra/asm/chacha20_poly1305_armv8.pl",
     "crypto/cipher_extra/asm/chacha20_poly1305_x86_64.pl",
     "examples/**/*.rs",
@@ -104,7 +105,6 @@ include = [
     "include/ring-core/base.h",
     "include/ring-core/check.h",
     "include/ring-core/mem.h",
-    "include/ring-core/poly1305.h",
     "include/ring-core/target.h",
     "include/ring-core/type_check.h",
     "src/**/*.rs",
@@ -137,22 +137,11 @@ include = [
     "third_party/fiat/p256_64.h",
     "third_party/fiat/p256_64_msvc.h",
     "third_party/fiat/LICENSE",
-    "third_party/NIST/SHAVS/SHA1LongMsg.rsp",
-    "third_party/NIST/SHAVS/SHA1Monte.rsp",
-    "third_party/NIST/SHAVS/SHA1ShortMsg.rsp",
-    "third_party/NIST/SHAVS/SHA224LongMsg.rsp",
-    "third_party/NIST/SHAVS/SHA224Monte.rsp",
-    "third_party/NIST/SHAVS/SHA224ShortMsg.rsp",
-    "third_party/NIST/SHAVS/SHA256LongMsg.rsp",
-    "third_party/NIST/SHAVS/SHA256Monte.rsp",
-    "third_party/NIST/SHAVS/SHA256ShortMsg.rsp",
-    "third_party/NIST/SHAVS/SHA384LongMsg.rsp",
-    "third_party/NIST/SHAVS/SHA384Monte.rsp",
-    "third_party/NIST/SHAVS/SHA384ShortMsg.rsp",
-    "third_party/NIST/SHAVS/SHA512LongMsg.rsp",
-    "third_party/NIST/SHAVS/SHA512Monte.rsp",
-    "third_party/NIST/SHAVS/SHA512ShortMsg.rsp",
 ]
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Safe, fast, small crypto using Rust."
 readme = "README.md"
 keywords = [
@@ -190,6 +179,63 @@ rpath = false
 
 [lib]
 name = "ring"
+path = "src/lib.rs"
+
+[[test]]
+name = "aead_tests"
+path = "tests/aead_tests.rs"
+
+[[test]]
+name = "agreement_tests"
+path = "tests/agreement_tests.rs"
+
+[[test]]
+name = "constant_time_tests"
+path = "tests/constant_time_tests.rs"
+
+[[test]]
+name = "digest_tests"
+path = "tests/digest_tests.rs"
+
+[[test]]
+name = "ecdsa_tests"
+path = "tests/ecdsa_tests.rs"
+
+[[test]]
+name = "ed25519_tests"
+path = "tests/ed25519_tests.rs"
+
+[[test]]
+name = "error_tests"
+path = "tests/error_tests.rs"
+
+[[test]]
+name = "hkdf_tests"
+path = "tests/hkdf_tests.rs"
+
+[[test]]
+name = "hmac_tests"
+path = "tests/hmac_tests.rs"
+
+[[test]]
+name = "pbkdf2_tests"
+path = "tests/pbkdf2_tests.rs"
+
+[[test]]
+name = "quic_tests"
+path = "tests/quic_tests.rs"
+
+[[test]]
+name = "rand_tests"
+path = "tests/rand_tests.rs"
+
+[[test]]
+name = "rsa_tests"
+path = "tests/rsa_tests.rs"
+
+[[test]]
+name = "signature_tests"
+path = "tests/signature_tests.rs"
 
 [dependencies.cfg-if]
 version = "1.0.0"
@@ -213,6 +259,7 @@ default = [
 ]
 dev_urandom_fallback = []
 less-safe-getrandom-custom-or-rdrand = []
+less-safe-getrandom-espidf = []
 slow_tests = []
 std = ["alloc"]
 test_logging = []
@@ -220,26 +267,30 @@ unstable-testing-arm-no-hw = []
 unstable-testing-arm-no-neon = []
 wasm32_unknown_unknown_js = ["getrandom/js"]
 
-[target."cfg(all(any(target_os = \"android\", target_os = \"linux\"), any(target_arch = \"aarch64\", target_arch = \"arm\")))".dependencies.libc]
-version = "0.2.148"
-default-features = false
-
-[target."cfg(all(target_arch = \"aarch64\", target_os = \"windows\"))".dependencies.windows-sys]
+[target.'cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_os = "windows"))'.dependencies.windows-sys]
 version = "0.52"
 features = [
     "Win32_Foundation",
     "Win32_System_Threading",
 ]
 
-[target."cfg(all(target_arch = \"wasm32\", target_os = \"unknown\"))".dev-dependencies.wasm-bindgen-test]
+[target.'cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_vendor = "apple", any(target_os = "ios", target_os = "macos", target_os = "tvos", target_os = "visionos", target_os = "watchos")))'.dependencies.libc]
+version = "0.2.155"
+default-features = false
+
+[target.'cfg(all(any(all(target_arch = "aarch64", target_endian = "little"), all(target_arch = "arm", target_endian = "little")), any(target_os = "android", target_os = "linux")))'.dependencies.libc]
+version = "0.2.148"
+default-features = false
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dev-dependencies.wasm-bindgen-test]
 version = "0.3.37"
+features = ["std"]
 default-features = false
 
-[target."cfg(any(target_arch = \"aarch64\", target_arch = \"arm\", target_arch = \"x86\",target_arch = \"x86_64\"))".dependencies.spin]
-version = "0.9.8"
-features = ["once"]
+[target.'cfg(all(target_vendor = "apple", target_os = "visionos"))'.build-dependencies.cc]
+version = "1.0.97"
 default-features = false
 
-[target."cfg(any(unix, windows, target_os = \"wasi\"))".dev-dependencies.libc]
+[target.'cfg(any(unix, windows, target_os = "wasi"))'.dev-dependencies.libc]
 version = "0.2.148"
 default-features = false

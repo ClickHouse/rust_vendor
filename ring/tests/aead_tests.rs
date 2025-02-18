@@ -12,6 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+#![allow(missing_docs)]
+
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use wasm_bindgen_test::{wasm_bindgen_test as test, wasm_bindgen_test_configure};
 
@@ -207,7 +209,7 @@ fn test_open_in_place_seperate_tag(
         assert_eq!(&in_out[..tc.plaintext.len()], tc.plaintext);
     }
 
-    // Test that ciphertext range shifing works as expected.
+    // Test that ciphertext range shifting works as expected.
     {
         let range = in_out.len()..;
         in_out.extend_from_slice(tc.ciphertext);
@@ -459,9 +461,10 @@ fn aead_chacha20_poly1305_openssh() {
                 as_array
             };
 
-            let sequence_number = test_case.consume_usize("SEQUENCE_NUMBER");
-            assert_eq!(sequence_number as u32 as usize, sequence_number);
-            let sequence_num = sequence_number as u32;
+            let sequence_num: u32 = test_case
+                .consume_usize("SEQUENCE_NUMBER")
+                .try_into()
+                .unwrap();
             let plaintext = test_case.consume_bytes("IN");
             let ct = test_case.consume_bytes("CT");
             let expected_tag = test_case.consume_bytes("TAG");
@@ -491,6 +494,8 @@ fn aead_chacha20_poly1305_openssh() {
 
 #[test]
 fn aead_test_aad_traits() {
+    test::compile_time_assert_send::<aead::Aad<&'_ [u8]>>();
+    test::compile_time_assert_sync::<aead::Aad<&'_ [u8]>>();
     test::compile_time_assert_copy::<aead::Aad<&'_ [u8]>>();
     test::compile_time_assert_eq::<aead::Aad<Vec<u8>>>(); // `!Copy`
 
@@ -500,6 +505,12 @@ fn aead_test_aad_traits() {
         format!("{:?}", aead::Aad::from(&[1, 2, 3])),
         "Aad([1, 2, 3])"
     );
+}
+
+#[test]
+fn test_nonce_traits() {
+    test::compile_time_assert_send::<aead::Nonce>();
+    test::compile_time_assert_sync::<aead::Nonce>();
 }
 
 #[test]
@@ -513,6 +524,15 @@ fn test_tag_traits() {
     let tag = aead::Tag::from([4u8; 16]);
     let _tag_2 = tag; // Cover `Copy`
     assert_eq!(tag.as_ref(), tag.clone().as_ref()); // Cover `Clone`
+}
+
+fn test_aead_key_traits<T: Send + Sync>() {}
+
+#[test]
+fn test_aead_key_traits_all() {
+    test_aead_key_traits::<aead::OpeningKey<OneNonceSequence>>();
+    test_aead_key_traits::<aead::SealingKey<OneNonceSequence>>();
+    test_aead_key_traits::<aead::LessSafeKey>();
 }
 
 #[test]

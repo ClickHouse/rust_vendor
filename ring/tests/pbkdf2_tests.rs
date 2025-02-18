@@ -12,6 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+#![allow(missing_docs)]
+
 use core::num::NonZeroU32;
 use ring::{digest, error, pbkdf2, test, test_file};
 
@@ -40,8 +42,8 @@ pub fn pbkdf2_tests() {
                 unreachable!()
             }
         };
-        let iterations = test_case.consume_usize("c");
-        let iterations = NonZeroU32::new(iterations as u32).unwrap();
+        let iterations: u32 = test_case.consume_usize("c").try_into().unwrap();
+        let iterations: NonZeroU32 = iterations.try_into().unwrap();
         let secret = test_case.consume_bytes("P");
         let salt = test_case.consume_bytes("S");
         let dk = test_case.consume_bytes("DK");

@@ -399,35 +399,20 @@ impl AsRef<OsStr> for TempPath {
 ///
 /// ### Windows
 ///
-/// On Windows, open files _can't_ be deleted. This removes most of the concerns
-/// around temporary file cleaners.
-///
-/// Furthermore, temporary files are, by default, created in per-user temporary
+/// On Windows, temporary files are, by default, created in per-user temporary
 /// file directories so only an application running as the same user would be
 /// able to interfere (which they could do anyways). However, an application
 /// running as the same user can still _accidentally_ re-create deleted
 /// temporary files if the number of random bytes in the temporary file name is
 /// too small.
 ///
-/// So, the only real concern on Windows is:
-///
-/// 1. Opening a named temporary file in a world-writable directory.
-/// 2. Using the `into_temp_path()` and/or `into_parts()` APIs to close the file
-///    handle without deleting the underlying file.
-/// 3. Continuing to use the file by path.
-///
-/// ### UNIX
-///
-/// Unlike on Windows, UNIX (and UNIX like) systems allow open files to be
-/// "unlinked" (deleted).
-///
-/// #### MacOS
+/// ### MacOS
 ///
 /// Like on Windows, temporary files are created in per-user temporary file
 /// directories by default so calling `NamedTempFile::new()` should be
 /// relatively safe.
 ///
-/// #### Linux
+/// ### Linux
 ///
 /// Unfortunately, most _Linux_ distributions don't create per-user temporary
 /// file directories. Worse, systemd's tmpfiles daemon (a common temporary file
@@ -823,9 +808,11 @@ impl<F> NamedTempFile<F> {
         &mut self.file
     }
 
-    /// Convert the temporary file into a `std::fs::File`.
+    /// Turn this named temporary file into an "unnamed" temporary file as if you
+    /// had constructed it with [`tempfile()`].
     ///
-    /// The inner file will be deleted.
+    /// The underlying file will be removed from the filesystem but the returned [`File`]
+    /// can still be read/written.
     pub fn into_file(self) -> F {
         self.file
     }
@@ -840,8 +827,8 @@ impl<F> NamedTempFile<F> {
 
     /// Converts the named temporary file into its constituent parts.
     ///
-    /// Note: When the path is dropped, the file is deleted but the file handle
-    /// is still usable.
+    /// Note: When the path is dropped, the underlying file will be removed from the filesystem but
+    /// the returned [`File`] can still be read/written.
     pub fn into_parts(self) -> (F, TempPath) {
         (self.file, self.path)
     }
@@ -1043,16 +1030,11 @@ impl<F: AsRawHandle> AsRawHandle for NamedTempFile<F> {
 }
 
 pub(crate) fn create_named(
-    mut path: PathBuf,
+    path: PathBuf,
     open_options: &mut OpenOptions,
     permissions: Option<&std::fs::Permissions>,
     keep: bool,
 ) -> io::Result<NamedTempFile> {
-    // Make the path absolute. Otherwise, changing directories could cause us to
-    // delete the wrong file.
-    if !path.is_absolute() {
-        path = std::env::current_dir()?.join(path)
-    }
     imp::create_named(&path, open_options, permissions)
         .with_err_path(|| path.clone())
         .map(|file| NamedTempFile {

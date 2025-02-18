@@ -7,7 +7,6 @@ use std::slice::{Iter, IterMut};
 use crossterm::terminal;
 #[cfg(feature = "tty")]
 use crossterm::tty::IsTty;
-use strum::IntoEnumIterator;
 
 use crate::cell::Cell;
 use crate::column::Column;
@@ -29,6 +28,7 @@ pub struct Table {
     pub(crate) rows: Vec<Row>,
     pub(crate) arrangement: ContentArrangement,
     pub(crate) delimiter: Option<char>,
+    pub(crate) truncation_indicator: String,
     #[cfg(feature = "tty")]
     no_tty: bool,
     #[cfg(feature = "tty")]
@@ -63,6 +63,7 @@ impl Table {
             rows: Vec::new(),
             arrangement: ContentArrangement::Disabled,
             delimiter: None,
+            truncation_indicator: "...".to_string(),
             #[cfg(feature = "tty")]
             no_tty: false,
             #[cfg(feature = "tty")]
@@ -105,7 +106,6 @@ impl Table {
     /// let header = Row::from(vec!["Header One", "Header Two"]);
     /// table.set_header(header);
     /// ```
-
     pub fn set_header<T: Into<Row>>(&mut self, row: T) -> &mut Self {
         let row = row.into();
         self.autogenerate_columns(&row);
@@ -312,6 +312,15 @@ impl Table {
     /// understand the concept of _words_.
     pub fn set_delimiter(&mut self, delimiter: char) -> &mut Self {
         self.delimiter = Some(delimiter);
+
+        self
+    }
+
+    /// Set the truncation indicator for cells that are too long to be displayed.
+    ///
+    /// Set it to "…" for example to use an ellipsis that only takes up one character.
+    pub fn set_truncation_indicator(&mut self, indicator: &str) -> &mut Self {
+        self.truncation_indicator = indicator.to_string();
 
         self
     }
@@ -570,7 +579,6 @@ impl Table {
     /// let mut table = Table::new();
     /// assert_eq!(table.style(TopLeftCorner), Some('+'));
     /// ```
-
     pub fn style(&mut self, component: TableComponent) -> Option<char> {
         self.style.get(&component).copied()
     }

@@ -38,7 +38,7 @@
 //!
 //! ```toml
 //! [dependencies.uuid]
-//! version = "1.13.1"
+//! version = "1.13.2"
 //! features = [
 //!     "v4",                # Lets you generate random UUIDs
 //!     "fast-rng",          # Use a faster (but still sufficiently random) RNG
@@ -107,9 +107,11 @@
 //!   `borsh`.
 //! * `arbitrary` - adds an `Arbitrary` trait implementation to `Uuid` for
 //!   fuzzing.
-//! * `fast-rng` - uses a faster algorithm for generating random UUIDs.
+//! * `fast-rng` - uses a faster algorithm for generating random UUIDs when available.
 //!   This feature requires more dependencies to compile, but is just as suitable for
 //!   UUIDs as the default algorithm.
+//! * `rng-rand` - forces `rand` as the backend for randomness.
+//! * `rng-getrandom` - forces `getrandom` as the backend for randomness.
 //! * `bytemuck` - adds a `Pod` trait implementation to `Uuid` for byte manipulation
 //!
 //! # Unstable features
@@ -138,7 +140,7 @@
 //!
 //! ```toml
 //! [dependencies.uuid]
-//! version = "1.13.1"
+//! version = "1.13.2"
 //! features = [
 //!     "v4",
 //!     "v7",
@@ -153,7 +155,7 @@
 //!
 //! ```toml
 //! [dependencies.uuid]
-//! version = "1.13.1"
+//! version = "1.13.2"
 //! default-features = false
 //! ```
 //!
@@ -166,9 +168,9 @@
 //! produce random bytes yourself and then pass them to [`Builder::from_random_bytes`]
 //! without enabling the `v4` or `v7` features.
 //!
-//! Versions of `uuid` `1.12` or earlier relied on `getrandom` for randomness, this
-//! is no longer guaranteed and configuring `getrandom`'s provider is not guaranteed
-//! to make other features relying on randomness work.
+//! If you're using `getrandom`, you can specify the `rng-getrandom` or `rng-rand`
+//! features of `uuid` and configure `getrandom`'s provider per its docs. `uuid`
+//! may upgrade its version of `getrandom` in minor releases.
 //!
 //! # Examples
 //!
@@ -211,7 +213,7 @@
 #![doc(
     html_logo_url = "https://www.rust-lang.org/logos/rust-logo-128x128-blk-v2.png",
     html_favicon_url = "https://www.rust-lang.org/favicon.ico",
-    html_root_url = "https://docs.rs/uuid/1.13.1"
+    html_root_url = "https://docs.rs/uuid/1.13.2"
 )]
 
 #[cfg(any(feature = "std", test))]

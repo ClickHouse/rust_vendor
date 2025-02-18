@@ -61,6 +61,7 @@ prop_compose! {
 /// 2. Constraints for all columns.
 /// 3. The alignment for each cell.
 /// 3. The alignment for each column.
+#[allow(clippy::type_complexity)]
 fn columns_and_rows() -> impl Strategy<
     Value = (
         Vec<Vec<String>>,
@@ -163,7 +164,6 @@ proptest! {
     })]
     #[test]
     fn random_tables(mut table in table(), table_width in table_width()) {
-        println!("\n\n\n------ START TEST ------\n\n\n");
         table.set_width(table_width);
 
         // Make sure the table builds without any panics
@@ -314,9 +314,7 @@ fn enforce_constraints(
     let constraints: Vec<Option<ColumnConstraint>> = table
         .column_iter()
         .map(|col| col.constraint().cloned())
-        .filter(|constraint| {
-            !matches!(constraint, Some(ColumnConstraint::Hidden))
-        })
+        .filter(|constraint| !matches!(constraint, Some(ColumnConstraint::Hidden)))
         .collect();
 
     let line_iter = lines.iter();

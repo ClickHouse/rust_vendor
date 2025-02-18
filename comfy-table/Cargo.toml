@@ -13,9 +13,10 @@
 edition = "2021"
 rust-version = "1.64"
 name = "comfy-table"
-version = "7.1.3"
+version = "7.1.4"
 authors = ["Arne Beer <contact@arne.beer>"]
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -25,8 +26,8 @@ homepage = "https://github.com/nukesor/comfy-table"
 documentation = "https://docs.rs/comfy-table/"
 readme = "README.md"
 keywords = [
-    "terminal",
     "table",
+    "terminal",
     "unicode",
 ]
 license = "MIT"
@@ -64,18 +65,15 @@ path = "benches/build_tables.rs"
 harness = false
 
 [dependencies.ansi-str]
-version = "0.8"
+version = "0.9"
 optional = true
 
 [dependencies.console]
 version = "0.15"
 optional = true
 
-[dependencies.strum]
-version = "0.26"
-
-[dependencies.strum_macros]
-version = "0.26"
+[dependencies.unicode-segmentation]
+version = "1"
 
 [dependencies.unicode-width]
 version = "0.2"
@@ -90,22 +88,22 @@ version = "1"
 version = "1"
 
 [dev-dependencies.rand]
-version = "0.8"
+version = "0.9"
 
 [dev-dependencies.rstest]
-version = "0.23"
+version = "0.24"
 
 [features]
 custom_styling = [
-    "ansi-str",
-    "console",
+    "dep:ansi-str",
+    "dep:console",
     "tty",
 ]
 debug = []
 default = ["tty"]
 integration_test = []
 reexport_crossterm = ["tty"]
-tty = ["crossterm"]
+tty = ["dep:crossterm"]
 
 [target."cfg(not(windows))".dependencies.crossterm]
 version = "0.28"

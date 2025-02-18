@@ -221,7 +221,7 @@ impl NullBufferBuilder {
     pub fn allocated_size(&self) -> usize {
         self.bitmap_builder
             .as_ref()
-            .map(|b| b.capacity())
+            .map(|b| b.capacity() / 8)
             .unwrap_or(0)
     }
 }
@@ -250,7 +250,7 @@ mod tests {
         builder.append_n_nulls(2);
         builder.append_n_non_nulls(2);
         assert_eq!(6, builder.len());
-        assert_eq!(512, builder.allocated_size());
+        assert_eq!(64, builder.allocated_size());
 
         let buf = builder.finish().unwrap();
         assert_eq!(&[0b110010_u8], buf.validity());
@@ -263,7 +263,7 @@ mod tests {
         builder.append_n_nulls(2);
         builder.append_slice(&[false, false, false]);
         assert_eq!(6, builder.len());
-        assert_eq!(512, builder.allocated_size());
+        assert_eq!(64, builder.allocated_size());
 
         let buf = builder.finish().unwrap();
         assert_eq!(&[0b0_u8], buf.validity());
@@ -327,7 +327,7 @@ mod tests {
         builder.append_null();
         builder.append_non_null();
         assert_eq!(builder.as_slice().unwrap(), &[0xFF, 0b10111111]);
-        assert_eq!(builder.allocated_size(), 512);
+        assert_eq!(builder.allocated_size(), 64);
     }
 
     #[test]

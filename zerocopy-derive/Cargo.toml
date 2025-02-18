@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "zerocopy-derive"
-version = "0.8.17"
+version = "0.8.18"
 authors = ["Joshua Liebow-Feeser <joshlf@google.com>"]
 build = false
 exclude = [
@@ -20,6 +20,7 @@ exclude = [
     "tests/enum_from_bytes.rs",
     "tests/ui-nightly/enum_from_bytes_u16_too_few.rs.disabled",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false

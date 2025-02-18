@@ -4,9 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## [7.1.4] - 2025-02-07
 
-## Changed
+### Fix
+
+- Handle UTF-8 graphemes when truncating cells. [#167](https://github.com/Nukesor/comfy-table/pull/167)
+- Respect UTF-8 zero-width joiner and variation selection characters when splitting words. [#168](https://github.com/Nukesor/comfy-table/pull/168) by [tisonkun](https://github.com/tisonkun)
+
+### Change
+
+- Remove strum dependency. [#169](https://github.com/Nukesor/comfy-table/pull/169) by [tisonkun](https://github.com/tisonkun)
+- Introduce the `unicode-segmentation` library in the scope of #167 and #168.
+- The new changes for correct UTF-8 handling have a performance hit of up to ~67%.
+  However, this will most likely unnoticable for most people.
+  The benchmark table with 10 columns and 500 rows slowed down from 15ms to 25ms.
+  For "normal" tables, the performance hit is negligible.
+
+## Chore
+
+- Bump ansi-str
 
 ## [7.1.3] - 2024-11-24
 

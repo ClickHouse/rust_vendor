@@ -12,8 +12,14 @@
 [package]
 edition = "2018"
 name = "csv-core"
-version = "0.1.11"
+version = "0.1.12"
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Bare bones CSV parsing with no_std support."
 homepage = "https://github.com/BurntSushi/rust-csv"
 documentation = "https://docs.rs/csv-core"
@@ -34,8 +40,24 @@ license = "Unlicense/MIT"
 repository = "https://github.com/BurntSushi/rust-csv"
 resolver = "2"
 
+[badges.appveyor]
+repository = "BurntSushi/rust-csv"
+
+[badges.travis-ci]
+repository = "BurntSushi/rust-csv"
+
+[features]
+default = []
+libc = ["memchr/libc"]
+
 [lib]
+name = "csv_core"
+path = "src/lib.rs"
 bench = false
+
+[[bench]]
+name = "bench"
+path = "benches/bench.rs"
 
 [dependencies.memchr]
 version = "2"
@@ -44,13 +66,3 @@ default-features = false
 [dev-dependencies.arrayvec]
 version = "0.5"
 default-features = false
-
-[features]
-default = []
-libc = ["memchr/libc"]
-
-[badges.appveyor]
-repository = "BurntSushi/rust-csv"
-
-[badges.travis-ci]
-repository = "BurntSushi/rust-csv"

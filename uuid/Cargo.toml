@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.63.0"
 name = "uuid"
-version = "1.13.1"
+version = "1.13.2"
 authors = [
     "Ashley Mannix<ashleymannix@live.com.au>",
     "Dylan DPC<dylan.dpc@gmail.com>",
@@ -85,6 +85,55 @@ features = [
     "v8",
 ]
 
+[badges.is-it-maintained-issue-resolution]
+repository = "uuid-rs/uuid"
+
+[badges.is-it-maintained-open-issues]
+repository = "uuid-rs/uuid"
+
+[badges.maintenance]
+status = "actively-developed"
+
+[features]
+atomic = ["dep:atomic"]
+borsh = [
+    "dep:borsh",
+    "dep:borsh-derive",
+]
+default = ["std"]
+fast-rng = [
+    "rng",
+    "dep:rand",
+]
+js = [
+    "dep:wasm-bindgen",
+    "dep:js-sys",
+]
+macro-diagnostics = ["dep:uuid-macro-internal"]
+md5 = ["dep:md-5"]
+rng = ["dep:getrandom"]
+rng-getrandom = [
+    "rng",
+    "dep:getrandom",
+    "uuid-rng-internal-lib",
+    "uuid-rng-internal-lib/getrandom",
+]
+rng-rand = [
+    "rng",
+    "dep:rand",
+    "uuid-rng-internal-lib",
+    "uuid-rng-internal-lib/rand",
+]
+sha1 = ["dep:sha1_smol"]
+std = []
+v1 = ["atomic"]
+v3 = ["md5"]
+v4 = ["rng"]
+v5 = ["sha1"]
+v6 = ["atomic"]
+v7 = ["rng"]
+v8 = []
+
 [lib]
 name = "uuid"
 path = "src/lib.rs"
@@ -133,7 +182,7 @@ version = "2"
 optional = true
 
 [dependencies.uuid-macro-internal]
-version = "1.13.1"
+version = "1.13.2"
 optional = true
 
 [dependencies.zerocopy]
@@ -159,48 +208,8 @@ version = "1.0.56"
 [dev-dependencies.trybuild]
 version = "1.0.52"
 
-[features]
-atomic = ["dep:atomic"]
-borsh = [
-    "dep:borsh",
-    "dep:borsh-derive",
-]
-default = ["std"]
-fast-rng = [
-    "rng",
-    "dep:rand",
-]
-js = [
-    "dep:wasm-bindgen",
-    "dep:js-sys",
-]
-macro-diagnostics = ["dep:uuid-macro-internal"]
-md5 = ["dep:md-5"]
-rng = ["dep:getrandom"]
-rng-getrandom = [
-    "rng",
-    "dep:getrandom",
-    "uuid-rng-internal-lib",
-    "uuid-rng-internal-lib/getrandom",
-]
-rng-rand = [
-    "rng",
-    "dep:rand",
-    "uuid-rng-internal-lib",
-    "uuid-rng-internal-lib/rand",
-]
-sha1 = ["dep:sha1_smol"]
-std = []
-v1 = ["atomic"]
-v3 = ["md5"]
-v4 = ["rng"]
-v5 = ["sha1"]
-v6 = ["atomic"]
-v7 = ["rng"]
-v8 = []
-
 [target.'cfg(all(target_arch = "wasm32", target_vendor = "unknown", target_os = "unknown"))'.dependencies.uuid-rng-internal-lib]
-version = "1.13.1"
+version = "1.13.2"
 optional = true
 package = "uuid-rng-internal"
 
@@ -225,15 +234,6 @@ optional = true
 [target.'cfg(not(all(target_arch = "wasm32", target_vendor = "unknown", target_os = "unknown")))'.dependencies.rand]
 version = "0.9"
 optional = true
-
-[badges.is-it-maintained-issue-resolution]
-repository = "uuid-rs/uuid"
-
-[badges.is-it-maintained-open-issues]
-repository = "uuid-rs/uuid"
-
-[badges.maintenance]
-status = "actively-developed"
 
 [lints.rust.unexpected_cfgs]
 level = "allow"

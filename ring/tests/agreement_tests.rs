@@ -12,6 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+#![allow(missing_docs)]
+
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use wasm_bindgen_test::{wasm_bindgen_test as test, wasm_bindgen_test_configure};
 
@@ -138,7 +140,7 @@ fn test_agreement_ecdh_x25519_rfc_iterated() {
     ) {
         for _ in range {
             let new_k = x25519(k, u);
-            *u = k.clone();
+            u.clone_from(k);
             *k = new_k;
         }
         assert_eq!(&h(expected_result), k);
