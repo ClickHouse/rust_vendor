@@ -11,11 +11,13 @@
 //! method.
 //!
 //! Terminal styling is done through ANSI escape codes and will be adapted to the capabilities of
-//! the target stream.
+//! the target stream.s
+//!
 //! For example, you could use one of:
 //! - [anstyle](https://docs.rs/anstyle) is a minimal, runtime string styling API and is re-exported as [`style`]
 //! - [owo-colors](https://docs.rs/owo-colors) is a feature rich runtime string styling API
 //! - [color-print](https://docs.rs/color-print) for feature-rich compile-time styling API
+//!
 //! See also [`Formatter::default_level_style`]
 //!
 //! ```
@@ -208,6 +210,8 @@ pub(crate) struct Builder {
     pub(crate) format_indent: Option<usize>,
     pub(crate) custom_format: Option<FormatFn>,
     pub(crate) format_suffix: &'static str,
+    pub(crate) format_file: bool,
+    pub(crate) format_line_number: bool,
     #[cfg(feature = "unstable-kv")]
     pub(crate) kv_format: Option<Box<KvFormatFn>>,
     built: bool,
@@ -242,6 +246,8 @@ impl Builder {
                     written_header_value: false,
                     indent: built.format_indent,
                     suffix: built.format_suffix,
+                    source_file: built.format_file,
+                    source_line_number: built.format_line_number,
                     #[cfg(feature = "unstable-kv")]
                     kv_format: built.kv_format.as_deref().unwrap_or(&default_kv_format),
                     buf,
@@ -260,6 +266,8 @@ impl Default for Builder {
             format_module_path: false,
             format_target: true,
             format_level: true,
+            format_file: false,
+            format_line_number: false,
             format_indent: Some(4),
             custom_format: None,
             format_suffix: "\n",
@@ -307,6 +315,8 @@ struct DefaultFormat<'a> {
     module_path: bool,
     target: bool,
     level: bool,
+    source_file: bool,
+    source_line_number: bool,
     written_header_value: bool,
     indent: Option<usize>,
     buf: &'a mut Formatter,
@@ -315,11 +325,12 @@ struct DefaultFormat<'a> {
     kv_format: &'a KvFormatFn,
 }
 
-impl<'a> DefaultFormat<'a> {
+impl DefaultFormat<'_> {
     fn write(mut self, record: &Record<'_>) -> io::Result<()> {
         self.write_timestamp()?;
         self.write_level(record)?;
         self.write_module_path(record)?;
+        self.write_source_location(record)?;
         self.write_target(record)?;
         self.finish_header()?;
 
@@ -355,9 +366,9 @@ impl<'a> DefaultFormat<'a> {
             self.written_header_value = true;
 
             let open_brace = self.subtle_style("[");
-            write!(self.buf, "{}{}", open_brace, value)
+            write!(self.buf, "{open_brace}{value}")
         } else {
-            write!(self.buf, " {}", value)
+            write!(self.buf, " {value}")
         }
     }
 
@@ -381,7 +392,7 @@ impl<'a> DefaultFormat<'a> {
             }
         };
 
-        self.write_header_value(format_args!("{:<5}", level))
+        self.write_header_value(format_args!("{level:<5}"))
     }
 
     fn write_timestamp(&mut self) -> io::Result<()> {
@@ -419,6 +430,22 @@ impl<'a> DefaultFormat<'a> {
         }
     }
 
+    fn write_source_location(&mut self, record: &Record<'_>) -> io::Result<()> {
+        if !self.source_file {
+            return Ok(());
+        }
+
+        if let Some(file_path) = record.file() {
+            let line = self.source_line_number.then(|| record.line()).flatten();
+            match line {
+                Some(line) => self.write_header_value(format_args!("{file_path}:{line}")),
+                None => self.write_header_value(file_path),
+            }
+        } else {
+            Ok(())
+        }
+    }
+
     fn write_target(&mut self, record: &Record<'_>) -> io::Result<()> {
         if !self.target {
             return Ok(());
@@ -433,7 +460,7 @@ impl<'a> DefaultFormat<'a> {
     fn finish_header(&mut self) -> io::Result<()> {
         if self.written_header_value {
             let close_brace = self.subtle_style("]");
-            write!(self.buf, "{} ", close_brace)
+            write!(self.buf, "{close_brace} ")
         } else {
             Ok(())
         }
@@ -452,7 +479,7 @@ impl<'a> DefaultFormat<'a> {
                     indent_count: usize,
                 }
 
-                impl<'a, 'b> Write for IndentWrapper<'a, 'b> {
+                impl Write for IndentWrapper<'_, '_> {
                     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
                         let mut first = true;
                         for chunk in buf.split(|&x| x == b'\n') {
@@ -548,6 +575,8 @@ mod tests {
             module_path: true,
             target: false,
             level: true,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -568,6 +597,8 @@ mod tests {
             module_path: false,
             target: false,
             level: false,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -588,6 +619,8 @@ mod tests {
             module_path: true,
             target: false,
             level: true,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -608,6 +641,8 @@ mod tests {
             module_path: true,
             target: false,
             level: true,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -628,6 +663,8 @@ mod tests {
             module_path: false,
             target: false,
             level: false,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -648,6 +685,8 @@ mod tests {
             module_path: false,
             target: false,
             level: false,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -668,6 +707,8 @@ mod tests {
             module_path: false,
             target: false,
             level: false,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -690,6 +731,8 @@ mod tests {
                 module_path: true,
                 target: true,
                 level: true,
+                source_file: false,
+                source_line_number: false,
                 #[cfg(feature = "unstable-kv")]
                 kv_format: &hidden_kv_format,
                 written_header_value: false,
@@ -711,6 +754,8 @@ mod tests {
             module_path: true,
             target: true,
             level: true,
+            source_file: false,
+            source_line_number: false,
             #[cfg(feature = "unstable-kv")]
             kv_format: &hidden_kv_format,
             written_header_value: false,
@@ -733,6 +778,8 @@ mod tests {
                 module_path: true,
                 target: false,
                 level: true,
+                source_file: false,
+                source_line_number: false,
                 #[cfg(feature = "unstable-kv")]
                 kv_format: &hidden_kv_format,
                 written_header_value: false,
@@ -743,6 +790,28 @@ mod tests {
         );
 
         assert_eq!("[INFO  test::path] log\nmessage\n", written);
+    }
+
+    #[test]
+    fn format_with_source_file_and_line_number() {
+        let mut f = formatter();
+
+        let written = write(DefaultFormat {
+            timestamp: None,
+            module_path: false,
+            target: false,
+            level: true,
+            source_file: true,
+            source_line_number: true,
+            #[cfg(feature = "unstable-kv")]
+            kv_format: &hidden_kv_format,
+            written_header_value: false,
+            indent: None,
+            suffix: "\n",
+            buf: &mut f,
+        });
+
+        assert_eq!("[INFO  test.rs:144] log\nmessage\n", written);
     }
 
     #[cfg(feature = "unstable-kv")]
@@ -764,6 +833,8 @@ mod tests {
                 module_path: false,
                 target: false,
                 level: true,
+                source_file: false,
+                source_line_number: false,
                 kv_format: &default_kv_format,
                 written_header_value: false,
                 indent: None,
@@ -797,6 +868,8 @@ mod tests {
                 module_path: true,
                 target: true,
                 level: true,
+                source_file: true,
+                source_line_number: true,
                 kv_format: &default_kv_format,
                 written_header_value: false,
                 indent: None,
@@ -805,6 +878,9 @@ mod tests {
             },
         );
 
-        assert_eq!("[INFO  test::path target] log\nmessage a=1 b=2\n", written);
+        assert_eq!(
+            "[INFO  test::path test.rs:42 target] log\nmessage a=1 b=2\n",
+            written
+        );
     }
 }

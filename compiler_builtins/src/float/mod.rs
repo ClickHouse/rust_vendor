@@ -31,10 +31,10 @@ pub(crate) trait Float:
     + ops::Rem<Output = Self>
 {
     /// A uint of the same width as the float
-    type Int: Int;
+    type Int: Int<OtherSign = Self::SignedInt, UnsignedInt = Self::Int>;
 
     /// A int of the same width as the float
-    type SignedInt: Int;
+    type SignedInt: Int + MinInt<OtherSign = Self::Int, UnsignedInt = Self::Int>;
 
     /// An int capable of containing the exponent bits plus a sign bit. This is signed.
     type ExpInt: Int;
@@ -51,7 +51,7 @@ pub(crate) trait Float:
     /// The bitwidth of the exponent
     const EXPONENT_BITS: u32 = Self::BITS - Self::SIGNIFICAND_BITS - 1;
 
-    /// The maximum value of the exponent
+    /// The saturated value of the exponent (infinite representation), in the rightmost postiion.
     const EXPONENT_MAX: u32 = (1 << Self::EXPONENT_BITS) - 1;
 
     /// The exponent bias value
@@ -70,10 +70,10 @@ pub(crate) trait Float:
     const EXPONENT_MASK: Self::Int;
 
     /// Returns `self` transmuted to `Self::Int`
-    fn repr(self) -> Self::Int;
+    fn to_bits(self) -> Self::Int;
 
     /// Returns `self` transmuted to `Self::SignedInt`
-    fn signed_repr(self) -> Self::SignedInt;
+    fn to_bits_signed(self) -> Self::SignedInt;
 
     /// Checks if two floats have the same bit representation. *Except* for NaNs! NaN can be
     /// represented in multiple different ways. This method returns `true` if two NaNs are
@@ -83,7 +83,7 @@ pub(crate) trait Float:
     /// Returns true if the sign is negative
     fn is_sign_negative(self) -> bool;
 
-    /// Returns the exponent with bias
+    /// Returns the exponent, not adjusting for bias.
     fn exp(self) -> Self::ExpInt;
 
     /// Returns the significand with no implicit bit (or the "fractional" part)
@@ -93,10 +93,15 @@ pub(crate) trait Float:
     fn imp_frac(self) -> Self::Int;
 
     /// Returns a `Self::Int` transmuted back to `Self`
-    fn from_repr(a: Self::Int) -> Self;
+    fn from_bits(a: Self::Int) -> Self;
 
     /// Constructs a `Self` from its parts. Inputs are treated as bits and shifted into position.
-    fn from_parts(sign: bool, exponent: Self::Int, significand: Self::Int) -> Self;
+    fn from_parts(negative: bool, exponent: Self::Int, significand: Self::Int) -> Self;
+
+    fn abs(self) -> Self {
+        let abs_mask = !Self::SIGN_MASK ;
+        Self::from_bits(self.to_bits() & abs_mask)
+    }
 
     /// Returns (normalized exponent, normalized significand)
     fn normalize(significand: Self::Int) -> (i32, Self::Int);
@@ -124,10 +129,10 @@ macro_rules! float_impl {
             const IMPLICIT_BIT: Self::Int = 1 << Self::SIGNIFICAND_BITS;
             const EXPONENT_MASK: Self::Int = !(Self::SIGN_MASK | Self::SIGNIFICAND_MASK);
 
-            fn repr(self) -> Self::Int {
+            fn to_bits(self) -> Self::Int {
                 self.to_bits()
             }
-            fn signed_repr(self) -> Self::SignedInt {
+            fn to_bits_signed(self) -> Self::SignedInt {
                 self.to_bits() as Self::SignedInt
             }
             fn eq_repr(self, rhs: Self) -> bool {
@@ -137,8 +142,8 @@ macro_rules! float_impl {
                     // necessary builtin (__unordtf2) to test whether `f128` is NaN.
                     // FIXME(f16_f128): Remove once the nightly toolchain has the __unordtf2 builtin
                     // x is NaN if all the bits of the exponent are set and the significand is non-0
-                    x.repr() & $ty::EXPONENT_MASK == $ty::EXPONENT_MASK
-                        && x.repr() & $ty::SIGNIFICAND_MASK != 0
+                    x.to_bits() & $ty::EXPONENT_MASK == $ty::EXPONENT_MASK
+                        && x.to_bits() & $ty::SIGNIFICAND_MASK != 0
                 }
                 #[cfg(not(feature = "mangled-names"))]
                 fn is_nan(x: $ty) -> bool {
@@ -147,7 +152,7 @@ macro_rules! float_impl {
                 if is_nan(self) && is_nan(rhs) {
                     true
                 } else {
-                    self.repr() == rhs.repr()
+                    self.to_bits() == rhs.to_bits()
                 }
             }
             fn is_sign_negative(self) -> bool {
@@ -162,12 +167,12 @@ macro_rules! float_impl {
             fn imp_frac(self) -> Self::Int {
                 self.frac() | Self::IMPLICIT_BIT
             }
-            fn from_repr(a: Self::Int) -> Self {
+            fn from_bits(a: Self::Int) -> Self {
                 Self::from_bits(a)
             }
-            fn from_parts(sign: bool, exponent: Self::Int, significand: Self::Int) -> Self {
-                Self::from_repr(
-                    ((sign as Self::Int) << (Self::BITS - 1))
+            fn from_parts(negative: bool, exponent: Self::Int, significand: Self::Int) -> Self {
+                Self::from_bits(
+                    ((negative as Self::Int) << (Self::BITS - 1))
                         | ((exponent << Self::SIGNIFICAND_BITS) & Self::EXPONENT_MASK)
                         | (significand & Self::SIGNIFICAND_MASK),
                 )
@@ -175,14 +180,14 @@ macro_rules! float_impl {
             fn normalize(significand: Self::Int) -> (i32, Self::Int) {
                 let shift = significand
                     .leading_zeros()
-                    .wrapping_sub((Self::Int::ONE << Self::SIGNIFICAND_BITS).leading_zeros());
+                    .wrapping_sub(Self::EXPONENT_BITS);
                 (
                     1i32.wrapping_sub(shift as i32),
                     significand << shift as Self::Int,
                 )
             }
             fn is_subnormal(self) -> bool {
-                (self.repr() & Self::EXPONENT_MASK) == Self::Int::ZERO
+                (self.to_bits() & Self::EXPONENT_MASK) == Self::Int::ZERO
             }
         }
     };

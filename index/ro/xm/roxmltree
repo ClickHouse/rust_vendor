@@ -1,0 +1,1 @@
+{"name":"roxmltree","vers":"0.18.1","deps":[{"name":"xmlparser","req":"^0.13.6","features":[],"optional":false,"default_features":false,"target":null,"kind":null,"package":null}],"cksum":"862340e351ce1b271a378ec53f304a5558f7db87f3769dc655a8f6ecbb68b302","features":{"default":["positions","std"],"positions":[],"std":["xmlparser/std"]},"yanked":false}

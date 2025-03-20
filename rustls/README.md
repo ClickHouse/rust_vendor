@@ -78,10 +78,10 @@ builder types. See the [`crypto::CryptoProvider`] documentation for more details
 
 #### Built-in providers
 
-Rustls ships with two built-in providers controlled with associated feature flags:
+Rustls ships with two built-in providers controlled by associated crate features:
 
-* [`aws-lc-rs`] - enabled by default, available with the `aws_lc_rs` feature flag enabled.
-* [`ring`] - available with the `ring` feature flag enabled.
+* [`aws-lc-rs`] - enabled by default, available with the `aws_lc_rs` crate feature enabled.
+* [`ring`] - available with the `ring` crate feature enabled.
 
 See the documentation for [`crypto::CryptoProvider`] for details on how providers are
 selected.
@@ -91,21 +91,24 @@ selected.
 The community has also started developing third-party providers for Rustls:
 
 * [`rustls-mbedtls-provider`] - a provider that uses [`mbedtls`] for cryptography.
+* [`rustls-openssl`] - a provider that uses [OpenSSL] for cryptography.
 * [`boring-rustls-provider`] - a work-in-progress provider that uses [`boringssl`] for
 cryptography.
 * [`rustls-rustcrypto`] - an experimental provider that uses the crypto primitives
 from [`RustCrypto`] for cryptography.
-* [`rustls-post-quantum`]: an experimental provider that adds support for post-quantum
-key exchange to the default aws-lc-rs provider.
+* [`rustls-symcrypt`] - a provider that uses Microsoft's [SymCrypt] library.
 * [`rustls-wolfcrypt-provider`] - a work-in-progress provider that uses [`wolfCrypt`] for cryptography.
 
 [`rustls-mbedtls-provider`]: https://github.com/fortanix/rustls-mbedtls-provider
 [`mbedtls`]: https://github.com/Mbed-TLS/mbedtls
+[`rustls-openssl`]: https://github.com/tofay/rustls-openssl
+[OpenSSL]: https://openssl-library.org/
+[`rustls-symcrypt`]: https://github.com/microsoft/rustls-symcrypt
+[SymCrypt]: https://github.com/microsoft/SymCrypt
 [`boring-rustls-provider`]: https://github.com/janrueth/boring-rustls-provider
 [`boringssl`]: https://github.com/google/boringssl
 [`rustls-rustcrypto`]: https://github.com/RustCrypto/rustls-rustcrypto
 [`RustCrypto`]: https://github.com/RustCrypto
-[`rustls-post-quantum`]: https://crates.io/crates/rustls-post-quantum
 [`rustls-wolfcrypt-provider`]: https://github.com/wolfSSL/rustls-wolfcrypt-provider
 [`wolfCrypt`]: https://www.wolfssl.com/products/wolfcrypt
 
@@ -178,7 +181,7 @@ depth=2 CN = ponytown RSA CA
 verify error:num=19:self signed certificate in certificate chain
 hello world
 ^C
-$ echo hello world | cargo run --bin tlsclient-mio -- --cafile test-ca/rsa-2048/ca.cert -p 8443 localhost
+$ echo hello world | cargo run --bin tlsclient-mio -- --cafile test-ca/rsa-2048/ca.cert --port 8443 localhost
 hello world
 ^C
 ```
@@ -201,7 +204,7 @@ of these licenses, at your option.
 
 - Joe Birr-Pixton ([@ctz], Project Founder - full-time funded by [Prossimo])
 - Dirkjan Ochtman ([@djc], Co-maintainer)
-- Daniel McCarney ([@cpu], Co-maintainer - half-time funded by [Prossimo])
+- Daniel McCarney ([@cpu], Co-maintainer)
 - Josh Aas ([@bdaehlie], Project Management)
 
 [@ctz]: https://github.com/ctz

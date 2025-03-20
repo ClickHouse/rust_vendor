@@ -1,1 +1,0 @@
-{"name":"cmake","vers":"0.1.52","deps":[{"name":"cc","req":"^1.0.83","features":[],"optional":false,"default_features":true,"target":null,"kind":null,"package":null}],"cksum":"c682c223677e0e5b6b7f63a64b9351844c3f1b1678a68b7ee617e30fb082620e","features":{},"yanked":false}

@@ -51,7 +51,7 @@ use core::{fmt, ops};
 //     }
 //
 //     impl fmt::Display for DwFoo {
-//         fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+//         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
 //             ...
 //         }
 //     }
@@ -83,7 +83,7 @@ macro_rules! dw {
         }
 
         impl fmt::Display for $struct_name {
-            fn fmt(&self, f: &mut fmt::Formatter) -> Result<(), fmt::Error> {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
                 if let Some(s) = self.static_string() {
                     f.pad(s)
                 } else {
@@ -1052,7 +1052,10 @@ DwLnct(u16) {
     DW_LNCT_timestamp = 0x3,
     DW_LNCT_size = 0x4,
     DW_LNCT_MD5 = 0x5,
+    // DW_LNCT_source = 0x6,
     DW_LNCT_lo_user = 0x2000,
+    // We currently only implement the LLVM embedded source code extension for DWARF v5.
+    DW_LNCT_LLVM_source = 0x2001,
     DW_LNCT_hi_user = 0x3fff,
 });
 

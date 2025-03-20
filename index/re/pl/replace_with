@@ -1,1 +1,0 @@
-{"name":"replace_with","vers":"0.1.7","deps":[],"cksum":"e3a8614ee435691de62bcffcf4a66d91b3594bf1428a5722e79103249a095690","features":{"default":["std"],"nightly":[],"panic_abort":[],"std":[]},"yanked":false}

@@ -1,5 +1,4 @@
 pub type fflags_t = u32;
-pub type clock_t = i32;
 
 pub type vm_prot_t = u_char;
 pub type kvaddr_t = u64;
@@ -1646,13 +1645,23 @@ s_no_extra_traits! {
         pub kf_flags: ::c_int,
         _kf_pad0: ::c_int,
         pub kf_offset: i64,
-        _priv: [::uintptr_t; 38], // FIXME if needed
+        _priv: [u8; 304],   // FIXME: this is really a giant union
         pub kf_status: u16,
         _kf_pad1: u16,
         _kf_ispare0: ::c_int,
         pub kf_cap_rights: ::cap_rights_t,
         _kf_cap_spare: u64,
         pub kf_path: [::c_char; ::PATH_MAX as usize],
+    }
+
+    pub struct ucontext_t {
+        pub uc_sigmask: ::sigset_t,
+        #[cfg(libc_align)]
+        pub uc_mcontext: ::mcontext_t,
+        pub uc_link: *mut ::ucontext_t,
+        pub uc_stack: ::stack_t,
+        pub uc_flags: ::c_int,
+        __spare__: [::c_int; 4],
     }
 }
 
@@ -2656,6 +2665,19 @@ cfg_if! {
                 self.kf_path.hash(state);
             }
         }
+
+        impl ::fmt::Debug for ucontext_t {
+            fn fmt(&self, f: &mut ::fmt::Formatter) -> ::fmt::Result {
+                f.debug_struct("ucontext_t")
+                    .field("uc_sigmask", &self.uc_sigmask)
+                    // FIXME: enable when libc_align is dropped
+                    // .field("uc_mcontext", &self.uc_mcontext)
+                    .field("uc_link", &self.uc_link)
+                    .field("uc_stack", &self.uc_stack)
+                    .field("uc_flags", &self.uc_flags)
+                    .finish()
+            }
+        }
     }
 }
 
@@ -2894,6 +2916,7 @@ pub const POSIX_FADV_DONTNEED: ::c_int = 4;
 pub const POSIX_FADV_NOREUSE: ::c_int = 5;
 
 pub const POLLINIGNEOF: ::c_short = 0x2000;
+pub const POLLRDHUP: ::c_short = 0x4000;
 
 pub const EVFILT_READ: i16 = -1;
 pub const EVFILT_WRITE: i16 = -2;
@@ -3188,9 +3211,22 @@ pub const H4DISC: ::c_int = 0x7;
 
 pub const VM_TOTAL: ::c_int = 1;
 
-pub const BIOCSETFNR: ::c_ulong = 0x80104282;
+cfg_if! {
+    if #[cfg(target_pointer_width = "64")] {
+        pub const BIOCSETFNR: ::c_ulong = 0x80104282;
+    } else {
+        pub const BIOCSETFNR: ::c_ulong = 0x80084282;
+    }
+}
 
-pub const FIODGNAME: ::c_ulong = 0x80106678;
+cfg_if! {
+    if #[cfg(target_pointer_width = "64")] {
+        pub const FIODGNAME: ::c_ulong = 0x80106678;
+    } else {
+        pub const FIODGNAME: ::c_ulong = 0x80086678;
+    }
+}
+
 pub const FIONWRITE: ::c_ulong = 0x40046677;
 pub const FIONSPACE: ::c_ulong = 0x40046676;
 pub const FIOSEEKDATA: ::c_ulong = 0xc0086661;
@@ -3843,6 +3879,7 @@ pub const TCP_INFO: ::c_int = 32;
 pub const TCP_CONGESTION: ::c_int = 64;
 pub const TCP_CCALGOOPT: ::c_int = 65;
 pub const TCP_MAXUNACKTIME: ::c_int = 68;
+#[deprecated(since = "0.2.160", note = "Removed in FreeBSD 15")]
 pub const TCP_MAXPEAKRATE: ::c_int = 69;
 pub const TCP_IDLE_REDUCE: ::c_int = 70;
 pub const TCP_REMOTE_UDP_ENCAPS_PORT: ::c_int = 71;
@@ -4741,6 +4778,14 @@ pub const CPU_WHICH_CPUSET: ::c_int = 3;
 pub const CPU_WHICH_IRQ: ::c_int = 4;
 pub const CPU_WHICH_JAIL: ::c_int = 5;
 
+// net/route.h
+pub const RTF_LLDATA: ::c_int = 0x400;
+pub const RTF_FIXEDMTU: ::c_int = 0x80000;
+
+pub const RTM_VERSION: ::c_int = 5;
+
+pub const RTAX_MAX: ::c_int = 8;
+
 // sys/signal.h
 pub const SIGTHR: ::c_int = 32;
 pub const SIGLWP: ::c_int = SIGTHR;
@@ -4922,6 +4967,10 @@ pub const TFD_NONBLOCK: ::c_int = ::O_NONBLOCK;
 pub const TFD_CLOEXEC: ::c_int = O_CLOEXEC;
 pub const TFD_TIMER_ABSTIME: ::c_int = 0x01;
 pub const TFD_TIMER_CANCEL_ON_SET: ::c_int = 0x02;
+
+// sys/unistd.h
+
+pub const CLOSE_RANGE_CLOEXEC: ::c_uint = 1 << 2;
 
 cfg_if! {
     if #[cfg(libc_const_extern_fn)] {

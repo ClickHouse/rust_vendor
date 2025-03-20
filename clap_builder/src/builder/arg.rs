@@ -98,6 +98,10 @@ impl Arg {
     /// The name is used to check whether or not the argument was used at
     /// runtime, get values, set relationships with other args, etc..
     ///
+    /// By default, an `Arg` is
+    /// - Positional, see [`Arg::short`] or [`Arg::long`] turn it into an option
+    /// - Accept a single value, see [`Arg::action`] to override this
+    ///
     /// <div class="warning">
     ///
     /// **NOTE:** In the case of arguments that take values (i.e. [`Arg::action(ArgAction::Set)`])
@@ -4542,11 +4546,7 @@ impl Arg {
         if val_names_len > 1 {
             self.num_vals.get_or_insert(val_names_len.into());
         } else {
-            let nargs = if self.get_action().takes_values() {
-                ValueRange::SINGLE
-            } else {
-                ValueRange::EMPTY
-            };
+            let nargs = self.get_action().default_num_args();
             self.num_vals.get_or_insert(nargs);
         }
     }

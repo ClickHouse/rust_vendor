@@ -120,7 +120,6 @@ $do4xaggr=1;
 
 $code=<<___;
 .text
-.extern	OPENSSL_ia32cap_P
 ___
 
 
@@ -211,9 +210,10 @@ gcm_init_clmul:
 ___
 $code.=<<___ if ($win64);
 	sub	\$0x18,%rsp
-.seh_allocstack	0x18
+.seh_stackalloc	0x18
 	movaps	%xmm6,(%rsp)
-.seh_savexmm128	%xmm6, 0
+.seh_savexmm	%xmm6, 0
+.seh_endprologue
 ___
 $code.=<<___;
 	movdqu		($Xip),$Hkey
@@ -281,55 +281,6 @@ $code.=<<___;
 ___
 }
 
-{ my ($Xip,$Htbl)=@_4args;
-
-$code.=<<___;
-.globl	gcm_gmult_clmul
-.type	gcm_gmult_clmul,\@abi-omnipotent
-.align	16
-gcm_gmult_clmul:
-.cfi_startproc
-	_CET_ENDBR
-.L_gmult_clmul:
-	movdqu		($Xip),$Xi
-	movdqa		.Lbswap_mask(%rip),$T3
-	movdqu		($Htbl),$Hkey
-	movdqu		0x20($Htbl),$T2
-	pshufb		$T3,$Xi
-___
-	&clmul64x64_T2	($Xhi,$Xi,$Hkey,$T2);
-$code.=<<___ if (0 || (&reduction_alg9($Xhi,$Xi)&&0));
-	# experimental alternative. special thing about is that there
-	# no dependency between the two multiplications...
-	mov		\$`0xE1<<1`,%eax
-	mov		\$0xA040608020C0E000,%r10	# ((7..0)·0xE0)&0xff
-	mov		\$0x07,%r11d
-	movq		%rax,$T1
-	movq		%r10,$T2
-	movq		%r11,$T3		# borrow $T3
-	pand		$Xi,$T3
-	pshufb		$T3,$T2			# ($Xi&7)·0xE0
-	movq		%rax,$T3
-	pclmulqdq	\$0x00,$Xi,$T1		# ·(0xE1<<1)
-	pxor		$Xi,$T2
-	pslldq		\$15,$T2
-	paddd		$T2,$T2			# <<(64+56+1)
-	pxor		$T2,$Xi
-	pclmulqdq	\$0x01,$T3,$Xi
-	movdqa		.Lbswap_mask(%rip),$T3	# reload $T3
-	psrldq		\$1,$T1
-	pxor		$T1,$Xhi
-	pslldq		\$7,$Xi
-	pxor		$Xhi,$Xi
-___
-$code.=<<___;
-	pshufb		$T3,$Xi
-	movdqu		$Xi,($Xip)
-	ret
-.cfi_endproc
-.size	gcm_gmult_clmul,.-gcm_gmult_clmul
-___
-}
 
 { my ($Xip,$Htbl,$inp,$len)=@_4args;
   my ($Xln,$Xmn,$Xhn,$Hkey2,$HK) = map("%xmm$_",(3..7));
@@ -348,27 +299,28 @@ ___
 $code.=<<___ if ($win64);
 	lea	-0x88(%rsp),%rax
 	lea	-0x20(%rax),%rsp
-.seh_allocstack	0x20+0x88
+.seh_stackalloc	0x20+0x88
 	movaps	%xmm6,-0x20(%rax)
-.seh_savexmm128	%xmm6, 0x20-0x20
+.seh_savexmm	%xmm6, 0x20-0x20
 	movaps	%xmm7,-0x10(%rax)
-.seh_savexmm128	%xmm7, 0x20-0x10
+.seh_savexmm	%xmm7, 0x20-0x10
 	movaps	%xmm8,0(%rax)
-.seh_savexmm128	%xmm8, 0x20+0
+.seh_savexmm	%xmm8, 0x20+0
 	movaps	%xmm9,0x10(%rax)
-.seh_savexmm128	%xmm9, 0x20+0x10
+.seh_savexmm	%xmm9, 0x20+0x10
 	movaps	%xmm10,0x20(%rax)
-.seh_savexmm128	%xmm10, 0x20+0x20
+.seh_savexmm	%xmm10, 0x20+0x20
 	movaps	%xmm11,0x30(%rax)
-.seh_savexmm128	%xmm11, 0x20+0x30
+.seh_savexmm	%xmm11, 0x20+0x30
 	movaps	%xmm12,0x40(%rax)
-.seh_savexmm128	%xmm12, 0x20+0x40
+.seh_savexmm	%xmm12, 0x20+0x40
 	movaps	%xmm13,0x50(%rax)
-.seh_savexmm128	%xmm13, 0x20+0x50
+.seh_savexmm	%xmm13, 0x20+0x50
 	movaps	%xmm14,0x60(%rax)
-.seh_savexmm128	%xmm14, 0x20+0x60
+.seh_savexmm	%xmm14, 0x20+0x60
 	movaps	%xmm15,0x70(%rax)
-.seh_savexmm128	%xmm15, 0x20+0x70
+.seh_savexmm	%xmm15, 0x20+0x70
+.seh_endprologue
 ___
 $code.=<<___;
 	movdqa		.Lbswap_mask(%rip),$T3
@@ -387,14 +339,8 @@ if ($do4xaggr) {
 my ($Xl,$Xm,$Xh,$Hkey3,$Hkey4)=map("%xmm$_",(11..15));
 
 $code.=<<___;
-	leaq		OPENSSL_ia32cap_P(%rip),%rax
-	mov		4(%rax),%eax
 	cmp		\$0x30,$len
 	jb		.Lskip4x
-
-	and		\$`1<<26|1<<22`,%eax	# isolate MOVBE+XSAVE
-	cmp		\$`1<<22`,%eax		# check for MOVBE without XSAVE
-	je		.Lskip4x
 
 	sub		\$0x30,$len
 	mov		\$0xA040608020C0E000,%rax	# ((7..0)·0xE0)&0xff
@@ -711,6 +657,7 @@ $code.=<<___;
 .align	32
 gcm_init_avx:
 .cfi_startproc
+.seh_startproc
 	_CET_ENDBR
 ___
 if ($avx) {
@@ -718,11 +665,11 @@ my ($Htbl,$Xip)=@_4args;
 my $HK="%xmm6";
 
 $code.=<<___ if ($win64);
-.seh_startproc
 	sub	\$0x18,%rsp
-.seh_allocstack	0x18
+.seh_stackalloc	0x18
 	movaps	%xmm6,(%rsp)
-.seh_savexmm128	%xmm6, 0
+.seh_savexmm	%xmm6, 0
+.seh_endprologue
 ___
 $code.=<<___;
 	vzeroupper
@@ -857,6 +804,7 @@ $code.=<<___;
 .align	32
 gcm_ghash_avx:
 .cfi_startproc
+.seh_startproc
 	_CET_ENDBR
 ___
 if ($avx) {
@@ -867,30 +815,30 @@ my ($Xlo,$Xhi,$Xmi,
     $Xi,$Xo,$Tred,$bswap,$Ii,$Ij) = map("%xmm$_",(0..15));
 
 $code.=<<___ if ($win64);
-.seh_startproc
 	lea	-0x88(%rsp),%rax
 	lea	-0x20(%rax),%rsp
-.seh_allocstack	0x20+0x88
+.seh_stackalloc	0x20+0x88
 	movaps	%xmm6,-0x20(%rax)
-.seh_savexmm128	%xmm6, 0x20-0x20
+.seh_savexmm	%xmm6, 0x20-0x20
 	movaps	%xmm7,-0x10(%rax)
-.seh_savexmm128	%xmm7, 0x20-0x10
+.seh_savexmm	%xmm7, 0x20-0x10
 	movaps	%xmm8,0(%rax)
-.seh_savexmm128	%xmm8, 0x20+0
+.seh_savexmm	%xmm8, 0x20+0
 	movaps	%xmm9,0x10(%rax)
-.seh_savexmm128	%xmm9, 0x20+0x10
+.seh_savexmm	%xmm9, 0x20+0x10
 	movaps	%xmm10,0x20(%rax)
-.seh_savexmm128	%xmm10, 0x20+0x20
+.seh_savexmm	%xmm10, 0x20+0x20
 	movaps	%xmm11,0x30(%rax)
-.seh_savexmm128	%xmm11, 0x20+0x30
+.seh_savexmm	%xmm11, 0x20+0x30
 	movaps	%xmm12,0x40(%rax)
-.seh_savexmm128	%xmm12, 0x20+0x40
+.seh_savexmm	%xmm12, 0x20+0x40
 	movaps	%xmm13,0x50(%rax)
-.seh_savexmm128	%xmm13, 0x20+0x50
+.seh_savexmm	%xmm13, 0x20+0x50
 	movaps	%xmm14,0x60(%rax)
-.seh_savexmm128	%xmm14, 0x20+0x60
+.seh_savexmm	%xmm14, 0x20+0x60
 	movaps	%xmm15,0x70(%rax)
-.seh_savexmm128	%xmm15, 0x20+0x70
+.seh_savexmm	%xmm15, 0x20+0x70
+.seh_endprologue
 ___
 $code.=<<___;
 	vzeroupper

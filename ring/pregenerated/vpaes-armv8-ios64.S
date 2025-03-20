@@ -181,25 +181,6 @@ Lenc_entry:
 	ret
 
 
-.globl	_vpaes_encrypt
-.private_extern	_vpaes_encrypt
-
-.align	4
-_vpaes_encrypt:
-	AARCH64_SIGN_LINK_REGISTER
-	stp	x29,x30,[sp,#-16]!
-	add	x29,sp,#0
-
-	ld1	{v7.16b}, [x0]
-	bl	_vpaes_encrypt_preheat
-	bl	_vpaes_encrypt_core
-	st1	{v0.16b}, [x1]
-
-	ldp	x29,x30,[sp],#16
-	AARCH64_VALIDATE_LINK_REGISTER
-	ret
-
-
 
 .align	4
 _vpaes_encrypt_2x:

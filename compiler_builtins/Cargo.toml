@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "compiler_builtins"
-version = "0.1.123"
+version = "0.1.138"
 authors = ["Jorge Aparicio <japaricious@gmail.com>"]
 build = "build.rs"
 links = "compiler-rt"
@@ -27,6 +27,7 @@ include = [
     "/compiler-rt/*",
     "/libm/src/math/*",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -38,7 +39,7 @@ if necessary!
 homepage = "https://github.com/rust-lang/compiler-builtins"
 documentation = "https://docs.rs/compiler_builtins"
 readme = "README.md"
-license = "MIT/Apache-2.0"
+license = "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)"
 repository = "https://github.com/rust-lang/compiler-builtins"
 
 [profile.dev]

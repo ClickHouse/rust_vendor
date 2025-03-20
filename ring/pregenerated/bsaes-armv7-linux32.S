@@ -66,7 +66,6 @@
 # define VFP_ABI_POP
 # define VFP_ABI_FRAME	0
 # define BSAES_ASM_EXTENDED_KEY
-# define __ARM_ARCH__ __LINUX_ARM_ARCH__
 # define __ARM_MAX_ARCH__ 7
 #endif
 

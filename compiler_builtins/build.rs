@@ -327,6 +327,16 @@ mod c {
             // in https://github.com/rust-lang/compiler-rt/blob/c8fbcb3/cmake/config-ix.cmake#L19.
             cfg.flag_if_supported("-fomit-frame-pointer");
             cfg.define("VISIBILITY_HIDDEN", None);
+
+            if let "aarch64" | "arm64ec" = target.arch.as_str() {
+                // FIXME(llvm20): Older GCCs on A64 fail to build with
+                // -Werror=implicit-function-declaration due to a compiler-rt bug.
+                // With a newer LLVM we should be able to enable the flag everywhere.
+                // https://github.com/llvm/llvm-project/commit/8aa9d6206ce55bdaaf422839c351fbd63f033b89
+            } else {
+                // Avoid implicitly creating references to undefined functions
+                cfg.flag("-Werror=implicit-function-declaration");
+            }
         }
 
         // int_util.c tries to include stdlib.h if `_WIN32` is defined,
@@ -522,12 +532,6 @@ mod c {
         if (target.arch == "aarch64" || target.arch == "arm64ec") && consider_float_intrinsics {
             sources.extend(&[
                 ("__comparetf2", "comparetf2.c"),
-                ("__floatditf", "floatditf.c"),
-                ("__floatsitf", "floatsitf.c"),
-                ("__floatunditf", "floatunditf.c"),
-                ("__floatunsitf", "floatunsitf.c"),
-                ("__divtf3", "divtf3.c"),
-                ("__powitf2", "powitf2.c"),
                 ("__fe_getround", "fp_mode.c"),
                 ("__fe_raise_inexact", "fp_mode.c"),
             ]);
@@ -542,21 +546,11 @@ mod c {
         }
 
         if target.arch == "mips64" {
-            sources.extend(&[
-                ("__netf2", "comparetf2.c"),
-                ("__floatsitf", "floatsitf.c"),
-                ("__floatunsitf", "floatunsitf.c"),
-                ("__fe_getround", "fp_mode.c"),
-            ]);
+            sources.extend(&[("__netf2", "comparetf2.c"), ("__fe_getround", "fp_mode.c")]);
         }
 
         if target.arch == "loongarch64" {
-            sources.extend(&[
-                ("__netf2", "comparetf2.c"),
-                ("__floatsitf", "floatsitf.c"),
-                ("__floatunsitf", "floatunsitf.c"),
-                ("__fe_getround", "fp_mode.c"),
-            ]);
+            sources.extend(&[("__netf2", "comparetf2.c"), ("__fe_getround", "fp_mode.c")]);
         }
 
         // Remove the assembly implementations that won't compile for the target

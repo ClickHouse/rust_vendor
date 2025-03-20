@@ -1,11 +1,8 @@
-use alloc::sync::Arc;
-
 use pki_types::ServerName;
 
 use crate::enums::SignatureScheme;
-use crate::error::Error;
-use crate::msgs::handshake::CertificateChain;
 use crate::msgs::persist;
+use crate::sync::Arc;
 use crate::{client, sign, NamedGroup};
 
 /// An implementer of `ClientSessionStore` which does nothing.
@@ -212,39 +209,10 @@ impl client::ResolvesClientCert for FailResolveClientCert {
     }
 }
 
-#[derive(Debug)]
-pub(super) struct AlwaysResolvesClientCert(Arc<sign::CertifiedKey>);
-
-impl AlwaysResolvesClientCert {
-    pub(super) fn new(
-        private_key: Arc<dyn sign::SigningKey>,
-        chain: CertificateChain<'static>,
-    ) -> Result<Self, Error> {
-        Ok(Self(Arc::new(sign::CertifiedKey::new(
-            chain.0,
-            private_key,
-        ))))
-    }
-}
-
-impl client::ResolvesClientCert for AlwaysResolvesClientCert {
-    fn resolve(
-        &self,
-        _root_hint_subjects: &[&[u8]],
-        _sigschemes: &[SignatureScheme],
-    ) -> Option<Arc<sign::CertifiedKey>> {
-        Some(Arc::clone(&self.0))
-    }
-
-    fn has_certs(&self) -> bool {
-        true
-    }
-}
-
 /// An exemplar `ResolvesClientCert` implementation that always resolves to a single
-/// [RFC 7250] raw public key.  
+/// [RFC 7250] raw public key.
 ///
-/// [RFC 7250]: https://tools.ietf.org/html/rfc7250  
+/// [RFC 7250]: https://tools.ietf.org/html/rfc7250
 #[derive(Clone, Debug)]
 pub struct AlwaysResolvesClientRawPublicKeys(Arc<sign::CertifiedKey>);
 impl AlwaysResolvesClientRawPublicKeys {
@@ -269,20 +237,21 @@ impl client::ResolvesClientCert for AlwaysResolvesClientRawPublicKeys {
 
     /// Returns true if the resolver is ready to present an identity.
     ///
-    /// Even though the function is called `has_certs`, it returns true  
-    /// although only an RPK (Raw Public Key) is available, not an actual certificate.  
+    /// Even though the function is called `has_certs`, it returns true
+    /// although only an RPK (Raw Public Key) is available, not an actual certificate.
     fn has_certs(&self) -> bool {
         true
     }
 }
 
-test_for_each_provider! {
-    use alloc::sync::Arc;
+#[cfg(test)]
+#[macro_rules_attribute::apply(test_for_each_provider)]
+mod tests {
     use std::prelude::v1::*;
 
     use pki_types::{ServerName, UnixTime};
-    use provider::cipher_suite;
 
+    use super::provider::cipher_suite;
     use super::NoClientSessionStorage;
     use crate::client::ClientSessionStore;
     use crate::msgs::base::PayloadU16;
@@ -292,6 +261,7 @@ test_for_each_provider! {
     use crate::msgs::handshake::SessionId;
     use crate::msgs::persist::Tls13ClientSessionValue;
     use crate::suites::SupportedCipherSuite;
+    use crate::sync::Arc;
 
     #[test]
     fn test_noclientsessionstorage_does_nothing() {
@@ -328,11 +298,9 @@ test_for_each_provider! {
             c.remove_tls12_session(&name);
         }
 
-        #[cfg_attr(not(feature = "tls12"), allow(clippy::infallible_destructuring_match))]
-        let tls13_suite = match cipher_suite::TLS13_AES_256_GCM_SHA384 {
-            SupportedCipherSuite::Tls13(inner) => inner,
-            #[cfg(feature = "tls12")]
-            _ => unreachable!(),
+        let SupportedCipherSuite::Tls13(tls13_suite) = cipher_suite::TLS13_AES_256_GCM_SHA384
+        else {
+            unreachable!();
         };
         c.insert_tls13_ticket(
             name.clone(),

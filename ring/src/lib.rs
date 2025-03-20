@@ -32,6 +32,14 @@
 //!         </a> and <a href="https://docs.rs/getrandom/0.2.10/getrandom/#rdrand-on-x86">
 //!             RDRAND on x86
 //!         </a> for additional details.
+//! <tr><td><code>less-safe-getrandom-espidf</code>
+//!     <td>Treat getrandom as a secure random number generator (see
+//!         <code>SecureRandom</code>) on the esp-idf target. While the esp-idf
+//!         target does have hardware RNG, it is beyond the scope of ring to
+//!         ensure its configuration. This feature allows ring to build
+//!         on esp-idf despite the likelihood that RNG is not secure.
+//!         This feature only works with <code>os = espidf</code> targets.
+//!         See <a href="https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/random.html">
 //! <tr><td><code>std</code>
 //!     <td>Enable features that use libstd, in particular
 //!         <code>std::error::Error</code> integration. Implies `alloc`.
@@ -44,7 +52,6 @@
 //! </table>
 
 // When running mk/package.sh, don't actually build any code.
-#![cfg(not(pregenerate_asm_only))]
 #![allow(
     clippy::collapsible_if,
     clippy::identity_op,
@@ -61,6 +68,7 @@
 #![deny(variant_size_differences)]
 #![forbid(
     unused_results,
+    unsafe_op_in_unsafe_fn,
     clippy::char_lit_as_u8,
     clippy::fn_to_numeric_cast,
     clippy::fn_to_numeric_cast_with_truncation,
@@ -73,6 +81,16 @@
     clippy::cast_possible_wrap,
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
+)]
+#![cfg_attr(
+    not(any(
+        all(target_arch = "aarch64", target_endian = "little"),
+        all(target_arch = "arm", target_endian = "little"),
+        target_arch = "x86",
+        target_arch = "x86_64",
+        feature = "alloc"
+    )),
+    allow(dead_code, unused_imports, unused_macros)
 )]
 #![no_std]
 
@@ -89,9 +107,6 @@ mod prefixed;
 pub mod test;
 
 #[macro_use]
-mod arithmetic;
-
-#[macro_use]
 mod bssl;
 
 #[macro_use]
@@ -100,7 +115,7 @@ mod polyfill;
 pub mod aead;
 
 pub mod agreement;
-
+mod arithmetic;
 mod bits;
 
 pub(crate) mod c;
@@ -111,7 +126,6 @@ pub mod io;
 mod cpu;
 pub mod digest;
 mod ec;
-mod endian;
 pub mod error;
 pub mod hkdf;
 pub mod hmac;
@@ -124,6 +138,9 @@ pub mod rand;
 pub mod rsa;
 
 pub mod signature;
+
+#[cfg(test)]
+mod tests;
 
 mod sealed {
     /// Traits that are designed to only be implemented internally in *ring*.

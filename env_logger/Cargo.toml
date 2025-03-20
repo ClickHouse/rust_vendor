@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.71"
 name = "env_logger"
-version = "0.11.5"
+version = "0.11.6"
 build = false
 include = [
     "build.rs",
@@ -26,6 +26,7 @@ include = [
     "examples/**/*",
     "tests/**/*",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -49,6 +50,7 @@ all-features = true
 rustdoc-args = [
     "--cfg",
     "docsrs",
+    "--generate-link-to-definition",
 ]
 
 [[package.metadata.release.pre-release-replacements]]
@@ -85,6 +87,24 @@ replace = """
 <!-- next-url -->
 [Unreleased]: https://github.com/rust-cli/env_logger/compare/{{tag_name}}...HEAD"""
 search = "<!-- next-url -->"
+
+[features]
+auto-color = [
+    "color",
+    "anstream/auto",
+]
+color = [
+    "dep:anstream",
+    "dep:anstyle",
+]
+default = [
+    "auto-color",
+    "humantime",
+    "regex",
+]
+humantime = ["dep:humantime"]
+regex = ["env_filter/regex"]
+unstable-kv = ["log/kv"]
 
 [lib]
 name = "env_logger"
@@ -160,24 +180,6 @@ optional = true
 version = "0.4.21"
 features = ["std"]
 
-[features]
-auto-color = [
-    "color",
-    "anstream/auto",
-]
-color = [
-    "dep:anstream",
-    "dep:anstyle",
-]
-default = [
-    "auto-color",
-    "humantime",
-    "regex",
-]
-humantime = ["dep:humantime"]
-regex = ["env_filter/regex"]
-unstable-kv = ["log/kv"]
-
 [lints.clippy]
 bool_assert_comparison = "allow"
 branches_sharing_code = "allow"
@@ -212,7 +214,6 @@ let_and_return = "allow"
 linkedlist = "warn"
 lossy_float_literal = "warn"
 macro_use_imports = "warn"
-match_wildcard_for_single_variants = "warn"
 mem_forget = "warn"
 mutex_integer = "warn"
 needless_continue = "warn"
@@ -224,10 +225,10 @@ rc_mutex = "warn"
 redundant_feature_names = "warn"
 ref_option_ref = "warn"
 rest_pat_in_fully_bound_structs = "warn"
+result_large_err = "allow"
 same_functions_in_if_condition = "warn"
 self_named_module_files = "warn"
 semicolon_if_nothing_returned = "warn"
-single_match_else = "warn"
 str_to_string = "warn"
 string_add = "warn"
 string_add_assign = "warn"
@@ -235,14 +236,18 @@ string_lit_as_bytes = "warn"
 string_to_string = "warn"
 todo = "warn"
 trait_duplication_in_bounds = "warn"
+uninlined_format_args = "warn"
 verbose_file_reads = "warn"
 wildcard_imports = "warn"
 zero_sized_map_values = "warn"
 
 [lints.rust]
-rust_2018_idioms = "warn"
 unreachable_pub = "warn"
 unsafe_op_in_unsafe_fn = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
+
+[lints.rust.rust_2018_idioms]
+level = "warn"
+priority = -1

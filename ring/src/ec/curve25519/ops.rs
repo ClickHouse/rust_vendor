@@ -101,11 +101,11 @@ impl ExtPoint {
         Result::from(unsafe { x25519_ge_frombytes_vartime(&mut point, encoded) }).map(|()| point)
     }
 
-    pub fn into_encoded_point(self) -> EncodedPoint {
-        encode_point(self.x, self.y, self.z)
+    pub(super) fn into_encoded_point(self, cpu_features: cpu::Features) -> EncodedPoint {
+        encode_point(self.x, self.y, self.z, cpu_features)
     }
 
-    pub fn invert_vartime(&mut self) {
+    pub(super) fn invert_vartime(&mut self) {
         self.x.negate();
         self.t.negate();
     }
@@ -128,12 +128,12 @@ impl Point {
         }
     }
 
-    pub fn into_encoded_point(self) -> EncodedPoint {
-        encode_point(self.x, self.y, self.z)
+    pub(super) fn into_encoded_point(self, cpu_features: cpu::Features) -> EncodedPoint {
+        encode_point(self.x, self.y, self.z, cpu_features)
     }
 }
 
-fn encode_point(x: Elem<T>, y: Elem<T>, z: Elem<T>) -> EncodedPoint {
+fn encode_point(x: Elem<T>, y: Elem<T>, z: Elem<T>, _cpu_features: cpu::Features) -> EncodedPoint {
     let mut bytes = [0; ELEM_LEN];
 
     let sign_bit: u8 = unsafe {
@@ -157,17 +157,14 @@ fn encode_point(x: Elem<T>, y: Elem<T>, z: Elem<T>) -> EncodedPoint {
     bytes
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))] {
-        #[inline(always)]
-        pub(super) fn has_fe25519_adx(cpu: cpu::Features) -> bool {
-            cpu::intel::ADX.available(cpu)
-            && cpu::intel::BMI1.available(cpu)
-            && cpu::intel::BMI2.available(cpu)
-        }
-    } else {
-        #[inline(always)]
-        pub (super) fn has_fe25519_adx(_cpu: cpu::Features) -> bool {
+#[inline(always)]
+pub(super) fn has_fe25519_adx(cpu: cpu::Features) -> bool {
+    cfg_if::cfg_if! {
+        if #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))] {
+            use cpu::{intel::{Adx, Bmi1, Bmi2}, GetFeature as _};
+            matches!(cpu.get_feature(), Some((Adx { .. }, Bmi1 { .. }, Bmi2 { .. })))
+        } else {
+            let _ = cpu;
             false
         }
     }

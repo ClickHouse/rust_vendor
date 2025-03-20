@@ -12,6 +12,8 @@
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+#![allow(missing_docs)]
+
 use ring::{constant_time, error, rand};
 
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
@@ -20,7 +22,7 @@ use wasm_bindgen_test::{wasm_bindgen_test as test, wasm_bindgen_test_configure};
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 wasm_bindgen_test_configure!(run_in_browser);
 
-// This logic is loosly based on BoringSSL's `TEST(ConstantTimeTest, MemCmp)`.
+// This logic is loosely based on BoringSSL's `TEST(ConstantTimeTest, MemCmp)`.
 #[test]
 fn test_verify_slices_are_equal() {
     let initial: [u8; 256] = rand::generate(&rand::SystemRandom::new()).unwrap().expose();
