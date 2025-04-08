@@ -317,7 +317,7 @@ optional = true
 default-features = false
 
 [target.'cfg(not(target_family="wasm"))'.dependencies.tokio]
-version = "1.40.0"
+version = "1.43.1"
 features = ["full"]
 optional = true
 
