@@ -105,7 +105,7 @@ version = "0.5"
 optional = true
 
 [dependencies.tokio]
-version = "1.0"
+version = "1.43"
 
 [dependencies.tokio-rustls]
 version = "0.26"
