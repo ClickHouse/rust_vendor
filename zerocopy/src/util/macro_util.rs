@@ -17,19 +17,23 @@
 
 #![allow(missing_debug_implementations)]
 
-use core::mem::{self, ManuallyDrop};
+use core::{
+    mem::{self, ManuallyDrop},
+    ptr::NonNull,
+};
 
 // TODO(#29), TODO(https://github.com/rust-lang/rust/issues/69835): Remove this
 // `cfg` when `size_of_val_raw` is stabilized.
 #[cfg(__ZEROCOPY_INTERNAL_USE_ONLY_NIGHTLY_FEATURES_IN_TESTS)]
-use core::ptr::{self, NonNull};
+#[cfg(not(target_pointer_width = "16"))]
+use core::ptr;
 
 use crate::{
     pointer::{
-        invariant::{self, AtLeast, Invariants},
-        AliasingSafe, AliasingSafeReason, BecauseExclusive, BecauseImmutable,
+        invariant::{self, BecauseExclusive, BecauseImmutable, Invariants},
+        TryTransmuteFromPtr,
     },
-    FromBytes, Immutable, IntoBytes, Ptr, TryFromBytes, Unalign, ValidityError,
+    FromBytes, Immutable, IntoBytes, Ptr, TryFromBytes, ValidityError,
 };
 
 /// Projects the type of the field at `Index` in `Self`.
@@ -101,11 +105,14 @@ impl<T, U> MaxAlignsOf<T, U> {
     }
 }
 
+#[cfg(__ZEROCOPY_INTERNAL_USE_ONLY_NIGHTLY_FEATURES_IN_TESTS)]
+#[cfg(not(target_pointer_width = "16"))]
 const _64K: usize = 1 << 16;
 
 // TODO(#29), TODO(https://github.com/rust-lang/rust/issues/69835): Remove this
 // `cfg` when `size_of_val_raw` is stabilized.
 #[cfg(__ZEROCOPY_INTERNAL_USE_ONLY_NIGHTLY_FEATURES_IN_TESTS)]
+#[cfg(not(target_pointer_width = "16"))]
 #[repr(C, align(65536))]
 struct Aligned64kAllocation([u8; _64K]);
 
@@ -118,6 +125,7 @@ struct Aligned64kAllocation([u8; _64K]);
 // TODO(#29), TODO(https://github.com/rust-lang/rust/issues/69835): Remove this
 // `cfg` when `size_of_val_raw` is stabilized.
 #[cfg(__ZEROCOPY_INTERNAL_USE_ONLY_NIGHTLY_FEATURES_IN_TESTS)]
+#[cfg(not(target_pointer_width = "16"))]
 pub const ALIGNED_64K_ALLOCATION: NonNull<[u8]> = {
     const REF: &Aligned64kAllocation = &Aligned64kAllocation([0; _64K]);
     let ptr: *const Aligned64kAllocation = REF;
@@ -349,7 +357,7 @@ pub use core::mem::size_of;
 #[macro_export]
 macro_rules! struct_has_padding {
     ($t:ty, [$($ts:ty),*]) => {
-        ::zerocopy::util::macro_util::size_of::<$t>() > 0 $(+ ::zerocopy::util::macro_util::size_of::<$ts>())*
+        $crate::util::macro_util::size_of::<$t>() > 0 $(+ $crate::util::macro_util::size_of::<$ts>())*
     };
 }
 
@@ -369,7 +377,7 @@ macro_rules! struct_has_padding {
 #[macro_export]
 macro_rules! union_has_padding {
     ($t:ty, [$($ts:ty),*]) => {
-        false $(|| ::zerocopy::util::macro_util::size_of::<$t>() != ::zerocopy::util::macro_util::size_of::<$ts>())*
+        false $(|| $crate::util::macro_util::size_of::<$t>() != $crate::util::macro_util::size_of::<$ts>())*
     };
 }
 
@@ -394,10 +402,10 @@ macro_rules! union_has_padding {
 macro_rules! enum_has_padding {
     ($t:ty, $disc:ty, $([$($ts:ty),*]),*) => {
         false $(
-            || ::zerocopy::util::macro_util::size_of::<$t>()
+            || $crate::util::macro_util::size_of::<$t>()
                 != (
-                    ::zerocopy::util::macro_util::size_of::<$disc>()
-                    $(+ ::zerocopy::util::macro_util::size_of::<$ts>())*
+                    $crate::util::macro_util::size_of::<$disc>()
+                    $(+ $crate::util::macro_util::size_of::<$ts>())*
                 )
         )*
     }
@@ -532,9 +540,14 @@ pub unsafe fn transmute_mut<'dst, 'src: 'dst, Src: 'src, Dst: 'dst>(
 ///
 /// # Safety
 ///
-/// Unsafe code may assume that, if `try_cast_or_pme(src)` returns `Some`,
+/// Unsafe code may assume that, if `try_cast_or_pme(src)` returns `Ok`,
 /// `*src` is a bit-valid instance of `Dst`, and that the size of `Src` is
 /// greater than or equal to the size of `Dst`.
+///
+/// Unsafe code may assume that, if `try_cast_or_pme(src)` returns `Err`, the
+/// encapsulated `Ptr` value is the original `src`. `try_cast_or_pme` cannot
+/// guarantee that the referent has not been modified, as it calls user-defined
+/// code (`TryFromBytes::is_bit_valid`).
 ///
 /// # Panics
 ///
@@ -545,20 +558,21 @@ pub unsafe fn transmute_mut<'dst, 'src: 'dst, Src: 'src, Dst: 'dst>(
 /// [`is_bit_valid`]: TryFromBytes::is_bit_valid
 #[doc(hidden)]
 #[inline]
-fn try_cast_or_pme<Src, Dst, I, R>(
+fn try_cast_or_pme<Src, Dst, I, R, S>(
     src: Ptr<'_, Src, I>,
 ) -> Result<
-    Ptr<'_, Dst, (I::Aliasing, invariant::Any, invariant::Valid)>,
+    Ptr<'_, Dst, (I::Aliasing, invariant::Unaligned, invariant::Valid)>,
     ValidityError<Ptr<'_, Src, I>, Dst>,
 >
 where
     // TODO(#2226): There should be a `Src: FromBytes` bound here, but doing so
     // requires deeper surgery.
-    Src: IntoBytes,
-    Dst: TryFromBytes + AliasingSafe<Src, I::Aliasing, R>,
-    I: Invariants<Validity = invariant::Valid>,
-    I::Aliasing: AtLeast<invariant::Shared>,
-    R: AliasingSafeReason,
+    Src: invariant::Read<I::Aliasing, R>,
+    Dst: TryFromBytes
+        + invariant::Read<I::Aliasing, R>
+        + TryTransmuteFromPtr<Dst, I::Aliasing, invariant::Initialized, invariant::Valid, S>,
+    I: Invariants<Validity = invariant::Initialized>,
+    I::Aliasing: invariant::Reference,
 {
     static_assert!(Src, Dst => mem::size_of::<Dst>() == mem::size_of::<Src>());
 
@@ -567,17 +581,8 @@ where
     //   because we assert above that the size of `Dst` equal to the size of
     //   `Src`.
     // - `p as *mut Dst` is a provenance-preserving cast
-    // - Because `Dst: AliasingSafe<Src, I::Aliasing, _>`, either:
-    //   - `I::Aliasing` is `Exclusive`
-    //   - `Src` and `Dst` are both `Immutable`, in which case they
-    //     trivially contain `UnsafeCell`s at identical locations
     #[allow(clippy::as_conversions)]
-    let c_ptr = unsafe { src.cast_unsized(|p| p as *mut Dst) };
-
-    // SAFETY: `c_ptr` is derived from `src` which is `IntoBytes`. By
-    // invariant on `IntoByte`s, `c_ptr`'s referent consists entirely of
-    // initialized bytes.
-    let c_ptr = unsafe { c_ptr.assume_initialized() };
+    let c_ptr = unsafe { src.cast_unsized(NonNull::cast::<Dst>) };
 
     match c_ptr.try_into_valid() {
         Ok(ptr) => Ok(ptr),
@@ -590,12 +595,8 @@ where
             //   `ptr`, because we assert above that the size of `Dst` is equal
             //   to the size of `Src`.
             // - `p as *mut Src` is a provenance-preserving cast
-            // - Because `Dst: AliasingSafe<Src, I::Aliasing, _>`, either:
-            //   - `I::Aliasing` is `Exclusive`
-            //   - `Src` and `Dst` are both `Immutable`, in which case they
-            //     trivially contain `UnsafeCell`s at identical locations
             #[allow(clippy::as_conversions)]
-            let ptr = unsafe { ptr.cast_unsized(|p| p as *mut Src) };
+            let ptr = unsafe { ptr.cast_unsized(NonNull::cast::<Src>) };
             // SAFETY: `ptr` is `src`, and has the same alignment invariant.
             let ptr = unsafe { ptr.assume_alignment::<I::Alignment>() };
             // SAFETY: `ptr` is `src` and has the same validity invariant.
@@ -622,19 +623,43 @@ where
     Src: IntoBytes,
     Dst: TryFromBytes,
 {
-    let mut src = ManuallyDrop::new(src);
-    let ptr = Ptr::from_mut(&mut src);
-    // Wrapping `Dst` in `Unalign` ensures that this cast does not fail due to
-    // alignment requirements.
-    match try_cast_or_pme::<_, ManuallyDrop<Unalign<Dst>>, _, BecauseExclusive>(ptr) {
-        Ok(ptr) => {
-            let dst = ptr.bikeshed_recall_aligned().as_mut();
-            // SAFETY: By shadowing `dst`, we ensure that `dst` is not re-used
-            // after taking its inner value.
-            let dst = unsafe { ManuallyDrop::take(dst) };
-            Ok(dst.into_inner())
-        }
-        Err(_) => Err(ValidityError::new(ManuallyDrop::into_inner(src))),
+    static_assert!(Src, Dst => mem::size_of::<Dst>() == mem::size_of::<Src>());
+
+    let mu_src = mem::MaybeUninit::new(src);
+    // SAFETY: By invariant on `&`, the following are satisfied:
+    // - `&mu_src` is valid for reads
+    // - `&mu_src` is properly aligned
+    // - `&mu_src`'s referent is bit-valid
+    let mu_src_copy = unsafe { core::ptr::read(&mu_src) };
+    // SAFETY: `MaybeUninit` has no validity constraints.
+    let mut mu_dst: mem::MaybeUninit<Dst> =
+        unsafe { crate::util::transmute_unchecked(mu_src_copy) };
+
+    let ptr = Ptr::from_mut(&mut mu_dst);
+
+    // SAFETY: Since `Src: IntoBytes`, and since `size_of::<Src>() ==
+    // size_of::<Dst>()` by the preceding assertion, all of `mu_dst`'s bytes are
+    // initialized.
+    let ptr = unsafe { ptr.assume_validity::<invariant::Initialized>() };
+
+    // SAFETY: `MaybeUninit<T>` and `T` have the same size [1], so this cast
+    // preserves the referent's size. This cast preserves provenance.
+    //
+    // [1] Per https://doc.rust-lang.org/1.81.0/std/mem/union.MaybeUninit.html#layout-1:
+    //
+    //   `MaybeUninit<T>` is guaranteed to have the same size, alignment, and
+    //   ABI as `T`
+    let ptr: Ptr<'_, Dst, _> = unsafe { ptr.cast_unsized(NonNull::<mem::MaybeUninit<Dst>>::cast) };
+
+    if Dst::is_bit_valid(ptr.forget_aligned()) {
+        // SAFETY: Since `Dst::is_bit_valid`, we know that `ptr`'s referent is
+        // bit-valid for `Dst`. `ptr` points to `mu_dst`, and no intervening
+        // operations have mutated it, so it is a bit-valid `Dst`.
+        Ok(unsafe { mu_dst.assume_init() })
+    } else {
+        // SAFETY: `mu_src` was constructed from `src` and never modified, so it
+        // is still bit-valid.
+        Err(ValidityError::new(unsafe { mu_src.assume_init() }))
     }
 }
 
@@ -656,7 +681,9 @@ where
     Src: IntoBytes + Immutable,
     Dst: TryFromBytes + Immutable,
 {
-    match try_cast_or_pme::<Src, Dst, _, BecauseImmutable>(Ptr::from_ref(src)) {
+    let ptr = Ptr::from_ref(src);
+    let ptr = ptr.bikeshed_recall_initialized_immutable();
+    match try_cast_or_pme::<Src, Dst, _, BecauseImmutable, _>(ptr) {
         Ok(ptr) => {
             static_assert!(Src, Dst => mem::align_of::<Dst>() <= mem::align_of::<Src>());
             // SAFETY: We have checked that `Dst` does not have a stricter
@@ -664,7 +691,19 @@ where
             let ptr = unsafe { ptr.assume_alignment::<invariant::Aligned>() };
             Ok(ptr.as_ref())
         }
-        Err(err) => Err(err.map_src(Ptr::as_ref)),
+        Err(err) => Err(err.map_src(|ptr| {
+            // SAFETY: Because `Src: Immutable` and we create a `Ptr` via
+            // `Ptr::from_ref`, the resulting `Ptr` is a shared-and-`Immutable`
+            // `Ptr`, which does not permit mutation of its referent. Therefore,
+            // no mutation could have happened during the call to
+            // `try_cast_or_pme` (any such mutation would be unsound).
+            //
+            // `try_cast_or_pme` promises to return its original argument, and
+            // so we know that we are getting back the same `ptr` that we
+            // originally passed, and that `ptr` was a bit-valid `Src`.
+            let ptr = unsafe { ptr.assume_valid() };
+            ptr.as_ref()
+        })),
     }
 }
 
@@ -686,7 +725,9 @@ where
     Src: FromBytes + IntoBytes,
     Dst: TryFromBytes + IntoBytes,
 {
-    match try_cast_or_pme::<Src, Dst, _, BecauseExclusive>(Ptr::from_mut(src)) {
+    let ptr = Ptr::from_mut(src);
+    let ptr = ptr.bikeshed_recall_initialized_from_bytes();
+    match try_cast_or_pme::<Src, Dst, _, BecauseExclusive, _>(ptr) {
         Ok(ptr) => {
             static_assert!(Src, Dst => mem::align_of::<Dst>() <= mem::align_of::<Src>());
             // SAFETY: We have checked that `Dst` does not have a stricter
@@ -694,7 +735,7 @@ where
             let ptr = unsafe { ptr.assume_alignment::<invariant::Aligned>() };
             Ok(ptr.as_mut())
         }
-        Err(err) => Err(err.map_src(Ptr::as_mut)),
+        Err(err) => Err(err.map_src(|ptr| ptr.recall_validity().as_mut())),
     }
 }
 

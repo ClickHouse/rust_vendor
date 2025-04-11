@@ -9,10 +9,10 @@ use rand::Rng;
 use rustc_hash::FxHashSet;
 use tracing::trace;
 
-use super::assembler::Assembler;
+use super::{assembler::Assembler, datagrams::DatagramState};
 use crate::{
-    connection::StreamsState, crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet,
-    shared::IssuedCid, Dir, Duration, Instant, StreamId, TransportError, VarInt,
+    Dir, Duration, Instant, SocketAddr, StreamId, TransportError, VarInt, connection::StreamsState,
+    crypto::Keys, frame, packet::SpaceId, range_set::ArrayRangeSet, shared::IssuedCid,
 };
 
 pub(super) struct PacketSpace {
@@ -104,7 +104,7 @@ impl PacketSpace {
 
     /// Queue data for a tail loss probe (or anti-amplification deadlock prevention) packet
     ///
-    /// Probes are sent similarly to normal packets when an expect ACK has not arrived. We never
+    /// Probes are sent similarly to normal packets when an expected ACK has not arrived. We never
     /// deem a packet lost until we receive an ACK that should have included it, but if a trailing
     /// run of packets (or their ACKs) are lost, this might not happen in a timely fashion. We send
     /// probe packets to force an ACK, and exempt them from congestion control to prevent a deadlock
@@ -118,6 +118,7 @@ impl PacketSpace {
         &mut self,
         request_immediate_ack: bool,
         streams: &StreamsState,
+        datagrams: &DatagramState,
     ) {
         if self.loss_probes == 0 {
             return;
@@ -129,12 +130,12 @@ impl PacketSpace {
             self.immediate_ack_pending = true;
         }
 
-        // Retransmit the data of the oldest in-flight packet
-        if !self.pending.is_empty(streams) {
+        if !self.pending.is_empty(streams) || !datagrams.outgoing.is_empty() {
             // There's real data to send here, no need to make something up
             return;
         }
 
+        // Retransmit the data of the oldest in-flight packet
         for packet in self.sent_packets.values_mut() {
             if !packet.retransmits.is_empty(streams) {
                 // Remove retransmitted data from the old packet so we don't end up retransmitting
@@ -147,7 +148,9 @@ impl PacketSpace {
         // Nothing new to send and nothing to retransmit, so fall back on a ping. This should only
         // happen in rare cases during the handshake when the server becomes blocked by
         // anti-amplification.
-        self.ping_pending = true;
+        if !self.immediate_ack_pending {
+            self.ping_pending = true;
+        }
     }
 
     /// Get the next outgoing packet number in this space
@@ -309,6 +312,23 @@ pub struct Retransmits {
     pub(super) retire_cids: Vec<u64>,
     pub(super) ack_frequency: bool,
     pub(super) handshake_done: bool,
+    /// For each enqueued NEW_TOKEN frame, a copy of the path's remote address
+    ///
+    /// There are 2 reasons this is unusual:
+    ///
+    /// - If the path changes, NEW_TOKEN frames bound for the old path are not retransmitted on the
+    ///   new path. That is why this field stores the remote address: so that ones for old paths
+    ///   can be filtered out.
+    /// - If a token is lost, a new randomly generated token is re-transmitted, rather than the
+    ///   original. This is so that if both transmissions are received, the client won't risk
+    ///   sending the same token twice. That is why this field does _not_ store any actual token.
+    ///
+    /// It is true that a QUIC endpoint will only want to effectively have NEW_TOKEN frames
+    /// enqueued for its current path at a given point in time. Based on that, we could conceivably
+    /// change this from a vector to an `Option<(SocketAddr, usize)>` or just a `usize` or
+    /// something. However, due to the architecture of Quinn, it is considerably simpler to not do
+    /// that; consider what such a change would mean for implementing `BitOrAssign` on Self.
+    pub(super) new_tokens: Vec<SocketAddr>,
 }
 
 impl Retransmits {
@@ -326,6 +346,7 @@ impl Retransmits {
             && self.retire_cids.is_empty()
             && !self.ack_frequency
             && !self.handshake_done
+            && self.new_tokens.is_empty()
     }
 }
 
@@ -347,6 +368,7 @@ impl ::std::ops::BitOrAssign for Retransmits {
         self.retire_cids.extend(rhs.retire_cids);
         self.ack_frequency |= rhs.ack_frequency;
         self.handshake_done |= rhs.handshake_done;
+        self.new_tokens.extend_from_slice(&rhs.new_tokens);
     }
 }
 
@@ -445,7 +467,7 @@ impl Dedup {
     pub(super) fn insert(&mut self, packet: u64) -> bool {
         if let Some(diff) = packet.checked_sub(self.next) {
             // Right of window
-            self.window = (self.window << 1 | 1)
+            self.window = ((self.window << 1) | 1)
                 .checked_shl(cmp::min(diff, u64::from(u32::MAX)) as u32)
                 .unwrap_or(0);
             self.next = packet + 1;
@@ -801,7 +823,7 @@ impl PacketNumberFilter {
         // First skipped PN is in 0..64
         let exponent = 6;
         Self {
-            next_skipped_packet_number: rng.gen_range(0..2u64.saturating_pow(exponent)),
+            next_skipped_packet_number: rng.random_range(0..2u64.saturating_pow(exponent)),
             prev_skipped_packet_number: None,
             exponent,
         }
@@ -838,8 +860,8 @@ impl PacketNumberFilter {
         // Skip this packet number, and choose the next one to skip
         self.prev_skipped_packet_number = Some(self.next_skipped_packet_number);
         let next_exponent = self.exponent.saturating_add(1);
-        self.next_skipped_packet_number =
-            rng.gen_range(2u64.saturating_pow(self.exponent)..2u64.saturating_pow(next_exponent));
+        self.next_skipped_packet_number = rng
+            .random_range(2u64.saturating_pow(self.exponent)..2u64.saturating_pow(next_exponent));
         self.exponent = next_exponent;
 
         space.get_tx_number()
@@ -853,7 +875,7 @@ impl PacketNumberFilter {
         if space_id == SpaceId::Data
             && self
                 .prev_skipped_packet_number
-                .map_or(false, |x| range.contains(&x))
+                .is_some_and(|x| range.contains(&x))
         {
             return Err(TransportError::PROTOCOL_VIOLATION("unsent packet acked"));
         }

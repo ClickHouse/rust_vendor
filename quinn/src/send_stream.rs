@@ -2,14 +2,14 @@ use std::{
     future::Future,
     io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use bytes::Bytes;
 use proto::{ClosedStream, ConnectionError, FinishError, StreamId, Written};
 use thiserror::Error;
 
-use crate::{connection::ConnectionRef, VarInt};
+use crate::{VarInt, connection::ConnectionRef};
 
 /// A stream that can only be used to send data
 ///
@@ -144,7 +144,7 @@ impl SendStream {
                 conn.wake();
                 Ok(())
             }
-            Err(FinishError::ClosedStream) => Err(ClosedStream::new()),
+            Err(FinishError::ClosedStream) => Err(ClosedStream::default()),
             // Harmless. If the application needs to know about stopped streams at this point, it
             // should call `stopped`.
             Err(FinishError::Stopped(_)) => Ok(()),
@@ -203,8 +203,7 @@ impl SendStream {
         Stopped { stream: self }.await
     }
 
-    #[doc(hidden)]
-    pub fn poll_stopped(&mut self, cx: &mut Context) -> Poll<Result<Option<VarInt>, StoppedError>> {
+    fn poll_stopped(&mut self, cx: &mut Context) -> Poll<Result<Option<VarInt>, StoppedError>> {
         let mut conn = self.conn.state.lock("SendStream::poll_stopped");
 
         if self.is_0rtt {
@@ -261,7 +260,6 @@ impl futures_io::AsyncWrite for SendStream {
     }
 }
 
-#[cfg(feature = "runtime-tokio")]
 impl tokio::io::AsyncWrite for SendStream {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -305,7 +303,6 @@ impl Drop for SendStream {
 }
 
 /// Future produced by `SendStream::stopped`
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct Stopped<'a> {
     stream: &'a mut SendStream,
 }
@@ -321,7 +318,6 @@ impl Future for Stopped<'_> {
 /// Future produced by [`SendStream::write()`].
 ///
 /// [`SendStream::write()`]: crate::SendStream::write
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct Write<'a> {
     stream: &'a mut SendStream,
     buf: &'a [u8],
@@ -339,7 +335,6 @@ impl Future for Write<'_> {
 /// Future produced by [`SendStream::write_all()`].
 ///
 /// [`SendStream::write_all()`]: crate::SendStream::write_all
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteAll<'a> {
     stream: &'a mut SendStream,
     buf: &'a [u8],
@@ -363,7 +358,6 @@ impl Future for WriteAll<'_> {
 /// Future produced by [`SendStream::write_chunks()`].
 ///
 /// [`SendStream::write_chunks()`]: crate::SendStream::write_chunks
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteChunks<'a> {
     stream: &'a mut SendStream,
     bufs: &'a mut [Bytes],
@@ -381,7 +375,6 @@ impl Future for WriteChunks<'_> {
 /// Future produced by [`SendStream::write_chunk()`].
 ///
 /// [`SendStream::write_chunk()`]: crate::SendStream::write_chunk
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteChunk<'a> {
     stream: &'a mut SendStream,
     buf: [Bytes; 1],
@@ -404,7 +397,6 @@ impl Future for WriteChunk<'_> {
 /// Future produced by [`SendStream::write_all_chunks()`].
 ///
 /// [`SendStream::write_all_chunks()`]: crate::SendStream::write_all_chunks
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct WriteAllChunks<'a> {
     stream: &'a mut SendStream,
     bufs: &'a mut [Bytes],
@@ -468,7 +460,7 @@ impl From<StoppedError> for WriteError {
 
 impl From<WriteError> for io::Error {
     fn from(x: WriteError) -> Self {
-        use self::WriteError::*;
+        use WriteError::*;
         let kind = match x {
             Stopped(_) | ZeroRttRejected => io::ErrorKind::ConnectionReset,
             ConnectionLost(_) | ClosedStream => io::ErrorKind::NotConnected,

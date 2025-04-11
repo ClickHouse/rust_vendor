@@ -4,16 +4,16 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 use crate::{
-    constant_time, cpu,
+    bb, cpu,
     error::{self, InputTooLongError},
     hkdf,
 };
@@ -100,9 +100,7 @@ impl Algorithm {
 
         let Tag(calculated_tag) = (self.open)(key, nonce, aad, in_out, src, cpu_features)?;
 
-        if constant_time::verify_slices_are_equal(calculated_tag.as_ref(), received_tag.as_ref())
-            .is_err()
-        {
+        if bb::verify_slices_are_equal(calculated_tag.as_ref(), received_tag.as_ref()).is_err() {
             // Zero out the plaintext so that it isn't accidentally leaked or used
             // after verification fails. It would be safest if we could check the
             // tag before decrypting, but some `open` implementations interleave

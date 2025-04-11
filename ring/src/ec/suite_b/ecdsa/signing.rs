@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -526,14 +526,15 @@ static EC_PUBLIC_KEY_P384_PKCS8_V1_TEMPLATE: pkcs8::Template = pkcs8::Template {
 
 #[cfg(test)]
 mod tests {
-    use crate::{rand, signature, test};
+    use crate::testutil as test;
+    use crate::{rand, signature};
 
     #[test]
     fn signature_ecdsa_sign_fixed_test() {
         let rng = rand::SystemRandom::new();
 
         test::run(
-            test_file!("ecdsa_sign_fixed_tests.txt"),
+            test_vector_file!("ecdsa_sign_fixed_tests.txt"),
             |section, test_case| {
                 assert_eq!(section, "");
 
@@ -575,7 +576,7 @@ mod tests {
         let rng = rand::SystemRandom::new();
 
         test::run(
-            test_file!("ecdsa_sign_asn1_tests.txt"),
+            test_vector_file!("ecdsa_sign_asn1_tests.txt"),
             |section, test_case| {
                 assert_eq!(section, "");
 

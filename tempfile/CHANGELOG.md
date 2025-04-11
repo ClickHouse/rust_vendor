@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.19.1
+
+- Don't unlink temporary files immediately on Windows (fixes #339). Unfortunately, this seemed to corrupt the file object (possibly a Windows kernel bug) in rare cases and isn't strictly speaking necessary.
+
+## 3.19.0
+
+- Remove direct dependency on `cfg-if`. It's still in the tree, but we didn't really need to use it in this crate.
+- Add an unstable feature (`unstable-windows-keep-open-tempfile`) to test a potential fix to #339.
+
+## 3.18.0
+
+- Update `rustix` to 1.0.0.
+- Make `NamedTempFile::persist_noclobber` atomic on Apple operating systems. It's now atomic on MacOS, Windows, and Linux (depending on the OS version and filesystem used).
+
 ## 3.17.1
 
 - Fix build with `windows-sys` 0.52. Unfortunately, we have no CI for older `windows-sys` versions at the moment...

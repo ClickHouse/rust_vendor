@@ -1,14 +1,13 @@
-use std::cmp;
-
 use bytes::Bytes;
 use rand::Rng;
 use tracing::{trace, trace_span};
 
-use super::{spaces::SentPacket, Connection, SentFrames};
+use super::{Connection, SentFrames, spaces::SentPacket};
 use crate::{
+    ConnectionId, Instant, TransportError, TransportErrorCode,
+    connection::ConnectionSide,
     frame::{self, Close},
-    packet::{Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId, FIXED_BIT},
-    ConnectionId, Instant, TransportError, TransportErrorCode, INITIAL_MTU,
+    packet::{FIXED_BIT, Header, InitialHeader, LongType, PacketNumber, PartialEncode, SpaceId},
 };
 
 pub(super) struct PacketBuilder {
@@ -38,7 +37,7 @@ impl PacketBuilder {
         space_id: SpaceId,
         dst_cid: ConnectionId,
         buffer: &mut Vec<u8>,
-        mut buffer_capacity: usize,
+        buffer_capacity: usize,
         datagram_start: usize,
         ack_eliciting: bool,
         conn: &mut Connection,
@@ -48,7 +47,7 @@ impl PacketBuilder {
         let sent_with_keys = conn.spaces[space_id].sent_with_keys;
         if space_id == SpaceId::Data {
             if sent_with_keys >= conn.key_phase_size {
-                conn.initiate_key_update();
+                conn.force_key_update();
             }
         } else {
             let confidentiality_limit = conn.spaces[space_id]
@@ -79,13 +78,6 @@ impl PacketBuilder {
         }
 
         let space = &mut conn.spaces[space_id];
-
-        if space.loss_probes != 0 {
-            space.loss_probes -= 1;
-            // Clamp the packet size to at most the minimum MTU to ensure that loss probes can get
-            // through and enable recovery even if the path MTU has shrank unexpectedly.
-            buffer_capacity = cmp::min(buffer_capacity, datagram_start + usize::from(INITIAL_MTU));
-        }
         let exact_number = match space_id {
             SpaceId::Data => conn.packet_number_filter.allocate(&mut conn.rng, space),
             _ => space.get_tx_number(),
@@ -101,7 +93,7 @@ impl PacketBuilder {
                 spin: if conn.spin_enabled {
                     conn.spin
                 } else {
-                    conn.rng.gen()
+                    conn.rng.random()
                 },
                 key_phase: conn.key_phase,
             },
@@ -122,13 +114,16 @@ impl PacketBuilder {
             SpaceId::Initial => Header::Initial(InitialHeader {
                 src_cid: conn.handshake_cid,
                 dst_cid,
-                token: conn.retry_token.clone(),
+                token: match &conn.side {
+                    ConnectionSide::Client { token, .. } => token.clone(),
+                    ConnectionSide::Server { .. } => Bytes::new(),
+                },
                 number,
                 version,
             }),
         };
         let partial_encode = header.encode(buffer);
-        if conn.peer_params.grease_quic_bit && conn.rng.gen() {
+        if conn.peer_params.grease_quic_bit && conn.rng.random() {
             buffer[partial_encode.start] ^= FIXED_BIT;
         }
 

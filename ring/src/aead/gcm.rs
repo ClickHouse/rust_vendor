@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -38,6 +38,7 @@ pub(super) mod clmul;
 pub(super) mod clmulavxmovbe;
 pub(super) mod fallback;
 pub(super) mod neon;
+pub(super) mod vclmulavx2;
 
 pub(super) struct Context<'key, K> {
     Xi: Xi,
@@ -111,6 +112,15 @@ impl Context<'_, clmul::Key> {
 
 #[cfg(target_arch = "x86_64")]
 impl Context<'_, clmulavxmovbe::Key> {
+    /// Access to `inner` for the integrated AES-GCM implementations only.
+    #[inline]
+    pub(super) fn inner(&mut self) -> (&HTable, &mut Xi) {
+        (self.key.inner(), &mut self.Xi)
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+impl Context<'_, vclmulavx2::Key> {
     /// Access to `inner` for the integrated AES-GCM implementations only.
     #[inline]
     pub(super) fn inner(&mut self) -> (&HTable, &mut Xi) {

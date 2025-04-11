@@ -11,10 +11,11 @@
 
 [package]
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.65"
 name = "chrono-tz-build"
-version = "0.4.0"
+version = "0.4.1"
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -31,6 +32,14 @@ keywords = [
 categories = ["development-tools::build-utils"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/chronotope/chrono-tz"
+
+[features]
+case-insensitive = [
+    "uncased",
+    "phf_shared/uncased",
+]
+filter-by-regex = ["regex"]
+regex = ["dep:regex"]
 
 [lib]
 name = "chrono_tz_build"
@@ -57,11 +66,3 @@ default-features = false
 version = "0.9"
 optional = true
 default-features = false
-
-[features]
-case-insensitive = [
-    "uncased",
-    "phf_shared/uncased",
-]
-filter-by-regex = ["regex"]
-regex = ["dep:regex"]

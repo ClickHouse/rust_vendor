@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -15,7 +15,7 @@
 use crate::{
     arithmetic::limbs_from_hex,
     arithmetic::montgomery::*,
-    constant_time::LeakyWord,
+    bb::LeakyWord,
     cpu,
     error::{self, LenMismatchError},
     limb::*,
@@ -160,7 +160,7 @@ impl CommonOps {
     #[inline]
     fn is_zero<M, E: Encoding>(&self, a: &elem::Elem<M, E>) -> bool {
         let num_limbs = self.num_limbs.into();
-        limbs_are_zero_constant_time(&a.limbs[..num_limbs]).leak()
+        limbs_are_zero(&a.limbs[..num_limbs]).leak()
     }
 
     #[inline]
@@ -494,7 +494,7 @@ impl Modulus<N> {
     pub fn elem_reduced_to_scalar(&self, elem: &Elem<Unencoded>) -> Scalar<Unencoded> {
         let num_limbs = self.num_limbs.into();
         let mut r_limbs = elem.limbs;
-        limbs_reduce_once_constant_time(&mut r_limbs[..num_limbs], &self.limbs[..num_limbs])
+        limbs_reduce_once(&mut r_limbs[..num_limbs], &self.limbs[..num_limbs])
             .unwrap_or_else(unwrap_impossible_len_mismatch_error);
         Scalar {
             limbs: r_limbs,
@@ -577,7 +577,7 @@ pub(super) fn scalar_parse_big_endian_partially_reduced_variable_consttime(
     {
         let r = &mut r.limbs[..num_limbs];
         parse_big_endian_and_pad_consttime(bytes, r)?;
-        limbs_reduce_once_constant_time(r, &n.limbs[..num_limbs])
+        limbs_reduce_once(r, &n.limbs[..num_limbs])
             .unwrap_or_else(unwrap_impossible_len_mismatch_error);
     }
 
@@ -613,7 +613,7 @@ fn unwrap_impossible_len_mismatch_error<T>(LenMismatchError { .. }: LenMismatchE
 mod tests {
     extern crate alloc;
     use super::*;
-    use crate::test;
+    use crate::testutil as test;
     use alloc::{format, vec, vec::Vec};
 
     const ZERO_SCALAR: Scalar = Scalar {
@@ -660,7 +660,7 @@ mod tests {
     fn p256_elem_add_test() {
         elem_add_test(
             &p256::PUBLIC_SCALAR_OPS,
-            test_file!("ops/p256_elem_sum_tests.txt"),
+            test_vector_file!("ops/p256_elem_sum_tests.txt"),
         );
     }
 
@@ -668,7 +668,7 @@ mod tests {
     fn p384_elem_add_test() {
         elem_add_test(
             &p384::PUBLIC_SCALAR_OPS,
-            test_file!("ops/p384_elem_sum_tests.txt"),
+            test_vector_file!("ops/p384_elem_sum_tests.txt"),
         );
     }
 
@@ -705,7 +705,7 @@ mod tests {
         elem_sub_test(
             &p384::COMMON_OPS,
             p384_elem_sub,
-            test_file!("ops/p384_elem_sum_tests.txt"),
+            test_vector_file!("ops/p384_elem_sum_tests.txt"),
         );
     }
 
@@ -757,7 +757,7 @@ mod tests {
         elem_div_by_2_test(
             &p384::COMMON_OPS,
             p384_elem_div_by_2,
-            test_file!("ops/p384_elem_div_by_2_tests.txt"),
+            test_vector_file!("ops/p384_elem_div_by_2_tests.txt"),
         );
     }
 
@@ -793,7 +793,7 @@ mod tests {
         elem_neg_test(
             &p256::COMMON_OPS,
             ecp_nistz256_neg,
-            test_file!("ops/p256_elem_neg_tests.txt"),
+            test_vector_file!("ops/p256_elem_neg_tests.txt"),
         );
     }
 
@@ -805,7 +805,7 @@ mod tests {
         elem_neg_test(
             &p384::COMMON_OPS,
             p384_elem_neg,
-            test_file!("ops/p384_elem_neg_tests.txt"),
+            test_vector_file!("ops/p384_elem_neg_tests.txt"),
         );
     }
 
@@ -845,12 +845,18 @@ mod tests {
 
     #[test]
     fn p256_elem_mul_test() {
-        elem_mul_test(&p256::COMMON_OPS, test_file!("ops/p256_elem_mul_tests.txt"));
+        elem_mul_test(
+            &p256::COMMON_OPS,
+            test_vector_file!("ops/p256_elem_mul_tests.txt"),
+        );
     }
 
     #[test]
     fn p384_elem_mul_test() {
-        elem_mul_test(&p384::COMMON_OPS, test_file!("ops/p384_elem_mul_tests.txt"));
+        elem_mul_test(
+            &p384::COMMON_OPS,
+            test_vector_file!("ops/p384_elem_mul_tests.txt"),
+        );
     }
 
     fn elem_mul_test(ops: &'static CommonOps, test_file: test::File) {
@@ -872,7 +878,7 @@ mod tests {
     fn p256_scalar_mul_test() {
         scalar_mul_test(
             &p256::SCALAR_OPS,
-            test_file!("ops/p256_scalar_mul_tests.txt"),
+            test_vector_file!("ops/p256_scalar_mul_tests.txt"),
         );
     }
 
@@ -880,7 +886,7 @@ mod tests {
     fn p384_scalar_mul_test() {
         scalar_mul_test(
             &p384::SCALAR_OPS,
-            test_file!("ops/p384_scalar_mul_tests.txt"),
+            test_vector_file!("ops/p384_scalar_mul_tests.txt"),
         );
     }
 
@@ -908,7 +914,7 @@ mod tests {
         scalar_square_test(
             &p256::SCALAR_OPS,
             p256_scalar_sqr_rep_mont,
-            test_file!("ops/p256_scalar_square_tests.txt"),
+            test_vector_file!("ops/p256_scalar_square_tests.txt"),
         );
     }
 
@@ -966,7 +972,7 @@ mod tests {
     fn p256_point_sum_test() {
         point_sum_test(
             &p256::PRIVATE_KEY_OPS,
-            test_file!("ops/p256_point_sum_tests.txt"),
+            test_vector_file!("ops/p256_point_sum_tests.txt"),
         );
     }
 
@@ -974,7 +980,7 @@ mod tests {
     fn p384_point_sum_test() {
         point_sum_test(
             &p384::PRIVATE_KEY_OPS,
-            test_file!("ops/p384_point_sum_tests.txt"),
+            test_vector_file!("ops/p384_point_sum_tests.txt"),
         );
     }
 
@@ -1007,7 +1013,7 @@ mod tests {
         point_sum_mixed_test(
             &p256::PRIVATE_KEY_OPS,
             p256_point_add_affine,
-            test_file!("ops/p256_point_sum_mixed_tests.txt"),
+            test_vector_file!("ops/p256_point_sum_mixed_tests.txt"),
         );
     }
 
@@ -1051,7 +1057,7 @@ mod tests {
         point_double_test(
             &p256::PRIVATE_KEY_OPS,
             p256_point_double,
-            test_file!("ops/p256_point_double_tests.txt"),
+            test_vector_file!("ops/p256_point_double_tests.txt"),
         );
     }
 
@@ -1066,7 +1072,7 @@ mod tests {
         point_double_test(
             &p384::PRIVATE_KEY_OPS,
             p384_point_double,
-            test_file!("ops/p384_point_double_tests.txt"),
+            test_vector_file!("ops/p384_point_double_tests.txt"),
         );
     }
 
@@ -1105,7 +1111,7 @@ mod tests {
         point_mul_base_tests(
             &p256::PRIVATE_KEY_OPS,
             |s, cpu| p256::PRIVATE_KEY_OPS.point_mul(s, &generator, cpu),
-            test_file!("ops/p256_point_mul_base_tests.txt"),
+            test_vector_file!("ops/p256_point_mul_base_tests.txt"),
         );
     }
 
@@ -1120,7 +1126,7 @@ mod tests {
         point_mul_base_tests(
             &p384::PRIVATE_KEY_OPS,
             |s, cpu| p384::PRIVATE_KEY_OPS.point_mul(s, &generator, cpu),
-            test_file!("ops/p384_point_mul_base_tests.txt"),
+            test_vector_file!("ops/p384_point_mul_base_tests.txt"),
         );
     }
 
@@ -1129,7 +1135,7 @@ mod tests {
         point_mul_serialized_test(
             &p256::PRIVATE_KEY_OPS,
             &p256::PUBLIC_KEY_OPS,
-            test_file!("ops/p256_point_mul_serialized_tests.txt"),
+            test_vector_file!("ops/p256_point_mul_serialized_tests.txt"),
         );
     }
 
@@ -1182,7 +1188,7 @@ mod tests {
         point_mul_base_tests(
             &p256::PRIVATE_KEY_OPS,
             |s, cpu| p256::PRIVATE_KEY_OPS.point_mul_base(s, cpu),
-            test_file!("ops/p256_point_mul_base_tests.txt"),
+            test_vector_file!("ops/p256_point_mul_base_tests.txt"),
         );
     }
 
@@ -1191,7 +1197,7 @@ mod tests {
         point_mul_base_tests(
             &p384::PRIVATE_KEY_OPS,
             |s, cpu| p384::PRIVATE_KEY_OPS.point_mul_base(s, cpu),
-            test_file!("ops/p384_point_mul_base_tests.txt"),
+            test_vector_file!("ops/p384_point_mul_base_tests.txt"),
         );
     }
 

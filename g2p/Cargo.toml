@@ -11,9 +11,16 @@
 
 [package]
 edition = "2018"
+rust-version = "1.61"
 name = "g2p"
-version = "1.1.0"
+version = "1.2.2"
 authors = ["WanzenBug <moritz@wanzenbug.xyz>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = """
 A crate to create types that implement fast finite field arithmetic.
 """
@@ -33,15 +40,48 @@ categories = [
 license = "MIT/Apache-2.0"
 repository = "https://github.com/WanzenBug/g2p"
 
+[lib]
+name = "g2p"
+path = "src/lib.rs"
+
+[[test]]
+name = "impls"
+path = "tests/impls.rs"
+
+[[test]]
+name = "rijndael"
+path = "tests/rijndael.rs"
+
+[[test]]
+name = "test_doc_examples"
+path = "tests/test_doc_examples.rs"
+
+[[test]]
+name = "test_gf131072"
+path = "tests/test_gf131072.rs"
+
+[[test]]
+name = "test_gf65536"
+path = "tests/test_gf65536.rs"
+
+[[test]]
+name = "test_precomputed_tables"
+path = "tests/test_precomputed_tables.rs"
+
+[[test]]
+name = "test_trait_impl"
+path = "tests/test_trait_impl.rs"
+
 [[bench]]
 name = "g2_8_bench"
+path = "benches/g2_8_bench.rs"
 harness = false
 
 [dependencies.g2gen]
-version = "1.1"
+version = "1.2"
 
 [dependencies.g2poly]
-version = "1.1"
+version = "1.2"
 
 [dev-dependencies.criterion]
 version = "0.4"

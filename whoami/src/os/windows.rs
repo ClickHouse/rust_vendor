@@ -52,31 +52,31 @@ struct SystemInfo {
 #[repr(C)]
 #[derive(Copy, Clone)]
 enum ExtendedNameFormat {
-    Unknown,          // Nothing
-    FullyQualifiedDN, // Nothing
-    SamCompatible,    // Hostname Followed By Username
-    Display,          // Full Name
-    UniqueId,         // Nothing
-    Canonical,        // Nothing
-    UserPrincipal,    // Nothing
-    CanonicalEx,      // Nothing
-    ServicePrincipal, // Nothing
-    DnsDomain,        // Nothing
-    GivenName,        // Nothing
-    Surname,          // Nothing
+    Unknown = 0,           // Nothing
+    FullyQualifiedDN = 1,  // Nothing
+    SamCompatible = 2,     // Hostname Followed By Username
+    Display = 3,           // Full Name
+    UniqueId = 6,          // Nothing
+    Canonical = 7,         // Nothing
+    UserPrincipal = 8,     // Nothing
+    CanonicalEx = 9,       // Nothing
+    ServicePrincipal = 10, // Nothing
+    DnsDomain = 12,        // Nothing
+    GivenName = 13,        // Nothing
+    Surname = 14,          // Nothing
 }
 
 #[allow(unused)]
 #[repr(C)]
 enum ComputerNameFormat {
-    NetBIOS,                   // Same as GetComputerNameW
-    DnsHostname,               // Fancy Name
-    DnsDomain,                 // Nothing
-    DnsFullyQualified,         // Fancy Name with, for example, .com
-    PhysicalNetBIOS,           // Same as GetComputerNameW
-    PhysicalDnsHostname,       // Same as GetComputerNameW
-    PhysicalDnsDomain,         // Nothing
-    PhysicalDnsFullyQualified, // Fancy Name with, for example, .com
+    NetBIOS,                   // All caps hostname
+    DnsHostname,               // Hostname
+    DnsDomain,                 // Nothing or domain
+    DnsFullyQualified,         // Hostname with, for example, .com
+    PhysicalNetBIOS,           // All caps name
+    PhysicalDnsHostname,       // Hostname
+    PhysicalDnsDomain,         // Nothing or domain
+    PhysicalDnsFullyQualified, // Hostname with, for example, .com
     Max,
 }
 
@@ -91,12 +91,11 @@ extern "system" {
         b: *mut c_char,
         c: *mut c_ulong,
     ) -> c_uchar;
+}
+
+#[link(name = "advapi32")]
+extern "system" {
     fn GetUserNameW(a: *mut c_char, b: *mut c_ulong) -> c_int;
-    fn GetComputerNameExW(
-        a: ComputerNameFormat,
-        b: *mut c_char,
-        c: *mut c_ulong,
-    ) -> c_int;
 }
 
 #[link(name = "kernel32")]
@@ -108,6 +107,11 @@ extern "system" {
         pcch_languages_buffer: *mut c_ulong,
     ) -> c_int;
     fn GetNativeSystemInfo(system_info: *mut SystemInfo);
+    fn GetComputerNameExW(
+        a: ComputerNameFormat,
+        b: *mut c_char,
+        c: *mut c_ulong,
+    ) -> c_int;
 }
 
 fn username() -> Result<OsString> {
@@ -277,7 +281,7 @@ impl Target for Os {
         let fail = unsafe {
             // Ignore error, we know that it will be ERROR_INSUFFICIENT_BUFFER
             GetComputerNameExW(
-                ComputerNameFormat::NetBIOS,
+                ComputerNameFormat::PhysicalDnsHostname,
                 ptr::null_mut(),
                 &mut size,
             ) == 0
@@ -296,7 +300,7 @@ impl Target for Os {
 
         if unsafe {
             GetComputerNameExW(
-                ComputerNameFormat::NetBIOS,
+                ComputerNameFormat::PhysicalDnsHostname,
                 name.as_mut_ptr().cast(),
                 &mut size,
             ) == 0

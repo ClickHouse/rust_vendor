@@ -1226,6 +1226,7 @@ $L$SEH_info_aes_hw_set_encrypt_key_base_0:
 	DB	$L$SEH_prologue_aes_hw_set_encrypt_key_base_2-$L$SEH_begin_aes_hw_set_encrypt_key_base_1
 	DB	2
 
+	DW	0
 $L$SEH_info_aes_hw_set_encrypt_key_alt_0:
 	DB	1
 	DB	$L$SEH_endprologue_aes_hw_set_encrypt_key_alt_3-$L$SEH_begin_aes_hw_set_encrypt_key_alt_1
@@ -1233,6 +1234,8 @@ $L$SEH_info_aes_hw_set_encrypt_key_alt_0:
 	DB	0
 	DB	$L$SEH_prologue_aes_hw_set_encrypt_key_alt_2-$L$SEH_begin_aes_hw_set_encrypt_key_alt_1
 	DB	2
+
+	DW	0
 %else
 ; Work around https://bugzilla.nasm.us/show_bug.cgi?id=3392738
 ret

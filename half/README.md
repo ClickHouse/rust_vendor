@@ -15,8 +15,8 @@ be required for some hardware.
 
 This crate provides [`no_std`](https://rust-embedded.github.io/book/intro/no-std.html) support so can easily be used in embedded code where a smaller float format is most useful.
 
-*Requires Rust 1.70 or greater.* If you need support for older versions of Rust, use 1.x versions of
-this crate.
+*Requires Rust 1.81 or greater.* If you need support for older versions of Rust, use previous 
+versions of this crate.
 
 See the [crate documentation](https://docs.rs/half/) for more details.
 
@@ -38,19 +38,23 @@ See the [crate documentation](https://docs.rs/half/) for more details.
 - **`serde`** - Implement `Serialize` and `Deserialize` traits for `f16` and `bf16`. This adds a
   dependency on the [`serde`](https://crates.io/crates/serde) crate.
 
-- **`num-traits`** — Enable `ToPrimitive`, `FromPrimitive`, `Num`, `Float`, `FloatCore` and
-  `Bounded` trait implementations from the [`num-traits`](https://crates.io/crates/num-traits) crate.
+- **`num-traits`** — Enable `ToPrimitive`, `FromPrimitive`, `ToBytes`, `FromBytes`, `Num`, `Float`,
+  `FloatCore` and `Bounded` trait implementations from the
+  [`num-traits`](https://crates.io/crates/num-traits) crate.
 
 - **`bytemuck`** — Enable `Zeroable` and `Pod` trait implementations from the
   [`bytemuck`](https://crates.io/crates/bytemuck) crate.
 
-- **`zerocopy`** — Enable `AsBytes` and `FromBytes` trait implementations from the 
+- **`zerocopy`** — Enable `IntoBytes` and `FromBytes` trait implementations from the 
   [`zerocopy`](https://crates.io/crates/zerocopy) crate.
 
-- **`rand_distr`** — Enable sampling from distributions like `Uniform` and `Normal` from the
-  [`rand_distr`](https://crates.io/crates/rand_distr) crate.
+- **`rand_distr`** — Enable sampling from distributions like `StandardUniform` and `StandardNormal` 
+  from the [`rand_distr`](https://crates.io/crates/rand_distr) crate.
 
 - **`rkyv`** -- Enable zero-copy deserializtion with [`rkyv`](https://crates.io/crates/rkyv) crate.
+
+- **`aribtrary`** -- Enable fuzzing support with [`arbitrary`](https://crates.io/crates/arbitrary) 
+  crate by implementing `Arbitrary` trait.
 
 ### Hardware support
 
@@ -70,19 +74,14 @@ for specific CPU features which avoids the runtime overhead and works in a `no_s
 
 ## License
 
-This library is distributed under the terms of either of:
+All files in this library are dual-licensed and distributed under the terms of either of:
 
-* [MIT License](LICENSES/MIT.txt)
+* [MIT License](LICENSE-MIT)
   ([http://opensource.org/licenses/MIT](http://opensource.org/licenses/MIT))
-* [Apache License, Version 2.0](LICENSES/Apache-2.0.txt)
+* [Apache License, Version 2.0](LICENSE-APACHE)
   ([http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0))
 
 at your option.
-
-This project is [REUSE-compliant](https://reuse.software/spec/). Copyrights are retained by their
-contributors. Some files may include explicit copyright notices and/or license
-[SPDX identifiers](https://spdx.dev/ids/). For full authorship information, see the version control
-history.
 
 ### Contributing
 

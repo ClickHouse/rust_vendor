@@ -1,8 +1,8 @@
 use std::{
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     io,
     pin::Pin,
-    task::{Context, Poll},
+    task::{Context, Poll, ready},
 };
 
 use bytes::Bytes;
@@ -10,7 +10,7 @@ use proto::{Chunk, Chunks, ClosedStream, ConnectionError, ReadableError, StreamI
 use thiserror::Error;
 use tokio::io::ReadBuf;
 
-use crate::{connection::ConnectionRef, VarInt};
+use crate::{VarInt, connection::ConnectionRef};
 
 /// A stream that can only be used to receive data
 ///
@@ -112,7 +112,16 @@ impl RecvStream {
         Poll::Ready(Ok(buf.filled().len()))
     }
 
-    fn poll_read_buf(
+    /// Attempts to read from the stream into buf.
+    ///
+    /// On success, returns Poll::Ready(Ok(())) and places data in
+    /// the buf. If no data was read and the buffer had a non null capacity,
+    /// it implies that EOF has been reached.
+    ///
+    /// If no data is available for reading, the method returns Poll::Pending
+    /// and arranges for the current task (via cx.waker()) to receive a notification
+    /// when the stream becomes readable or is closed.
+    pub fn poll_read_buf(
         &mut self,
         cx: &mut Context,
         buf: &mut ReadBuf<'_>,
@@ -413,7 +422,6 @@ impl<T> From<(Option<T>, Option<proto::ReadError>)> for ReadStatus<T> {
 /// Future produced by [`RecvStream::read_to_end()`].
 ///
 /// [`RecvStream::read_to_end()`]: crate::RecvStream::read_to_end
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct ReadToEnd<'a> {
     stream: &'a mut RecvStream,
     read: Vec<(Bytes, u64)>,
@@ -557,7 +565,7 @@ impl From<ResetError> for ReadError {
 
 impl From<ReadError> for io::Error {
     fn from(x: ReadError) -> Self {
-        use self::ReadError::*;
+        use ReadError::*;
         let kind = match x {
             Reset { .. } | ZeroRttRejected => io::ErrorKind::ConnectionReset,
             ConnectionLost(_) | ClosedStream => io::ErrorKind::NotConnected,
@@ -597,7 +605,6 @@ impl From<ResetError> for io::Error {
 /// Future produced by [`RecvStream::read()`].
 ///
 /// [`RecvStream::read()`]: crate::RecvStream::read
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct Read<'a> {
     stream: &'a mut RecvStream,
     buf: ReadBuf<'a>,
@@ -619,7 +626,6 @@ impl Future for Read<'_> {
 /// Future produced by [`RecvStream::read_exact()`].
 ///
 /// [`RecvStream::read_exact()`]: crate::RecvStream::read_exact
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct ReadExact<'a> {
     stream: &'a mut RecvStream,
     buf: ReadBuf<'a>,
@@ -656,7 +662,6 @@ pub enum ReadExactError {
 /// Future produced by [`RecvStream::read_chunk()`].
 ///
 /// [`RecvStream::read_chunk()`]: crate::RecvStream::read_chunk
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct ReadChunk<'a> {
     stream: &'a mut RecvStream,
     max_length: usize,
@@ -674,7 +679,6 @@ impl Future for ReadChunk<'_> {
 /// Future produced by [`RecvStream::read_chunks()`].
 ///
 /// [`RecvStream::read_chunks()`]: crate::RecvStream::read_chunks
-#[must_use = "futures/streams/sinks do nothing unless you `.await` or poll them"]
 struct ReadChunks<'a> {
     stream: &'a mut RecvStream,
     bufs: &'a mut [Bytes],

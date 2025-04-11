@@ -245,22 +245,22 @@ note: `AU16` has a `#[repr(align)]` attribute
    |     pub struct AU16(pub u16);
    |     ^^^^^^^^^^^^^^^
 
-error[E0277]: the trait bound `AU16: Unaligned` is not satisfied
+error[E0277]: the trait bound `AU16: zerocopy::Unaligned` is not satisfied
    --> tests/ui-stable/struct.rs:100:10
     |
 100 | #[derive(IntoBytes)]
-    |          ^^^^^^^^^ the trait `Unaligned` is not implemented for `AU16`
+    |          ^^^^^^^^^ the trait `zerocopy::Unaligned` is not implemented for `AU16`
     |
     = note: Consider adding `#[derive(Unaligned)]` to `AU16`
-    = help: the following other types implement trait `Unaligned`:
+    = help: the following other types implement trait `zerocopy::Unaligned`:
               ()
               AtomicBool
               AtomicI8
               AtomicU8
+              Cell<T>
               F32<O>
               F64<O>
               I128<O>
-              I16<O>
             and $N others
     = help: see issue #48214
     = note: this error originates in the derive macro `IntoBytes` (in Nightly builds, run with -Z macro-backtrace for more info)
@@ -335,22 +335,22 @@ error[E0587]: type has conflicting packed and align representation hints
 188 | struct Unaligned3;
     | ^^^^^^^^^^^^^^^^^
 
-error[E0277]: the trait bound `AU16: Unaligned` is not satisfied
+error[E0277]: the trait bound `AU16: zerocopy::Unaligned` is not satisfied
    --> tests/ui-stable/struct.rs:161:28
     |
 161 |         is_into_bytes_11::<IntoBytes11<AU16>>();
-    |                            ^^^^^^^^^^^^^^^^^ the trait `Unaligned` is not implemented for `AU16`
+    |                            ^^^^^^^^^^^^^^^^^ the trait `zerocopy::Unaligned` is not implemented for `AU16`
     |
     = note: Consider adding `#[derive(Unaligned)]` to `AU16`
-    = help: the following other types implement trait `Unaligned`:
+    = help: the following other types implement trait `zerocopy::Unaligned`:
               ()
               AtomicBool
               AtomicI8
               AtomicU8
+              Cell<T>
               F32<O>
               F64<O>
               I128<O>
-              I16<O>
             and $N others
 note: required for `IntoBytes11<AU16>` to implement `zerocopy::IntoBytes`
    --> tests/ui-stable/struct.rs:150:10

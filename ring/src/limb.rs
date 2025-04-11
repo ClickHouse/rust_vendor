@@ -5,9 +5,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -20,7 +20,7 @@
 
 use crate::{
     arithmetic::inout::{AliasingSlices2, AliasingSlices3},
-    c, constant_time,
+    bb, c,
     error::{self, LenMismatchError},
     polyfill::{sliceutil, usize_from_u32, ArrayFlatMap},
 };
@@ -33,12 +33,12 @@ use crate::bits;
 use core::num::Wrapping;
 
 // XXX: Not correct for x32 ABIs.
-pub type Limb = constant_time::Word;
-pub type LeakyLimb = constant_time::LeakyWord;
+pub type Limb = bb::Word;
+pub type LeakyLimb = bb::LeakyWord;
 pub const LIMB_BITS: usize = usize_from_u32(Limb::BITS);
 pub const LIMB_BYTES: usize = (LIMB_BITS + 7) / 8;
 
-pub type LimbMask = constant_time::BoolMask;
+pub type LimbMask = bb::BoolMask;
 
 #[inline]
 pub fn limbs_equal_limbs_consttime(a: &[Limb], b: &[Limb]) -> Result<LimbMask, LenMismatchError> {
@@ -46,14 +46,11 @@ pub fn limbs_equal_limbs_consttime(a: &[Limb], b: &[Limb]) -> Result<LimbMask, L
         return Err(LenMismatchError::new(a.len()));
     }
     let all = a.iter().zip(b).fold(0, |running, (a, b)| running | (a ^ b));
-    Ok(limb_is_zero_constant_time(all))
+    Ok(limb_is_zero(all))
 }
 
 #[inline]
-fn limbs_less_than_limbs_constant_time(
-    a: &[Limb],
-    b: &[Limb],
-) -> Result<LimbMask, LenMismatchError> {
+fn limbs_less_than_limbs(a: &[Limb], b: &[Limb]) -> Result<LimbMask, LenMismatchError> {
     prefixed_extern! {
         fn LIMBS_less_than(a: *const Limb, b: *const Limb, num_limbs: c::NonZero_size_t)
             -> LimbMask;
@@ -63,7 +60,7 @@ fn limbs_less_than_limbs_constant_time(
     // optimizer.
     // XXX: Questionable whether `LenMismatchError` is appropriate.
     let len = NonZeroUsize::new(b.len()).ok_or_else(|| LenMismatchError::new(a.len()))?;
-    if a.len() != len.into() {
+    if a.len() != len.get() {
         return Err(LenMismatchError::new(a.len()));
     }
     Ok(unsafe { LIMBS_less_than(a.as_ptr(), b.as_ptr(), len) })
@@ -74,7 +71,7 @@ pub(crate) fn verify_limbs_less_than_limbs_leak_bit(
     a: &[Limb],
     b: &[Limb],
 ) -> Result<(), error::Unspecified> {
-    let r = limbs_less_than_limbs_constant_time(a, b).map_err(error::erase::<LenMismatchError>)?;
+    let r = limbs_less_than_limbs(a, b).map_err(error::erase::<LenMismatchError>)?;
     if r.leak() {
         Ok(())
     } else {
@@ -84,12 +81,12 @@ pub(crate) fn verify_limbs_less_than_limbs_leak_bit(
 
 #[inline]
 pub fn limbs_less_than_limbs_vartime(a: &[Limb], b: &[Limb]) -> Result<bool, LenMismatchError> {
-    let r = limbs_less_than_limbs_constant_time(a, b)?;
+    let r = limbs_less_than_limbs(a, b)?;
     Ok(r.leak())
 }
 
 #[inline]
-fn limb_is_zero_constant_time(limb: Limb) -> LimbMask {
+fn limb_is_zero(limb: Limb) -> LimbMask {
     prefixed_extern! {
         fn LIMB_is_zero(limb: Limb) -> LimbMask;
     }
@@ -97,8 +94,8 @@ fn limb_is_zero_constant_time(limb: Limb) -> LimbMask {
 }
 
 #[inline]
-pub fn limbs_are_zero_constant_time(limbs: &[Limb]) -> LimbMask {
-    limb_is_zero_constant_time(limbs.iter().fold(0, |a, b| a | b))
+pub fn limbs_are_zero(limbs: &[Limb]) -> LimbMask {
+    limb_is_zero(limbs.iter().fold(0, |a, b| a | b))
 }
 
 /// Leaks one bit of information (other than the lengths of the inputs):
@@ -107,7 +104,7 @@ pub fn limbs_are_zero_constant_time(limbs: &[Limb]) -> LimbMask {
 #[inline]
 pub fn limbs_reject_even_leak_bit(limbs: &[Limb]) -> Result<(), error::Unspecified> {
     let bottom = *limbs.first().ok_or(error::Unspecified)?;
-    if limb_is_zero_constant_time(bottom & 1).leak() {
+    if limb_is_zero(bottom & 1).leak() {
         return Err(error::Unspecified);
     }
     Ok(())
@@ -117,7 +114,7 @@ pub fn limbs_reject_even_leak_bit(limbs: &[Limb]) -> Result<(), error::Unspecifi
 #[inline]
 pub fn verify_limbs_equal_1_leak_bit(a: &[Limb]) -> Result<(), error::Unspecified> {
     if let [bottom, ref rest @ ..] = *a {
-        let equal = limb_is_zero_constant_time(bottom ^ 1) & limbs_are_zero_constant_time(rest);
+        let equal = limb_is_zero(bottom ^ 1) & limbs_are_zero(rest);
         if equal.leak() {
             return Ok(());
         }
@@ -157,7 +154,7 @@ pub fn limbs_minimal_bits(a: &[Limb]) -> bits::BitLength {
 
 /// Equivalent to `if (r >= m) { r -= m; }`
 #[inline]
-pub fn limbs_reduce_once_constant_time(r: &mut [Limb], m: &[Limb]) -> Result<(), LenMismatchError> {
+pub fn limbs_reduce_once(r: &mut [Limb], m: &[Limb]) -> Result<(), LenMismatchError> {
     prefixed_extern! {
         fn LIMBS_reduce_once(r: *mut Limb, m: *const Limb, num_limbs: c::NonZero_size_t);
     }
@@ -191,7 +188,7 @@ pub fn parse_big_endian_in_range_and_pad_consttime(
     parse_big_endian_and_pad_consttime(input, result)?;
     verify_limbs_less_than_limbs_leak_bit(result, max_exclusive)?;
     if allow_zero != AllowZero::Yes {
-        if limbs_are_zero_constant_time(result).leak() {
+        if limbs_are_zero(result).leak() {
             return Err(error::Unspecified);
         }
     }
@@ -243,10 +240,10 @@ pub fn unstripped_be_bytes(limbs: &[Limb]) -> impl ExactSizeIterator<Item = u8> 
 }
 
 // Used in FFI
-pub type Window = constant_time::Word;
+pub type Window = bb::Word;
 
 // Used in FFI
-pub type LeakyWindow = constant_time::LeakyWord;
+pub type LeakyWindow = bb::LeakyWord;
 
 /// Processes `limbs` as a sequence of 5-bit windows, folding the windows from
 /// most significant to least significant and returning the accumulated result.
@@ -382,6 +379,7 @@ prefixed_extern! {
     fn LIMB_shr(a: Limb, shift: c::size_t) -> Limb;
 }
 
+#[allow(clippy::useless_conversion)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -456,11 +454,11 @@ mod tests {
     fn test_limbs_are_zero() {
         for zero in ZEROES {
             let zero = &Vec::from_iter(zero.iter().copied().map(Limb::from));
-            assert!(leak_in_test(limbs_are_zero_constant_time(zero)));
+            assert!(leak_in_test(limbs_are_zero(zero)));
         }
         for nonzero in NONZEROES {
             let nonzero = &Vec::from_iter(nonzero.iter().copied().map(Limb::from));
-            assert!(!leak_in_test(limbs_are_zero_constant_time(nonzero)));
+            assert!(!leak_in_test(limbs_are_zero(nonzero)));
         }
     }
 

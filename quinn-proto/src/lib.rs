@@ -27,7 +27,6 @@ use std::{
 };
 
 mod cid_queue;
-#[doc(hidden)]
 pub mod coding;
 mod constant_time;
 mod range_set;
@@ -52,7 +51,7 @@ pub use rustls;
 mod config;
 pub use config::{
     AckFrequencyConfig, ClientConfig, ConfigError, EndpointConfig, IdleTimeout, MtuDiscoveryConfig,
-    ServerConfig, TransportConfig,
+    ServerConfig, StdSystemTime, TimeSource, TransportConfig, ValidationTokenConfig,
 };
 
 pub mod crypto;
@@ -86,7 +85,8 @@ pub use crate::cid_generator::{
 };
 
 mod token;
-use token::{ResetToken, RetryToken};
+use token::ResetToken;
+pub use token::{NoneTokenLog, NoneTokenStore, TokenLog, TokenReuseError, TokenStore};
 
 #[cfg(feature = "arbitrary")]
 use arbitrary::Arbitrary;
@@ -97,7 +97,6 @@ pub(crate) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
 pub(crate) use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-#[doc(hidden)]
 #[cfg(fuzzing)]
 pub mod fuzzing {
     pub use crate::connection::{Retransmits, State as ConnectionState, StreamsState};
@@ -208,7 +207,7 @@ impl Dir {
 
 impl fmt::Display for Dir {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use self::Dir::*;
+        use Dir::*;
         f.pad(match *self {
             Bi => "bidirectional",
             Uni => "unidirectional",
@@ -219,7 +218,7 @@ impl fmt::Display for Dir {
 /// Identifier for a stream within a particular connection
 #[cfg_attr(feature = "arbitrary", derive(Arbitrary))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash)]
-pub struct StreamId(#[doc(hidden)] pub u64);
+pub struct StreamId(u64);
 
 impl fmt::Display for StreamId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -244,7 +243,7 @@ impl fmt::Display for StreamId {
 impl StreamId {
     /// Create a new StreamId
     pub fn new(initiator: Side, dir: Dir, index: u64) -> Self {
-        Self(index << 2 | (dir as u64) << 1 | initiator as u64)
+        Self((index << 2) | ((dir as u64) << 1) | initiator as u64)
     }
     /// Which side of a connection initiated the stream
     pub fn initiator(self) -> Side {
@@ -256,11 +255,7 @@ impl StreamId {
     }
     /// Which directions data flows in
     pub fn dir(self) -> Dir {
-        if self.0 & 0x2 == 0 {
-            Dir::Bi
-        } else {
-            Dir::Uni
-        }
+        if self.0 & 0x2 == 0 { Dir::Bi } else { Dir::Uni }
     }
     /// Distinguishes streams of the same initiator and directionality
     pub fn index(self) -> u64 {
@@ -277,6 +272,12 @@ impl From<StreamId> for VarInt {
 impl From<VarInt> for StreamId {
     fn from(v: VarInt) -> Self {
         Self(v.0)
+    }
+}
+
+impl From<StreamId> for u64 {
+    fn from(x: StreamId) -> Self {
+        x.0
     }
 }
 

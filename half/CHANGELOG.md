@@ -5,6 +5,36 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [2.6.0] - 2024-04-08 <a name="2.6.0"></a>
+### Changed
+- Fixed some incorrect minimum supported versions of dependencies that weren't caught due to
+  improper `Cargo.lock`:
+  * `num-traits` 0.2.14 -> 0.2.16
+  * `zerocopy` 0.8.0 -> 0.8.23
+  * `arbitrary` 1.3.2 -> 1.4.1
+
+### Added
+- `f16` and `bf16` now implement `Immutable` and `KnownLayout` for `zerocopy` crate. By [@usamoi].
+
+## [2.5.0] - 2024-03-13 <a name="2.5.0"></a>
+### Changed
+- Updated optional dependencies to latest major versions: 
+  * `zercopy` 0.6 -> 0.8
+  * `rand` 0.8 -> 0.9
+  * `rand_distr` 0.4 -> 0.5
+  * `rkyv` 0.7 -> 0.8
+  * (dev) `criterion` 0.4 -> 0.5
+- Minimum supported Rust version has been changed to 1.81 due to above dependency updates.
+- Minor restructuring of included license file locations to be more consistent with crates ecosystem.
+
+### Added
+- Added support for `arbitrary` crate. Fixes [#110]. By [@FL33TW00D].
+- New `num-traits` implementations: `FromBytes` and `ToBytes` for `f16` and `bf16`. By [@kpreid].
+
+### Fixed
+- Suppressed unexpected_cfg lint warnings on newer versions of stable Rust.
+- Resolved ambiguous rustdoc warnings due to new unstable `f16` primitive in compiler.
+
 ## [2.4.1] - 2024-04-06 <a name="2.4.1"></a>
 ### Fixed
 - Missing macro import causing build failure on `no_std` + `alloc` feature set. Fixes [#107].
@@ -330,6 +360,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 [#100]: https://github.com/starkat99/half-rs/issues/100
 [#103]: https://github.com/starkat99/half-rs/issues/103
 [#107]: https://github.com/starkat99/half-rs/issues/107
+[#110]: https://github.com/starkat99/half-rs/issues/110
 
 [@tspiteri]: https://github.com/tspiteri
 [@PSeitz]: https://github.com/PSeitz
@@ -351,9 +382,14 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 [@wx-csy]: https://github.com/wx-csy
 [@eiz]: https://github.com/eiz
 [@comath]: https://github.com/comath
+[@FL33TW00D]: https://github.com/FL33TW00D
+[@kpreid]: https://github.com/kpreid
+[@usamoi]: https://github.com/usamoi
 
 
-[Unreleased]: https://github.com/starkat99/half-rs/compare/v2.4.1...HEAD
+[Unreleased]: https://github.com/starkat99/half-rs/compare/v2.6.0...HEAD
+[2.6.0]: https://github.com/starkat99/half-rs/compare/v2.5.0...v2.6.0
+[2.5.0]: https://github.com/starkat99/half-rs/compare/v2.4.1...v2.5.0
 [2.4.1]: https://github.com/starkat99/half-rs/compare/v2.4.0...v2.4.1
 [2.4.0]: https://github.com/starkat99/half-rs/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/starkat99/half-rs/compare/v2.3.0...v2.3.1

@@ -11,10 +11,11 @@
 
 [package]
 edition = "2021"
-rust-version = "1.70.0"
+rust-version = "1.71"
 name = "quinn-proto"
-version = "0.11.9"
+version = "0.11.10"
 build = false
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -30,7 +31,47 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/quinn-rs/quinn"
 
 [package.metadata.docs.rs]
-all-features = true
+features = [
+    "rustls-aws-lc-rs",
+    "rustls-ring",
+    "platform-verifier",
+    "log",
+    "rustls-log",
+]
+
+[features]
+aws-lc-rs = [
+    "dep:aws-lc-rs",
+    "aws-lc-rs?/aws-lc-sys",
+    "aws-lc-rs?/prebuilt-nasm",
+]
+aws-lc-rs-fips = [
+    "aws-lc-rs",
+    "aws-lc-rs?/fips",
+]
+default = [
+    "rustls-ring",
+    "log",
+]
+log = ["tracing/log"]
+platform-verifier = ["dep:rustls-platform-verifier"]
+ring = ["dep:ring"]
+rustls = ["rustls-ring"]
+rustls-aws-lc-rs = [
+    "dep:rustls",
+    "rustls?/aws-lc-rs",
+    "aws-lc-rs",
+]
+rustls-aws-lc-rs-fips = [
+    "rustls-aws-lc-rs",
+    "aws-lc-rs-fips",
+]
+rustls-log = ["rustls?/logging"]
+rustls-ring = [
+    "dep:rustls",
+    "rustls?/ring",
+    "ring",
+]
 
 [lib]
 name = "quinn_proto"
@@ -50,7 +91,7 @@ default-features = false
 version = "1"
 
 [dependencies.rand]
-version = "0.8"
+version = "0.9"
 
 [dependencies.ring]
 version = "0.17"
@@ -66,7 +107,7 @@ optional = true
 default-features = false
 
 [dependencies.rustls-platform-verifier]
-version = "0.4"
+version = "0.5"
 optional = true
 
 [dependencies.slab]
@@ -113,43 +154,9 @@ default-features = false
 [dev-dependencies.wasm-bindgen-test]
 version = "0.3.45"
 
-[features]
-aws-lc-rs = [
-    "dep:aws-lc-rs",
-    "aws-lc-rs?/aws-lc-sys",
-    "aws-lc-rs?/prebuilt-nasm",
-]
-aws-lc-rs-fips = [
-    "aws-lc-rs",
-    "aws-lc-rs?/fips",
-]
-default = [
-    "rustls-ring",
-    "log",
-]
-log = ["tracing/log"]
-platform-verifier = ["dep:rustls-platform-verifier"]
-ring = ["dep:ring"]
-rustls = ["rustls-ring"]
-rustls-aws-lc-rs = [
-    "dep:rustls",
-    "rustls?/aws-lc-rs",
-    "aws-lc-rs",
-]
-rustls-aws-lc-rs-fips = [
-    "rustls-aws-lc-rs",
-    "aws-lc-rs-fips",
-]
-rustls-log = ["rustls?/logging"]
-rustls-ring = [
-    "dep:rustls",
-    "rustls?/ring",
-    "ring",
-]
-
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies.getrandom]
-version = "0.2"
-features = ["js"]
+version = "0.3"
+features = ["wasm_js"]
 default-features = false
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies.ring]

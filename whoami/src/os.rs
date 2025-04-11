@@ -18,6 +18,7 @@
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "illumos",
+            target_os = "hurd",
         ),
         not(target_arch = "wasm32")
     ),
@@ -114,7 +115,18 @@ fn unix_lang() -> Result<String> {
             Error::new(kind, e)
         })
     };
-    let langs = check_var("LANGS").or_else(|_| check_var("LANG"))?;
+
+    // Uses priority defined in
+    // <https://www.gnu.org/software/gettext/manual/html_node/Locale-Environment-Variables.html>
+    let locale = check_var("LC_ALL").or_else(|_| check_var("LANG"));
+
+    // The LANGUAGE environment variable takes precedence if and only if
+    // localization is enabled, i.e., LC_ALL / LANG is not "C".
+    // <https://www.gnu.org/software/gettext/manual/html_node/The-LANGUAGE-variable.html>
+    let langs = match &locale {
+        Ok(loc) if loc != "C" => check_var("LANGUAGE").or(locale),
+        _ => locale,
+    }?;
 
     if langs.is_empty() {
         return Err(err_empty_record());

@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -177,7 +177,7 @@ impl Ed25519KeyPair {
         let private_scalar =
             MaskedScalar::from_bytes_masked(private_scalar.try_into().unwrap()).into();
 
-        let a = ExtPoint::from_scalarmult_base_consttime(&private_scalar, cpu_features);
+        let a = ExtPoint::from_scalarmult_base(&private_scalar, cpu_features);
 
         Self {
             private_scalar,
@@ -209,7 +209,7 @@ impl Ed25519KeyPair {
             };
             let nonce = Scalar::from_sha512_digest_reduced(nonce);
 
-            let r = ExtPoint::from_scalarmult_base_consttime(&nonce, cpu_features);
+            let r = ExtPoint::from_scalarmult_base(&nonce, cpu_features);
             signature_r.copy_from_slice(&r.into_encoded_point(cpu_features));
             let hram_digest = eddsa_digest(signature_r, self.public_key.as_ref(), msg);
             let hram = Scalar::from_sha512_digest_reduced(hram_digest);

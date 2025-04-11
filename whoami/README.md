@@ -8,7 +8,7 @@
 [![Crates.io](https://img.shields.io/crates/v/whoami)](https://crates.io/crates/whoami)
 [![Crates.io](https://img.shields.io/crates/d/whoami)](https://crates.io/crates/whoami)
 [![Crates.io (recent)](https://img.shields.io/crates/dr/whoami)](https://crates.io/crates/whoami)  
-[![Crates.io](https://img.shields.io/crates/l/whoami)](https://github.com/ardaku/whoami/search?l=Text&q=license)
+[![Crates.io](https://img.shields.io/crates/l/whoami)](https://github.com/search?q=repo%3Aardaku%2Fwhoami+path%3A**%2FLICENSE*&type=code)
 [![Docs.rs](https://docs.rs/whoami/badge.svg)](https://docs.rs/whoami/)
 
 Retrieve the current user and environment through simple functions.
@@ -45,6 +45,7 @@ WhoAmI targets all platforms that can run Rust, including:
  - Android **planned later**
  - iOS / watchOS / tvOS **planned later**
  - Fuchsia **planned later**
+ - GNU/Hurd **untested**
  - Others? (make a PR or open an issue)
 
 ## MSRV
@@ -71,7 +72,7 @@ suite is run for each change that affects multiple platforms.
 
 ## License
 
-Copyright © 2017-2024 The WhoAmI Contributors.
+Copyright © 2017-2025 The WhoAmI Contributors.
 
 Licensed under any of
  - Apache License, Version 2.0, ([LICENSE_APACHE][7]

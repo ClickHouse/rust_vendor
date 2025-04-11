@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -287,20 +287,6 @@ impl Context {
 }
 
 /// Returns the digest of `data` using the given digest algorithm.
-///
-/// # Examples:
-///
-/// ```
-/// # #[cfg(feature = "alloc")]
-/// # {
-/// use ring::{digest, test};
-/// let expected_hex = "09ca7e4eaa6e8ae9c7d261167129184883644d07dfba7cbfbc4c8a2e08360d5b";
-/// let expected: Vec<u8> = test::from_hex(expected_hex).unwrap();
-/// let actual = digest::digest(&digest::SHA256, b"hello, world");
-///
-/// assert_eq!(&expected, &actual.as_ref());
-/// # }
-/// ```
 pub fn digest(algorithm: &'static Algorithm, data: &[u8]) -> Digest {
     let cpu = cpu::features();
     Digest::compute_from(algorithm, data, cpu)
