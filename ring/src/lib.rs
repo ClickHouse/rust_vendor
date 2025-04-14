@@ -4,17 +4,14 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-//! Safe, fast, small crypto using Rust with BoringSSL's cryptography
-//! primitives.
-//!
 //! # Feature Flags
 //!
 //! <table>
@@ -103,8 +100,9 @@ mod debug;
 #[macro_use]
 mod prefixed;
 
+#[doc(hidden)]
 #[macro_use]
-pub mod test;
+mod testutil;
 
 #[macro_use]
 mod bssl;
@@ -118,8 +116,21 @@ pub mod agreement;
 mod arithmetic;
 mod bits;
 
+pub(crate) mod bb;
 pub(crate) mod c;
-pub mod constant_time;
+
+#[doc(hidden)]
+#[deprecated(
+    note = "Will be removed. Internal module not intended for external use, with no promises regarding side channels."
+)]
+pub mod deprecated_constant_time;
+
+#[doc(hidden)]
+#[allow(deprecated)]
+#[deprecated(
+    note = "Will be removed. Internal module not intended for external use, with no promises regarding side channels."
+)]
+pub use deprecated_constant_time as constant_time;
 
 pub mod io;
 
@@ -157,3 +168,10 @@ mod sealed {
     // ```
     pub trait Sealed {}
 }
+
+#[deprecated(note = "internal API that will be removed")]
+pub mod deprecated_test;
+
+#[allow(deprecated)]
+#[deprecated(note = "internal API that will be removed")]
+pub use deprecated_test as test;

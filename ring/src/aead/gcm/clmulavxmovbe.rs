@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -15,10 +15,7 @@
 #![cfg(target_arch = "x86_64")]
 
 use super::{HTable, KeyValue, UpdateBlock, UpdateBlocks, Xi, BLOCK_LEN};
-use crate::{cpu, polyfill::slice::AsChunks};
-
-pub(in super::super) type RequiredCpuFeatures =
-    (cpu::intel::ClMul, cpu::intel::Avx, cpu::intel::Movbe);
+use crate::{cpu::intel, polyfill::slice::AsChunks};
 
 #[derive(Clone)]
 pub struct Key {
@@ -26,7 +23,11 @@ pub struct Key {
 }
 
 impl Key {
-    pub(in super::super) fn new(value: KeyValue, _cpu: RequiredCpuFeatures) -> Self {
+    #[inline(never)]
+    pub(in super::super) fn new(
+        value: KeyValue,
+        _required_cpu_features: (intel::ClMul, intel::Avx, intel::Movbe),
+    ) -> Self {
         Self {
             h_table: unsafe { htable_new!(gcm_init_avx, value) },
         }

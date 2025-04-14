@@ -1,10 +1,17 @@
 #! /usr/bin/env perl
 # Copyright 2005-2016 The OpenSSL Project Authors. All Rights Reserved.
 #
-# Licensed under the OpenSSL license (the "License").  You may not use
-# this file except in compliance with the License.  You can obtain a copy
-# in the file LICENSE in the source distribution or at
-# https://www.openssl.org/source/license.html
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 
 # Ascetic x86_64 AT&T to MASM/NASM assembler translator by <appro>.
@@ -902,6 +909,16 @@ $info{info_label}:
 	.byte	$frame_encoded
 $info{unwind_codes}
 ____
+
+	# UNWIND_INFOs must be 4-byte aligned. If needed, we must add an extra
+	# unwind code. This does not change the unwind code count. Windows
+	# documentation says "For alignment purposes, this array always has an
+	# even number of entries, and the final entry is potentially unused. In
+	# that case, the array is one longer than indicated by the count of
+	# unwind codes field."
+	if ($info{num_codes} & 1) {
+	    $xdata .= "\t.value\t0\n";
+	}
 
 	%info = ();
 	return $end_label;

@@ -7,6 +7,7 @@ use std::convert::TryInto;
     target_os = "netbsd",
     target_os = "openbsd",
     target_os = "illumos",
+    target_os = "hurd",
 ))]
 use std::env;
 use std::{
@@ -34,7 +35,7 @@ use crate::{
     Arch, DesktopEnv, Platform, Result,
 };
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "hurd"))]
 #[repr(C)]
 struct PassWd {
     pw_name: *const c_void,
@@ -99,6 +100,7 @@ extern "system" {
     target_os = "freebsd",
     target_os = "netbsd",
     target_os = "openbsd",
+    target_os = "hurd",
 ))]
 extern "system" {
     fn getpwuid_r(
@@ -116,10 +118,7 @@ extern "system" {
 }
 
 #[cfg(target_os = "macos")]
-// FIXME: seemingly false positive for link lint
-#[allow(clippy::duplicated_attributes)]
 #[link(name = "CoreFoundation", kind = "framework")]
-#[link(name = "SystemConfiguration", kind = "framework")]
 extern "system" {
     fn CFStringGetCString(
         the_string: *mut c_void,
@@ -132,11 +131,16 @@ extern "system" {
         length: c_long,
         encoding: u32,
     ) -> c_long;
+    fn CFRelease(cf: *const c_void);
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "SystemConfiguration", kind = "framework")]
+extern "system" {
     fn SCDynamicStoreCopyComputerName(
         store: *mut c_void,
         encoding: *mut u32,
     ) -> *mut c_void;
-    fn CFRelease(cf: *const c_void);
 }
 
 enum Name {
@@ -250,6 +254,7 @@ fn getpwuid(name: Name) -> Result<OsString> {
             target_os = "freebsd",
             target_os = "netbsd",
             target_os = "openbsd",
+            target_os = "hurd",
         ))]
         {
             let mut _passwd = mem::MaybeUninit::<*mut PassWd>::uninit();
@@ -403,6 +408,16 @@ struct UtsName {
     domainname: [c_char; 65],
 }
 
+#[cfg(target_os = "hurd")]
+#[repr(C)]
+struct UtsName {
+    sysname: [c_char; 1024],
+    nodename: [c_char; 1024],
+    release: [c_char; 1024],
+    version: [c_char; 1024],
+    machine: [c_char; 1024],
+}
+
 // Buffer initialization
 impl Default for UtsName {
     fn default() -> Self {
@@ -420,6 +435,7 @@ unsafe fn uname(buf: *mut UtsName) -> c_int {
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "illumos",
+            target_os = "hurd",
         ))]
         fn uname(buf: *mut UtsName) -> c_int;
 
@@ -486,6 +502,7 @@ impl Target for Os {
             target_os = "freebsd",
             target_os = "netbsd",
             target_os = "openbsd",
+            target_os = "hurd",
         ))]
         {
             let machine_info = fs::read("/etc/machine-info")?;
@@ -494,10 +511,46 @@ impl Target for Os {
                 let mut j = i.split(|b| *b == b'=');
 
                 if j.next() == Some(b"PRETTY_HOSTNAME") {
-                    if let Some(value) = j.next() {
-                        // FIXME: Can " be escaped in pretty name?
-                        return Ok(OsString::from_vec(value.to_vec()));
-                    }
+                    let pretty_hostname = j.next().ok_or(Error::new(
+                        ErrorKind::InvalidData,
+                        "parsing failed",
+                    ))?;
+                    let pretty_hostname = if pretty_hostname.starts_with(b"\"")
+                        && pretty_hostname.ends_with(b"\"")
+                    {
+                        &pretty_hostname[1..pretty_hostname.len() - 1]
+                    } else {
+                        pretty_hostname
+                    };
+                    let pretty_hostname = {
+                        let mut vec = Vec::with_capacity(pretty_hostname.len());
+                        let mut pretty_hostname = pretty_hostname.iter();
+
+                        while let Some(&c) = pretty_hostname.next() {
+                            if c == b'\\' {
+                                vec.push(match pretty_hostname.next() {
+                                    Some(b'\\') => b'\\',
+                                    Some(b't') => b'\t',
+                                    Some(b'r') => b'\r',
+                                    Some(b'n') => b'\n',
+                                    Some(b'\'') => b'\'',
+                                    Some(b'"') => b'"',
+                                    _ => {
+                                        return Err(Error::new(
+                                            ErrorKind::InvalidData,
+                                            "parsing failed",
+                                        ));
+                                    }
+                                });
+                            } else {
+                                vec.push(c);
+                            }
+                        }
+
+                        vec
+                    };
+
+                    return Ok(OsString::from_vec(pretty_hostname));
                 }
             }
 
@@ -545,6 +598,7 @@ impl Target for Os {
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "illumos",
+            target_os = "hurd",
         ))]
         {
             let program = fs::read("/etc/os-release")?;
@@ -591,6 +645,7 @@ impl Target for Os {
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "illumos",
+            target_os = "hurd",
         ))]
         let env = env::var_os("DESKTOP_SESSION");
         #[cfg(any(
@@ -600,6 +655,7 @@ impl Target for Os {
             target_os = "netbsd",
             target_os = "openbsd",
             target_os = "illumos",
+            target_os = "hurd",
         ))]
         let env = if let Some(ref env) = env {
             env.to_string_lossy()
@@ -621,7 +677,6 @@ impl Target for Os {
             DesktopEnv::Ubuntu
         } else if env.eq_ignore_ascii_case("PLASMA5") {
             DesktopEnv::Kde
-        // TODO: Other Linux Desktop Environments
         } else {
             DesktopEnv::Unknown(env.to_string())
         }
@@ -652,6 +707,11 @@ impl Target for Os {
         #[cfg(target_os = "illumos")]
         {
             Platform::Illumos
+        }
+
+        #[cfg(target_os = "hurd")]
+        {
+            Platform::Hurd
         }
     }
 

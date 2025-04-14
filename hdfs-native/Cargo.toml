@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "hdfs-native"
-version = "0.10.4"
+version = "0.11.2"
 authors = ["Adam Binford <adamq43@gmail.com>"]
 build = "build.rs"
 autolib = false
@@ -29,6 +29,17 @@ keywords = [
 ]
 license = "Apache-2.0"
 repository = "https://github.com/Kimahriman/hdfs-native"
+
+[features]
+benchmark = [
+    "fs-hdfs3",
+    "which",
+]
+generate-protobuf = [
+    "prost-build",
+    "protobuf-src",
+]
+integration-test = ["which"]
 
 [lib]
 name = "hdfs_native"
@@ -81,7 +92,7 @@ harness = false
 version = "0.8"
 
 [dependencies.base64]
-version = "0.21"
+version = "0.22"
 
 [dependencies.bitflags]
 version = "2"
@@ -141,10 +152,10 @@ version = "0.2"
 version = "1"
 
 [dependencies.prost]
-version = "0.12"
+version = "0.13"
 
 [dependencies.prost-types]
-version = "0.12"
+version = "0.13"
 
 [dependencies.rand]
 version = "0.8"
@@ -153,13 +164,13 @@ version = "0.8"
 version = "1"
 
 [dependencies.roxmltree]
-version = "0.18"
+version = "0.20"
 
 [dependencies.socket2]
 version = "0.5"
 
 [dependencies.thiserror]
-version = "1"
+version = "2"
 
 [dependencies.tokio]
 version = "1"
@@ -181,7 +192,7 @@ version = "1"
 features = ["v4"]
 
 [dependencies.which]
-version = "4"
+version = "7"
 optional = true
 
 [dependencies.whoami]
@@ -195,35 +206,24 @@ features = [
 ]
 
 [dev-dependencies.env_logger]
-version = "0.10"
+version = "0.11"
 
 [dev-dependencies.serial_test]
-version = "2"
+version = "3"
 
 [dev-dependencies.tempfile]
 version = "3"
 
 [dev-dependencies.which]
-version = "4"
+version = "7"
 
 [build-dependencies.prost-build]
-version = "0.12"
+version = "0.13"
 optional = true
 
 [build-dependencies.protobuf-src]
-version = "1.1"
+version = "2"
 optional = true
-
-[features]
-benchmark = [
-    "fs-hdfs3",
-    "which",
-]
-generate-protobuf = [
-    "prost-build",
-    "protobuf-src",
-]
-integration-test = ["which"]
 
 [target."cfg(unix)".dependencies.fs-hdfs3]
 version = "0.1.12"

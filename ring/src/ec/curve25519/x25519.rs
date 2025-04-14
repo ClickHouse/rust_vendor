@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -15,7 +15,8 @@
 //! X25519 Key agreement.
 
 use super::{ops, scalar::SCALAR_LEN};
-use crate::{agreement, c, constant_time, cpu, ec, error, rand};
+use crate::{agreement, bb, cpu, ec, error, rand};
+use core::ffi::c_int;
 
 static CURVE25519: ec::Curve = ec::Curve {
     public_key_len: PUBLIC_KEY_LEN,
@@ -83,7 +84,7 @@ fn x25519_public_from_private(
         fn x25519_public_from_private_generic_masked(
             public_key_out: &mut PublicKey,
             private_key: &PrivateKey,
-            use_adx: c::int,
+            use_adx: c_int,
         );
     }
     unsafe {
@@ -155,7 +156,7 @@ fn x25519_ecdh(
     );
 
     let zeros: SharedSecret = [0; SHARED_SECRET_LEN];
-    if constant_time::verify_slices_are_equal(out, &zeros).is_ok() {
+    if bb::verify_slices_are_equal(out, &zeros).is_ok() {
         // All-zero output results when the input is a point of small order.
         return Err(error::Unspecified);
     }

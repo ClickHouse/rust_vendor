@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -69,47 +69,48 @@ const RING_SRCS: &[(&[&str], &str)] = &[
     (&[X86_64, X86], "crypto/cpu_intel.c"),
 
     (&[X86], "crypto/fipsmodule/aes/asm/aesni-x86.pl"),
+    (&[X86], "crypto/fipsmodule/aes/asm/ghash-x86.pl"),
     (&[X86], "crypto/fipsmodule/aes/asm/vpaes-x86.pl"),
     (&[X86], "crypto/fipsmodule/bn/asm/x86-mont.pl"),
     (&[X86], "crypto/chacha/asm/chacha-x86.pl"),
-    (&[X86], "crypto/fipsmodule/modes/asm/ghash-x86.pl"),
 
     (&[X86_64], "crypto/chacha/asm/chacha-x86_64.pl"),
     (&[X86_64], "crypto/curve25519/curve25519_64_adx.c"),
+    (&[X86_64], "crypto/fipsmodule/aes/asm/aes-gcm-avx2-x86_64.pl"),
+    (&[X86_64], "crypto/fipsmodule/aes/asm/aesni-gcm-x86_64.pl"),
     (&[X86_64], "crypto/fipsmodule/aes/asm/aesni-x86_64.pl"),
+    (&[X86_64], "crypto/fipsmodule/aes/asm/ghash-x86_64.pl"),
     (&[X86_64], "crypto/fipsmodule/aes/asm/vpaes-x86_64.pl"),
     (&[X86_64], "crypto/fipsmodule/bn/asm/x86_64-mont.pl"),
     (&[X86_64], "crypto/fipsmodule/bn/asm/x86_64-mont5.pl"),
     (&[X86_64], "crypto/fipsmodule/ec/asm/p256-x86_64-asm.pl"),
-    (&[X86_64], "crypto/fipsmodule/modes/asm/aesni-gcm-x86_64.pl"),
-    (&[X86_64], "crypto/fipsmodule/modes/asm/ghash-x86_64.pl"),
     (&[X86_64], SHA512_X86_64),
-    (&[X86_64], "crypto/cipher_extra/asm/chacha20_poly1305_x86_64.pl"),
+    (&[X86_64], "crypto/cipher/asm/chacha20_poly1305_x86_64.pl"),
     (&[X86_64], "third_party/fiat/asm/fiat_curve25519_adx_mul.S"),
     (&[X86_64], "third_party/fiat/asm/fiat_curve25519_adx_square.S"),
 
     (&[AARCH64, X86_64], "crypto/fipsmodule/ec/p256-nistz.c"),
 
     (&[ARM], "crypto/fipsmodule/aes/asm/bsaes-armv7.pl"),
+    (&[ARM], "crypto/fipsmodule/aes/asm/ghash-armv4.pl"),
     (&[ARM], "crypto/fipsmodule/aes/asm/vpaes-armv7.pl"),
     (&[ARM], "crypto/fipsmodule/bn/asm/armv4-mont.pl"),
     (&[ARM], "crypto/chacha/asm/chacha-armv4.pl"),
     (&[ARM], "crypto/curve25519/asm/x25519-asm-arm.S"),
-    (&[ARM], "crypto/fipsmodule/modes/asm/ghash-armv4.pl"),
     (&[ARM], "crypto/poly1305/poly1305_arm.c"),
     (&[ARM], "crypto/poly1305/poly1305_arm_asm.S"),
     (&[ARM], "crypto/fipsmodule/sha/asm/sha256-armv4.pl"),
     (&[ARM], "crypto/fipsmodule/sha/asm/sha512-armv4.pl"),
 
     (&[AARCH64], "crypto/chacha/asm/chacha-armv8.pl"),
-    (&[AARCH64], "crypto/cipher_extra/asm/chacha20_poly1305_armv8.pl"),
+    (&[AARCH64], "crypto/cipher/asm/chacha20_poly1305_armv8.pl"),
     (&[AARCH64], "crypto/fipsmodule/aes/asm/aesv8-armx.pl"),
+    (&[AARCH64], "crypto/fipsmodule/aes/asm/aesv8-gcm-armv8.pl"),
+    (&[AARCH64], "crypto/fipsmodule/aes/asm/ghash-neon-armv8.pl"),
+    (&[AARCH64], "crypto/fipsmodule/aes/asm/ghashv8-armx.pl"),
     (&[AARCH64], "crypto/fipsmodule/aes/asm/vpaes-armv8.pl"),
     (&[AARCH64], "crypto/fipsmodule/bn/asm/armv8-mont.pl"),
     (&[AARCH64], "crypto/fipsmodule/ec/asm/p256-armv8-asm.pl"),
-    (&[AARCH64], "crypto/fipsmodule/modes/asm/aesv8-gcm-armv8.pl"),
-    (&[AARCH64], "crypto/fipsmodule/modes/asm/ghash-neon-armv8.pl"),
-    (&[AARCH64], "crypto/fipsmodule/modes/asm/ghashv8-armx.pl"),
     (&[AARCH64], SHA512_ARMV8),
 ];
 
@@ -583,8 +584,11 @@ fn configure_cc(c: &mut cc::Build, target: &Target, c_root_dir: &Path, include_d
         let _ = c.define("NDEBUG", None);
     }
 
-    if (target.arch == X86) && !compiler.is_like_msvc() {
-        let _ = c.flag("-msse2");
+    if target.arch == X86 {
+        let is_msvc_not_clang_cl = compiler.is_like_msvc() && !compiler.is_like_clang_cl();
+        if !is_msvc_not_clang_cl {
+            let _ = c.flag("-msse2");
+        }
     }
 
     // Allow cross-compiling without a target sysroot for these targets.
@@ -883,6 +887,10 @@ fn prefix_all_symbols(pp: char, prefix_prefix: &str, prefix: &str) -> String {
         "LIMBS_window5_unsplit_window",
         "LIMB_shr",
         "OPENSSL_cpuid_setup",
+        "aes_gcm_dec_kernel",
+        "aes_gcm_dec_update_vaes_avx2",
+        "aes_gcm_enc_kernel",
+        "aes_gcm_enc_update_vaes_avx2",
         "aes_hw_ctr32_encrypt_blocks",
         "aes_hw_set_encrypt_key",
         "aes_hw_set_encrypt_key_alt",
@@ -914,10 +922,10 @@ fn prefix_all_symbols(pp: char, prefix_prefix: &str, prefix: &str) -> String {
         "bssl_constant_time_test_main",
         "chacha20_poly1305_open",
         "chacha20_poly1305_open_avx2",
-        "chacha20_poly1305_open_nohw",
+        "chacha20_poly1305_open_sse41",
         "chacha20_poly1305_seal",
         "chacha20_poly1305_seal_avx2",
-        "chacha20_poly1305_seal_nohw",
+        "chacha20_poly1305_seal_sse41",
         "ecp_nistz256_mul_mont_adx",
         "ecp_nistz256_mul_mont_nohw",
         "ecp_nistz256_ord_mul_mont_adx",
@@ -941,13 +949,13 @@ fn prefix_all_symbols(pp: char, prefix_prefix: &str, prefix: &str) -> String {
         "gcm_ghash_avx",
         "gcm_ghash_clmul",
         "gcm_ghash_neon",
+        "gcm_ghash_vpclmulqdq_avx2_1",
         "gcm_gmult_clmul",
         "gcm_gmult_neon",
         "gcm_init_avx",
         "gcm_init_clmul",
         "gcm_init_neon",
-        "aes_gcm_enc_kernel",
-        "aes_gcm_dec_kernel",
+        "gcm_init_vpclmulqdq_avx2",
         "k25519Precomp",
         "limbs_mul_add_limb",
         "little_endian_bytes_from_scalar",

@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.64.0"
 name = "reqwest"
-version = "0.12.12"
+version = "0.12.15"
 authors = ["Sean McArthur <sean@seanmonstar.com>"]
 build = false
 autolib = false
@@ -58,7 +58,6 @@ features = [
 ]
 
 [features]
-__internal_proxy_sys_no_cache = []
 __rustls = [
     "dep:hyper-rustls",
     "dep:tokio-rustls",
@@ -202,6 +201,10 @@ path = "examples/form.rs"
 [[example]]
 name = "h3_simple"
 path = "examples/h3_simple.rs"
+required-features = [
+    "http3",
+    "rustls-tls",
+]
 
 [[example]]
 name = "json_dynamic"
@@ -269,6 +272,10 @@ required-features = [
 ]
 
 [[test]]
+name = "http3"
+path = "tests/http3.rs"
+
+[[test]]
 name = "multipart"
 path = "tests/multipart.rs"
 required-features = ["multipart"]
@@ -305,7 +312,7 @@ required-features = [
 version = "0.22"
 
 [dependencies.bytes]
-version = "1.0"
+version = "1.2"
 
 [dependencies.futures-core]
 version = "0.3.28"
@@ -382,11 +389,11 @@ version = "0.4"
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.h3]
-version = "0.0.6"
+version = "0.0.7"
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.h3-quinn]
-version = "0.0.7"
+version = "0.0.9"
 optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.hickory-resolver]
@@ -594,7 +601,7 @@ version = "0.13"
 package = "zstd"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.js-sys]
-version = "0.3.45"
+version = "0.3.77"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies.serde_json]
 version = "1.0"
@@ -641,7 +648,7 @@ version = "0.6.0"
 optional = true
 
 [target."cfg(windows)".dependencies.windows-registry]
-version = "0.2"
+version = "0.4"
 
 [lints.rust.unexpected_cfgs]
 level = "warn"

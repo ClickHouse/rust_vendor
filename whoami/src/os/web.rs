@@ -35,7 +35,10 @@ impl Target for Os {
                 .collect::<Vec<String>>()
                 .join(";"))
         } else {
-            Err(Error::new(ErrorKind::NotFound, "Window missing"))
+            Err(Error::new(
+                ErrorKind::NotFound,
+                "Failed to retrieve languages: Window object is missing",
+            ))
         }
     }
 
@@ -91,7 +94,12 @@ impl Target for Os {
     fn hostname(self) -> Result<String> {
         document_domain()
             .filter(|x| !x.is_empty())
-            .ok_or_else(|| Error::new(ErrorKind::NotFound, "Domain missing"))
+            .ok_or_else(|| {
+                Error::new(
+                    ErrorKind::NotFound,
+                    "Domain missing, failed to retrieve document domain from window"
+                )
+            })
     }
 
     fn distro(self) -> Result<String> {
@@ -146,16 +154,6 @@ impl Target for Os {
                 string[begin..].to_string().replace('_', ".")
             }
         } else {
-            // TODO:
-            // Platform::FreeBsd,
-            // Platform::Ios,
-            // Platform::Android,
-            // Platform::Nintendo,
-            // Platform::Xbox,
-            // Platform::PlayStation,
-            // Platform::Dive,
-            // Platform::Fuchsia,
-            // Platform::Redox
             string.to_string()
         })
     }
@@ -186,16 +184,6 @@ impl Target for Os {
         } else if string.contains("Mac OS X") {
             Platform::MacOS
         } else {
-            // TODO:
-            // Platform::FreeBsd,
-            // Platform::Ios,
-            // Platform::Android,
-            // Platform::Nintendo,
-            // Platform::Xbox,
-            // Platform::PlayStation,
-            // Platform::Dive,
-            // Platform::Fuchsia,
-            // Platform::Redox,
             Platform::Unknown(string.to_string())
         }
     }

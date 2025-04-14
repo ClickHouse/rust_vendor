@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -104,13 +104,9 @@
 //! ```
 //!
 //! [RFC 2104]: https://tools.ietf.org/html/rfc2104
-//! [code for `ring::pbkdf2`]:
-//!     https://github.com/briansmith/ring/blob/main/src/pbkdf2.rs
-//! [code for `ring::hkdf`]:
-//!     https://github.com/briansmith/ring/blob/main/src/hkdf.rs
 
 use crate::{
-    constant_time, cpu,
+    bb, cpu,
     digest::{self, Digest, FinishError},
     error, hkdf, rand,
 };
@@ -252,7 +248,7 @@ impl Key {
         // If the key is shorter than one block then we're supposed to act like
         // it is padded with zero bytes up to the block length. `x ^ 0 == x` so
         // we can just leave the trailing bytes of `padded_key` untouched.
-        constant_time::xor_assign_at_start(&mut padded_key[..], key_value);
+        bb::xor_assign_at_start(&mut padded_key[..], key_value);
 
         let leftover = key.inner.update(padded_key, cpu_features);
         debug_assert_eq!(leftover.len(), 0);
@@ -261,7 +257,7 @@ impl Key {
 
         // Remove the `IPAD` masking, leaving the unmasked padded key, then
         // mask with `OPAD`, all in one step.
-        constant_time::xor_assign(&mut padded_key[..], IPAD ^ OPAD);
+        bb::xor_assign(&mut padded_key[..], IPAD ^ OPAD);
         let leftover = key.outer.update(padded_key, cpu_features);
         debug_assert_eq!(leftover.len(), 0);
 
@@ -284,7 +280,7 @@ impl Key {
         let computed = self
             .sign(data, cpu)
             .map_err(VerifyError::InputTooLongError)?;
-        constant_time::verify_slices_are_equal(computed.as_ref(), tag)
+        bb::verify_slices_are_equal(computed.as_ref(), tag)
             .map_err(|_: error::Unspecified| VerifyError::Mismatch)
     }
 }

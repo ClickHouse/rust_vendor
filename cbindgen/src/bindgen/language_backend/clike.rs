@@ -540,24 +540,6 @@ impl LanguageBackend for CLikeLanguageBackend<'_> {
     }
 
     fn write_struct<W: Write>(&mut self, out: &mut SourceWriter<W>, s: &Struct) {
-        if s.is_transparent {
-            let typedef = Typedef {
-                path: s.path.clone(),
-                export_name: s.export_name.to_owned(),
-                generic_params: s.generic_params.clone(),
-                aliased: s.fields[0].ty.clone(),
-                cfg: s.cfg.clone(),
-                annotations: s.annotations.clone(),
-                documentation: s.documentation.clone(),
-            };
-            self.write_type_def(out, &typedef);
-            for constant in &s.associated_constants {
-                out.new_line();
-                constant.write(self.config, self, out, Some(s));
-            }
-            return;
-        }
-
         let condition = s.cfg.to_condition(self.config);
         condition.write_before(self.config, out);
 
@@ -911,33 +893,61 @@ impl LanguageBackend for CLikeLanguageBackend<'_> {
                 fields,
                 path,
             } => {
+                let allow_constexpr = self.config.constant.allow_constexpr && l.can_be_constexpr();
+                let is_constexpr = self.config.language == Language::Cxx
+                    && (self.config.constant.allow_static_const || allow_constexpr);
                 if self.config.language == Language::C {
                     write!(out, "({})", export_name);
                 } else {
                     write!(out, "{}", export_name);
                 }
 
-                write!(out, "{{ ");
-                let mut is_first_field = true;
+                write!(out, "{{");
+                if is_constexpr {
+                    out.push_tab();
+                } else {
+                    write!(out, " ");
+                }
                 // In C++, same order as defined is required.
                 let ordered_fields = out.bindings().struct_field_names(path);
-                for ordered_key in ordered_fields.iter() {
+                for (i, ordered_key) in ordered_fields.iter().enumerate() {
                     if let Some(lit) = fields.get(ordered_key) {
-                        if !is_first_field {
-                            write!(out, ", ");
-                        }
-                        is_first_field = false;
-                        if self.config.language == Language::Cxx {
+                        if is_constexpr {
+                            out.new_line();
+
                             // TODO: Some C++ versions (c++20?) now support designated
                             // initializers, consider generating them.
                             write!(out, "/* .{} = */ ", ordered_key);
+                            self.write_literal(out, lit);
+                            if i + 1 != ordered_fields.len() {
+                                write!(out, ",");
+                                if !is_constexpr {
+                                    write!(out, " ");
+                                }
+                            }
                         } else {
-                            write!(out, ".{} = ", ordered_key);
+                            if i > 0 {
+                                write!(out, ", ");
+                            }
+
+                            if self.config.language == Language::Cxx {
+                                // TODO: Some C++ versions (c++20?) now support designated
+                                // initializers, consider generating them.
+                                write!(out, "/* .{} = */ ", ordered_key);
+                            } else {
+                                write!(out, ".{} = ", ordered_key);
+                            }
+                            self.write_literal(out, lit);
                         }
-                        self.write_literal(out, lit);
                     }
                 }
-                write!(out, " }}");
+                if is_constexpr {
+                    out.pop_tab();
+                    out.new_line();
+                } else {
+                    write!(out, " ");
+                }
+                write!(out, "}}");
             }
         }
     }

@@ -127,6 +127,10 @@ pub enum Opcode {
     Cancel = 25, // @tag
 
     Getdents = 26,
+    CloseMsg = 27,
+    Call = 28,
+
+    OpenAt = 29,  // fd, buf_ptr, buf_len, flags
 }
 
 impl Opcode {
@@ -164,6 +168,10 @@ impl Opcode {
 
             25 => Cancel,
             26 => Getdents,
+            27 => CloseMsg,
+            28 => Call,
+
+            29 => OpenAt,
 
             _ => return None,
         })

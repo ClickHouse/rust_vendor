@@ -6,6 +6,7 @@ use futures::stream::BoxStream;
 use futures::{stream, Stream, StreamExt};
 use log::warn;
 
+use crate::common::config::Configuration;
 use crate::ec::{resolve_ec_policy, EcSchema};
 use crate::hdfs::block_reader::get_block_stream;
 use crate::hdfs::block_writer::BlockWriter;
@@ -88,7 +89,7 @@ impl FileReader {
             let offset = self.position;
             self.position = usize::min(self.position + buf.len(), self.file_length());
             let read_bytes = self.position - offset;
-            self.read_range_buf(buf, offset).await?;
+            self.read_range_buf(&mut buf[..read_bytes], offset).await?;
             Ok(read_bytes)
         }
     }
@@ -98,7 +99,7 @@ impl FileReader {
     ///
     /// Panics if the requested range is outside of the file
     pub async fn read_range(&self, offset: usize, len: usize) -> Result<Bytes> {
-        let mut stream = self.read_range_stream(offset, len).boxed();
+        let mut stream = self.read_range_stream(offset, len);
         let mut buf = BytesMut::with_capacity(len);
         while let Some(bytes) = stream.next().await.transpose()? {
             buf.put(bytes);
@@ -110,7 +111,7 @@ impl FileReader {
     ///
     /// Panics if the requested range is outside of the file
     pub async fn read_range_buf(&self, mut buf: &mut [u8], offset: usize) -> Result<()> {
-        let mut stream = self.read_range_stream(offset, buf.len()).boxed();
+        let mut stream = self.read_range_stream(offset, buf.len());
         while let Some(bytes) = stream.next().await.transpose()? {
             buf.put(bytes);
         }
@@ -164,6 +165,7 @@ pub struct FileWriter {
     src: String,
     protocol: Arc<NamenodeProtocol>,
     status: hdfs::HdfsFileStatusProto,
+    config: Arc<Configuration>,
     block_writer: Option<BlockWriter>,
     last_block: Option<hdfs::LocatedBlockProto>,
     closed: bool,
@@ -175,6 +177,7 @@ impl FileWriter {
         protocol: Arc<NamenodeProtocol>,
         src: String,
         status: hdfs::HdfsFileStatusProto,
+        config: Arc<Configuration>,
         // Some for append, None for create
         last_block: Option<hdfs::LocatedBlockProto>,
     ) -> Self {
@@ -183,6 +186,7 @@ impl FileWriter {
             protocol,
             src,
             status,
+            config,
             block_writer: None,
             last_block,
             closed: false,
@@ -208,9 +212,7 @@ impl FileWriter {
             // Not appending to an existing block, just create a new one
             // If there's an existing block writer, close it first
             let extended_block = if let Some(block_writer) = self.block_writer.take() {
-                let extended_block = block_writer.get_extended_block();
-                block_writer.close().await?;
-                Some(extended_block)
+                Some(block_writer.close().await?)
             } else {
                 None
             };
@@ -224,14 +226,16 @@ impl FileWriter {
         let block_writer = BlockWriter::new(
             Arc::clone(&self.protocol),
             new_block,
-            self.status.blocksize() as usize,
             self.protocol.get_cached_server_defaults().await?,
+            Arc::clone(&self.config),
             self.status
                 .ec_policy
                 .as_ref()
                 .map(resolve_ec_policy)
                 .transpose()?
                 .as_ref(),
+            &self.src,
+            &self.status,
         )
         .await?;
 
@@ -265,9 +269,7 @@ impl FileWriter {
     pub async fn close(&mut self) -> Result<()> {
         if !self.closed {
             let extended_block = if let Some(block_writer) = self.block_writer.take() {
-                let extended_block = block_writer.get_extended_block();
-                block_writer.close().await?;
-                Some(extended_block)
+                Some(block_writer.close().await?)
             } else {
                 None
             };

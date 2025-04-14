@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -34,7 +34,7 @@ use super::{
     chacha20_poly1305, cpu, poly1305, Aad, Nonce, Tag,
 };
 use crate::{
-    constant_time,
+    bb,
     error::{self, InputTooLongError},
     polyfill::slice,
 };
@@ -167,7 +167,7 @@ impl OpeningKey {
         // `ciphertext_in_plaintext_out` is unmodified if verification fails.
         // This is beyond what we guarantee.
         let calculated_tag = poly1305::sign(poly_key, ciphertext_in_plaintext_out, cpu);
-        constant_time::verify_slices_are_equal(calculated_tag.as_ref(), tag)?;
+        bb::verify_slices_are_equal(calculated_tag.as_ref(), tag)?;
 
         // Won't panic because the length was checked above.
         let after_packet_length = &mut ciphertext_in_plaintext_out[PACKET_LENGTH_LEN..];

@@ -26,7 +26,7 @@ mod imp {
     #[allow(unused)]
     pub use {
         ::core::{
-            assert_eq, assert_ne,
+            self, assert_eq, assert_ne,
             cell::UnsafeCell,
             convert::TryFrom,
             hash,
@@ -118,11 +118,12 @@ pub mod util {
 
         let buf = super::imp::MaybeUninit::<T>::uninit();
         let ptr = super::imp::Ptr::from_ref(&buf);
-        // SAFETY: `T` and `MaybeUninit<T>` have the same layout, so this is a
-        // size-preserving cast. It is also a provenance-preserving cast.
-        let ptr = unsafe { ptr.cast_unsized(|p| p as *mut T) };
         // SAFETY: This is intentionally unsound; see the preceding comment.
         let ptr = unsafe { ptr.assume_initialized() };
+
+        // SAFETY: `T` and `MaybeUninit<T>` have the same layout, so this is a
+        // size-preserving cast. It is also a provenance-preserving cast.
+        let ptr = unsafe { ptr.cast_unsized_unchecked(|p| p.cast()) };
         assert!(<T as super::imp::TryFromBytes>::is_bit_valid(ptr));
     }
 }
