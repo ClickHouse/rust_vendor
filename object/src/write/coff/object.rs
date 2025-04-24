@@ -76,10 +76,8 @@ impl<'a> Object<'a> {
 
     pub(crate) fn coff_subsection_name(&self, section: &[u8], value: &[u8]) -> Vec<u8> {
         let mut name = section.to_vec();
-        if !value.is_empty() {
-            name.push(b'$');
-            name.extend_from_slice(value);
-        }
+        name.push(b'$');
+        name.extend_from_slice(value);
         name
     }
 

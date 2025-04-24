@@ -23,7 +23,7 @@ fn roundtrip(data: &[u8]) {
 "##
 )]
 #![forbid(unsafe_code)]
-#![cfg_attr(all(not(feature = "std"), not(feature = "serde")), no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 #[cfg(feature = "with-alloc")]
 extern crate alloc;
@@ -31,8 +31,6 @@ extern crate alloc;
 #[cfg(feature = "with-alloc")]
 pub mod deflate;
 pub mod inflate;
-#[cfg(feature = "serde")]
-pub mod serde;
 mod shared;
 
 pub use crate::shared::update_adler32 as mz_adler32_oxide;
@@ -42,8 +40,7 @@ pub use crate::shared::{MZ_ADLER32_INIT, MZ_DEFAULT_WINDOW_BITS};
 ///
 /// See <http://www.bolet.org/~pornin/deflate-flush.html> for more in-depth info.
 #[repr(i32)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Hash, Debug))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZFlush {
     /// Don't force any flushing.
     /// Used when more input data is expected.
@@ -85,8 +82,7 @@ impl MZFlush {
 /// These are emitted as the [`Ok`] side of a [`MZResult`] in the [`StreamResult`] returned from
 /// [`deflate::stream::deflate()`] or [`inflate::stream::inflate()`].
 #[repr(i32)]
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Hash, Debug))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZStatus {
     /// Operation succeeded.
     ///
@@ -110,8 +106,7 @@ pub enum MZStatus {
 /// These are emitted as the [`Err`] side of a [`MZResult`] in the [`StreamResult`] returned from
 /// [`deflate::stream::deflate()`] or [`inflate::stream::inflate()`].
 #[repr(i32)]
-#[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Hash, Debug))]
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum MZError {
     /// Unused
     ErrNo = -1,
@@ -149,8 +144,7 @@ pub enum MZError {
 }
 
 /// How compressed data is wrapped.
-#[derive(Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(not(feature = "rustc-dep-of-std"), derive(Hash, Debug))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum DataFormat {
     /// Wrapped using the [zlib](http://www.zlib.org/rfc-zlib.html) format.
@@ -162,7 +156,6 @@ pub enum DataFormat {
     Raw,
 }
 
-#[cfg(not(feature = "rustc-dep-of-std"))]
 impl DataFormat {
     pub fn from_window_bits(window_bits: i32) -> DataFormat {
         if window_bits > 0 {
@@ -184,7 +177,6 @@ impl DataFormat {
 pub type MZResult = Result<MZStatus, MZError>;
 
 /// A structure containing the result of a call to the inflate or deflate streaming functions.
-#[cfg(not(feature = "rustc-dep-of-std"))]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct StreamResult {
     /// The number of bytes consumed from the input slice.
@@ -195,7 +187,6 @@ pub struct StreamResult {
     pub status: MZResult,
 }
 
-#[cfg(not(feature = "rustc-dep-of-std"))]
 impl StreamResult {
     #[inline]
     pub const fn error(error: MZError) -> StreamResult {
@@ -207,14 +198,12 @@ impl StreamResult {
     }
 }
 
-#[cfg(not(feature = "rustc-dep-of-std"))]
 impl core::convert::From<StreamResult> for MZResult {
     fn from(res: StreamResult) -> Self {
         res.status
     }
 }
 
-#[cfg(not(feature = "rustc-dep-of-std"))]
 impl core::convert::From<&StreamResult> for MZResult {
     fn from(res: &StreamResult) -> Self {
         res.status
