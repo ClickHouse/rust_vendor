@@ -14,15 +14,13 @@ pub struct PathAndQuery {
     pub(super) query: u16,
 }
 
-const NONE: u16 = u16::MAX;
+const NONE: u16 = ::std::u16::MAX;
 
 impl PathAndQuery {
     // Not public while `bytes` is unstable.
     pub(super) fn from_shared(mut src: Bytes) -> Result<Self, InvalidUri> {
         let mut query = NONE;
         let mut fragment = None;
-
-        let mut is_maybe_not_utf8 = false;
 
         // block for iterator borrow
         {
@@ -45,19 +43,13 @@ impl PathAndQuery {
                     // This is the range of bytes that don't need to be
                     // percent-encoded in the path. If it should have been
                     // percent-encoded, then error.
-                    #[rustfmt::skip]
                     0x21 |
                     0x24..=0x3B |
                     0x3D |
                     0x40..=0x5F |
                     0x61..=0x7A |
                     0x7C |
-                    0x7E => {}
-
-                    // potentially utf8, might not, should check
-                    0x7F..=0xFF => {
-                        is_maybe_not_utf8 = true;
-                    }
+                    0x7E => {},
 
                     // These are code points that are supposed to be
                     // percent-encoded in the path but there are clients
@@ -68,9 +60,8 @@ impl PathAndQuery {
                     // For reference, those are code points that are used
                     // to send requests with JSON directly embedded in
                     // the URI path. Yes, those things happen for real.
-                    #[rustfmt::skip]
                     b'"' |
-                    b'{' | b'}' => {}
+                    b'{' | b'}' => {},
 
                     _ => return Err(ErrorKind::InvalidUriChar.into()),
                 }
@@ -85,15 +76,10 @@ impl PathAndQuery {
                         // See https://url.spec.whatwg.org/#query-state
                         //
                         // Allowed: 0x21 / 0x24 - 0x3B / 0x3D / 0x3F - 0x7E
-                        #[rustfmt::skip]
                         0x21 |
                         0x24..=0x3B |
                         0x3D |
-                        0x3F..=0x7E => {}
-
-                        0x7F..=0xFF => {
-                            is_maybe_not_utf8 = true;
-                        }
+                        0x3F..=0x7E => {},
 
                         b'#' => {
                             fragment = Some(i);
@@ -110,13 +96,10 @@ impl PathAndQuery {
             src.truncate(i);
         }
 
-        let data = if is_maybe_not_utf8 {
-            ByteStr::from_utf8(src).map_err(|_| ErrorKind::InvalidUriChar)?
-        } else {
-            unsafe { ByteStr::from_utf8_unchecked(src) }
-        };
-
-        Ok(PathAndQuery { data, query })
+        Ok(PathAndQuery {
+            data: unsafe { ByteStr::from_utf8_unchecked(src) },
+            query: query,
+        })
     }
 
     /// Convert a `PathAndQuery` from a static string.
@@ -308,7 +291,7 @@ impl<'a> TryFrom<&'a str> for PathAndQuery {
     }
 }
 
-impl TryFrom<Vec<u8>> for PathAndQuery {
+impl<'a> TryFrom<Vec<u8>> for PathAndQuery {
     type Error = InvalidUri;
     #[inline]
     fn try_from(vec: Vec<u8>) -> Result<Self, Self::Error> {
@@ -571,31 +554,8 @@ mod tests {
     }
 
     #[test]
-    fn allow_utf8_in_path() {
-        assert_eq!("/🍕", pq("/🍕").path());
-    }
-
-    #[test]
-    fn allow_utf8_in_query() {
-        assert_eq!(Some("pizza=🍕"), pq("/test?pizza=🍕").query());
-    }
-
-    #[test]
-    fn rejects_invalid_utf8_in_path() {
-        PathAndQuery::try_from(&[b'/', 0xFF][..]).expect_err("reject invalid utf8");
-    }
-
-    #[test]
-    fn rejects_invalid_utf8_in_query() {
-        PathAndQuery::try_from(&[b'/', b'a', b'?', 0xFF][..]).expect_err("reject invalid utf8");
-    }
-
-    #[test]
     fn json_is_fine() {
-        assert_eq!(
-            r#"/{"bread":"baguette"}"#,
-            pq(r#"/{"bread":"baguette"}"#).path()
-        );
+        assert_eq!(r#"/{"bread":"baguette"}"#, pq(r#"/{"bread":"baguette"}"#).path());
     }
 
     fn pq(s: &str) -> PathAndQuery {

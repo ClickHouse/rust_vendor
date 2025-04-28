@@ -1,9 +1,8 @@
 use core::cmp::Ordering;
-use core::fmt::{Debug, Display, Error, Formatter, Write};
+use core::fmt::{Debug, Display, Error, Formatter};
 
 use chrono::{
-    DateTime, Duration, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, Offset,
-    TimeZone,
+    Duration, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, NaiveTime, Offset, TimeZone,
 };
 
 use crate::binary_search::binary_search;
@@ -27,7 +26,7 @@ pub struct FixedTimespan {
     /// The additional offset from UTC for this timespan; typically for daylight saving time
     pub dst_offset: i32,
     /// The name of this timezone, for example the difference between `EDT`/`EST`
-    pub name: Option<&'static str>,
+    pub name: &'static str,
 }
 
 impl Offset for FixedTimespan {
@@ -38,38 +37,13 @@ impl Offset for FixedTimespan {
 
 impl Display for FixedTimespan {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        if let Some(name) = self.name {
-            return write!(f, "{}", name);
-        }
-        let offset = self.utc_offset + self.dst_offset;
-        let (sign, off) = if offset < 0 {
-            ('-', -offset)
-        } else {
-            ('+', offset)
-        };
-
-        let minutes = off / 60;
-        let secs = (off % 60) as u8;
-        let mins = (minutes % 60) as u8;
-        let hours = (minutes / 60) as u8;
-
-        assert!(
-            secs == 0,
-            "numeric names are not used if the offset has fractional minutes"
-        );
-
-        f.write_char(sign)?;
-        write!(f, "{:02}", hours)?;
-        if mins != 0 {
-            write!(f, "{:02}", mins)?;
-        }
-        Ok(())
+        write!(f, "{}", self.name)
     }
 }
 
 impl Debug for FixedTimespan {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        Display::fmt(self, f)
+        write!(f, "{}", self.name)
     }
 }
 
@@ -130,13 +104,13 @@ pub trait OffsetComponents {
 /// let london_time = London.ymd(2016, 2, 10).and_hms(12, 0, 0);
 /// assert_eq!(london_time.offset().tz_id(), "Europe/London");
 /// // London is normally on GMT
-/// assert_eq!(london_time.offset().abbreviation(), Some("GMT"));
+/// assert_eq!(london_time.offset().abbreviation(), "GMT");
 ///
 /// let london_summer_time = London.ymd(2016, 5, 10).and_hms(12, 0, 0);
 /// // The TZ ID remains constant year round
 /// assert_eq!(london_summer_time.offset().tz_id(), "Europe/London");
 /// // During the summer, this becomes British Summer Time
-/// assert_eq!(london_summer_time.offset().abbreviation(), Some("BST"));
+/// assert_eq!(london_summer_time.offset().abbreviation(), "BST");
 /// # }
 /// ```
 pub trait OffsetName {
@@ -147,7 +121,7 @@ pub trait OffsetName {
     /// This takes into account any special offsets that may be in effect.
     /// For example, at a given instant, the time zone with ID *America/New_York*
     /// may be either *EST* or *EDT*.
-    fn abbreviation(&self) -> Option<&str>;
+    fn abbreviation(&self) -> &str;
 }
 
 impl TzOffset {
@@ -181,7 +155,7 @@ impl OffsetName for TzOffset {
         self.tz.name()
     }
 
-    fn abbreviation(&self) -> Option<&str> {
+    fn abbreviation(&self) -> &str {
         self.offset.name
     }
 }
@@ -257,16 +231,8 @@ impl FixedTimespanSet {
     fn utc_span(&self, index: usize) -> Span {
         debug_assert!(index < self.len());
         Span {
-            begin: if index == 0 {
-                None
-            } else {
-                Some(self.rest[index - 1].0)
-            },
-            end: if index == self.rest.len() {
-                None
-            } else {
-                Some(self.rest[index].0)
-            },
+            begin: if index == 0 { None } else { Some(self.rest[index - 1].0) },
+            end: if index == self.rest.len() { None } else { Some(self.rest[index].0) },
         }
     }
 
@@ -362,11 +328,9 @@ impl TimeZone for Tz {
     // First search for a timespan that the local datetime falls into, then, if it exists,
     // check the two surrounding timespans (if they exist) to see if there is any ambiguity.
     fn offset_from_local_datetime(&self, local: &NaiveDateTime) -> LocalResult<Self::Offset> {
-        let timestamp = local.and_utc().timestamp();
+        let timestamp = local.timestamp();
         let timespans = self.timespans();
-        let index = binary_search(0, timespans.len(), |i| {
-            timespans.local_span(i).cmp(timestamp)
-        });
+        let index = binary_search(0, timespans.len(), |i| timespans.local_span(i).cmp(timestamp));
         TzOffset::map_localresult(
             *self,
             match index {
@@ -396,83 +360,11 @@ impl TimeZone for Tz {
 
     // Binary search for the required timespan. Any i64 is guaranteed to fall within
     // exactly one timespan, no matter what (so the `unwrap` is safe).
-    fn offset_from_utc_datetime(&self, dt: &NaiveDateTime) -> Self::Offset {
-        let timestamp = dt.and_utc().timestamp();
+    fn offset_from_utc_datetime(&self, utc: &NaiveDateTime) -> Self::Offset {
+        let timestamp = utc.timestamp();
         let timespans = self.timespans();
         let index =
             binary_search(0, timespans.len(), |i| timespans.utc_span(i).cmp(timestamp)).unwrap();
         TzOffset::new(*self, timespans.get(index))
-    }
-}
-
-/// Represents the information of a gap.
-///
-/// This returns useful information that can be used when converting a local [`NaiveDateTime`]
-/// to a timezone-aware [`DateTime`] with [`TimeZone::from_local_datetime`] and a gap
-/// ([`LocalResult::None`]) is found.
-pub struct GapInfo {
-    /// When available it contains information about the beginning of the gap.
-    ///
-    /// The time represents the first instant in which the gap starts.
-    /// This means that it is the first instant that when used with [`TimeZone::from_local_datetime`]
-    /// it will return [`LocalResult::None`].
-    ///
-    /// The offset represents the offset of the first instant before the gap.
-    pub begin: Option<(NaiveDateTime, TzOffset)>,
-    /// When available it contains the first instant after the gap.
-    pub end: Option<DateTime<Tz>>,
-}
-
-impl GapInfo {
-    /// Return information about a gap.
-    ///
-    /// It returns `None` if `local` is not in a gap for the current timezone.
-    ///
-    /// If `local` is at the limits of the known timestamps the fields `begin` or `end` in
-    /// [`GapInfo`] will be `None`.
-    pub fn new(local: &NaiveDateTime, tz: &Tz) -> Option<Self> {
-        let timestamp = local.and_utc().timestamp();
-        let timespans = tz.timespans();
-        let index = binary_search(0, timespans.len(), |i| {
-            timespans.local_span(i).cmp(timestamp)
-        });
-
-        let Err(end_idx) = index else {
-            return None;
-        };
-
-        let begin = match end_idx {
-            0 => None,
-            _ => {
-                let start_idx = end_idx - 1;
-
-                timespans
-                    .local_span(start_idx)
-                    .end
-                    .and_then(|start_time| DateTime::from_timestamp(start_time, 0))
-                    .map(|start_time| {
-                        (
-                            start_time.naive_local(),
-                            TzOffset::new(*tz, timespans.get(start_idx)),
-                        )
-                    })
-            }
-        };
-
-        let end = match end_idx {
-            _ if end_idx >= timespans.len() => None,
-            _ => {
-                timespans
-                    .local_span(end_idx)
-                    .begin
-                    .and_then(|end_time| DateTime::from_timestamp(end_time, 0))
-                    .and_then(|date_time| {
-                        // we create the DateTime from a timestamp that exists in the timezone
-                        tz.from_local_datetime(&date_time.naive_local()).single()
-                    })
-            }
-        };
-
-        Some(Self { begin, end })
     }
 }

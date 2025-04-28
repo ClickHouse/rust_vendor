@@ -34,7 +34,7 @@ impl<T: Deref> Parsable for T where T::Target: Parsable {}
 mod sealed {
     #[allow(clippy::wildcard_imports)]
     use super::*;
-    use crate::PrimitiveDateTime;
+    use crate::{PrimitiveDateTime, UtcDateTime};
 
     /// Parse the item using a format description and an input.
     pub trait Sealed {
@@ -85,6 +85,11 @@ mod sealed {
             Ok(self.parse(input)?.try_into()?)
         }
 
+        /// Parse a [`UtcDateTime`] from the format description.
+        fn parse_utc_date_time(&self, input: &[u8]) -> Result<UtcDateTime, error::Parse> {
+            Ok(self.parse(input)?.try_into()?)
+        }
+
         /// Parse a [`OffsetDateTime`] from the format description.
         fn parse_offset_date_time(&self, input: &[u8]) -> Result<OffsetDateTime, error::Parse> {
             Ok(self.parse(input)?.try_into()?)
@@ -92,7 +97,6 @@ mod sealed {
     }
 }
 
-// region: custom formats
 impl sealed::Sealed for BorrowedFormatItem<'_> {
     fn parse_into<'a>(
         &self,
@@ -147,9 +151,7 @@ where
         self.deref().parse_into(input, parsed)
     }
 }
-// endregion custom formats
 
-// region: well-known formats
 impl sealed::Sealed for Rfc2822 {
     fn parse_into<'a>(
         &self,
@@ -483,7 +485,7 @@ impl sealed::Sealed for Rfc2822 {
                     minimum: 0,
                     maximum: 59,
                     value: 60,
-                    conditional_range: true,
+                    conditional_message: Some("because leap seconds are not supported"),
                 },
             )));
         }
@@ -728,7 +730,7 @@ impl sealed::Sealed for Rfc3339 {
                     minimum: 0,
                     maximum: 59,
                     value: 60,
-                    conditional_range: true,
+                    conditional_message: Some("because leap seconds are not supported"),
                 },
             )));
         }
@@ -796,4 +798,3 @@ impl<const CONFIG: EncodedConfig> sealed::Sealed for Iso8601<CONFIG> {
         Ok(input)
     }
 }
-// endregion well-known formats

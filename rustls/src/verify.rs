@@ -75,7 +75,7 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     /// same order that the server sent them and may be empty.
     ///
     /// Note that none of the certificates have been parsed yet, so it is the responsibility of
-    /// the implementer to handle invalid data. It is recommended that the implementer returns
+    /// the implementor to handle invalid data. It is recommended that the implementor returns
     /// [`Error::InvalidCertificate(CertificateError::BadEncoding)`] when these cases are encountered.
     ///
     /// [Certificate]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.4.2
@@ -136,22 +136,6 @@ pub trait ServerCertVerifier: Debug + Send + Sync {
     ///
     /// This should be in priority order, with the most preferred first.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme>;
-
-    /// Returns whether this verifier requires raw public keys as defined
-    /// in [RFC 7250](https://tools.ietf.org/html/rfc7250).
-    fn requires_raw_public_keys(&self) -> bool {
-        false
-    }
-
-    /// Return the [`DistinguishedName`]s of certificate authorities that this verifier trusts.
-    ///
-    /// If specified, will be sent as the [`certificate_authorities`] extension in ClientHello.
-    /// Note that this is only applicable to TLS 1.3.
-    ///
-    /// [`certificate_authorities`]: https://datatracker.ietf.org/doc/html/rfc8446#section-4.2.4
-    fn root_hint_subjects(&self) -> Option<&[DistinguishedName]> {
-        None
-    }
 }
 
 /// Something that can verify a client certificate chain
@@ -210,7 +194,7 @@ pub trait ClientCertVerifier: Debug + Send + Sync {
     /// order that the peer sent them and may be empty.
     ///
     /// Note that none of the certificates have been parsed yet, so it is the responsibility of
-    /// the implementer to handle invalid data. It is recommended that the implementer returns
+    /// the implementor to handle invalid data. It is recommended that the implementor returns
     /// an [InvalidCertificate] error with the [BadEncoding] variant when these cases are encountered.
     ///
     /// [InvalidCertificate]: Error#variant.InvalidCertificate
@@ -265,17 +249,9 @@ pub trait ClientCertVerifier: Debug + Send + Sync {
     ///
     /// This should be in priority order, with the most preferred first.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme>;
-
-    /// Returns whether this verifier requires raw public keys as defined
-    /// in [RFC 7250](https://tools.ietf.org/html/rfc7250).
-    fn requires_raw_public_keys(&self) -> bool {
-        false
-    }
 }
 
-/// Turns off client authentication.
-///
-/// In contrast to using
+/// Turns off client authentication. In contrast to using
 /// `WebPkiClientVerifier::builder(roots).allow_unauthenticated().build()`, the `NoClientAuth`
 /// `ClientCertVerifier` will not offer client authentication at all, vs offering but not
 /// requiring it.
@@ -345,13 +321,13 @@ impl DigitallySignedStruct {
     }
 }
 
-impl Codec<'_> for DigitallySignedStruct {
+impl Codec for DigitallySignedStruct {
     fn encode(&self, bytes: &mut Vec<u8>) {
         self.scheme.encode(bytes);
         self.sig.encode(bytes);
     }
 
-    fn read(r: &mut Reader<'_>) -> Result<Self, InvalidMessage> {
+    fn read(r: &mut Reader) -> Result<Self, InvalidMessage> {
         let scheme = SignatureScheme::read(r)?;
         let sig = PayloadU16::read(r)?;
 

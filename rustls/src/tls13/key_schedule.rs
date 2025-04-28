@@ -1,16 +1,16 @@
-//! Key schedule maintenance for TLS1.3
+use crate::common_state::{CommonState, Side};
+use crate::crypto::cipher::{AeadKey, Iv, MessageDecrypter};
+use crate::crypto::tls13::{expand, Hkdf, HkdfExpander, OkmBlock, OutputLengthError};
+use crate::crypto::{hash, hmac, ActiveKeyExchange};
+use crate::error::Error;
+use crate::quic;
+use crate::suites::PartiallyExtractedSecrets;
+use crate::{KeyLog, Tls13CipherSuite};
 
 use alloc::boxed::Box;
 use alloc::string::ToString;
 
-use crate::common_state::{CommonState, Side};
-use crate::crypto::cipher::{AeadKey, Iv, MessageDecrypter, Tls13AeadAlgorithm};
-use crate::crypto::tls13::{Hkdf, HkdfExpander, OkmBlock, OutputLengthError, expand};
-use crate::crypto::{SharedSecret, hash, hmac};
-use crate::error::Error;
-use crate::msgs::message::Message;
-use crate::suites::PartiallyExtractedSecrets;
-use crate::{KeyLog, Tls13CipherSuite, quic};
+/// Key schedule maintenance for TLS1.3
 
 /// The kinds of secret we can extract from `KeySchedule`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -24,8 +24,6 @@ enum SecretKind {
     ExporterMasterSecret,
     ResumptionMasterSecret,
     DerivedSecret,
-    ServerEchConfirmationSecret,
-    ServerEchHrrConfirmationSecret,
 }
 
 impl SecretKind {
@@ -41,10 +39,6 @@ impl SecretKind {
             ExporterMasterSecret => b"exp master",
             ResumptionMasterSecret => b"res master",
             DerivedSecret => b"derived",
-            // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-18#section-7.2
-            ServerEchConfirmationSecret => b"ech accept confirmation",
-            // https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-18#section-7.2.1
-            ServerEchHrrConfirmationSecret => b"hrr ech accept confirmation",
         }
     }
 
@@ -134,7 +128,7 @@ impl KeyScheduleEarly {
 
 /// Pre-handshake key schedule
 ///
-/// The inner `KeySchedule` is either constructed without any secrets based on the HKDF algorithm
+/// The inner `KeySchedule` is either constructed without any secrets based on ths HKDF algorithm
 /// or is extracted from a `KeyScheduleEarly`. This can then be used to derive the `KeyScheduleHandshakeStart`.
 pub(crate) struct KeySchedulePreHandshake {
     ks: KeySchedule,
@@ -149,11 +143,12 @@ impl KeySchedulePreHandshake {
 
     pub(crate) fn into_handshake(
         mut self,
-        shared_secret: SharedSecret,
-    ) -> KeyScheduleHandshakeStart {
+        kx: Box<dyn ActiveKeyExchange>,
+        peer_public_key: &[u8],
+    ) -> Result<KeyScheduleHandshakeStart, Error> {
         self.ks
-            .input_secret(shared_secret.secret_bytes());
-        KeyScheduleHandshakeStart { ks: self.ks }
+            .input_from_key_exchange(kx, peer_public_key)?;
+        Ok(KeyScheduleHandshakeStart { ks: self.ks })
     }
 }
 
@@ -212,30 +207,6 @@ impl KeyScheduleHandshakeStart {
         new.ks
             .set_encrypter(&new.server_handshake_traffic_secret, common);
         new
-    }
-
-    pub(crate) fn server_ech_confirmation_secret(
-        &mut self,
-        client_hello_inner_random: &[u8],
-        hs_hash: hash::Output,
-    ) -> [u8; 8] {
-        /*
-        Per ietf-tls-esni-17 section 7.2:
-        <https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-17#section-7.2>
-        accept_confirmation = HKDF-Expand-Label(
-          HKDF-Extract(0, ClientHelloInner.random),
-          "ech accept confirmation",
-          transcript_ech_conf,8)
-         */
-        hkdf_expand_label(
-            self.ks
-                .suite
-                .hkdf_provider
-                .extract_from_secret(None, client_hello_inner_random)
-                .as_ref(),
-            SecretKind::ServerEchConfirmationSecret.to_bytes(),
-            hs_hash.as_ref(),
-        )
     }
 
     fn into_handshake(
@@ -497,17 +468,6 @@ impl KeyScheduleTraffic {
         self.ks.set_encrypter(&secret, common);
     }
 
-    pub(crate) fn request_key_update_and_update_encrypter(
-        &mut self,
-        common: &mut CommonState,
-    ) -> Result<(), Error> {
-        common.check_aligned_handshake()?;
-        common.send_msg_encrypt(Message::build_key_update_request().into());
-        let secret = self.next_application_traffic_secret(common.side);
-        self.ks.set_encrypter(&secret, common);
-        Ok(())
-    }
-
     pub(crate) fn update_decrypter(&mut self, common: &mut CommonState) {
         let secret = self.next_application_traffic_secret(common.side.peer());
         self.ks.set_decrypter(&secret, common);
@@ -522,6 +482,18 @@ impl KeyScheduleTraffic {
         let secret = self.ks.derive_next(current);
         *current = secret.clone();
         secret
+    }
+
+    pub(crate) fn resumption_master_secret_and_derive_ticket_psk(
+        &self,
+        hs_hash: &hash::Output,
+        nonce: &[u8],
+    ) -> OkmBlock {
+        let resumption_master_secret = self
+            .ks
+            .derive(SecretKind::ResumptionMasterSecret, hs_hash.as_ref());
+        self.ks
+            .derive_ticket_psk(&resumption_master_secret, nonce)
     }
 
     pub(crate) fn export_keying_material(
@@ -577,28 +549,6 @@ impl KeyScheduleTraffic {
     }
 }
 
-pub(crate) struct ResumptionSecret<'a> {
-    kst: &'a KeyScheduleTraffic,
-    resumption_master_secret: OkmBlock,
-}
-
-impl<'a> ResumptionSecret<'a> {
-    pub(crate) fn new(kst: &'a KeyScheduleTraffic, hs_hash: &hash::Output) -> Self {
-        ResumptionSecret {
-            kst,
-            resumption_master_secret: kst
-                .ks
-                .derive(SecretKind::ResumptionMasterSecret, hs_hash.as_ref()),
-        }
-    }
-
-    pub(crate) fn derive_ticket_psk(&self, nonce: &[u8]) -> OkmBlock {
-        self.kst
-            .ks
-            .derive_ticket_psk(&self.resumption_master_secret, nonce)
-    }
-}
-
 impl KeySchedule {
     fn new(suite: &'static Tls13CipherSuite, secret: &[u8]) -> Self {
         Self {
@@ -614,15 +564,12 @@ impl KeySchedule {
             .suite
             .hkdf_provider
             .expander_for_okm(secret);
-        let key = derive_traffic_key(expander.as_ref(), self.suite.aead_alg);
+        let key = derive_traffic_key(expander.as_ref(), self.suite.aead_alg.key_len());
         let iv = derive_traffic_iv(expander.as_ref());
 
         common
             .record_layer
-            .set_message_encrypter(
-                self.suite.aead_alg.encrypter(key, iv),
-                self.suite.common.confidentiality_limit,
-            );
+            .set_message_encrypter(self.suite.aead_alg.encrypter(key, iv));
     }
 
     fn set_decrypter(&self, secret: &OkmBlock, common: &mut CommonState) {
@@ -636,7 +583,7 @@ impl KeySchedule {
             .suite
             .hkdf_provider
             .expander_for_okm(secret);
-        let key = derive_traffic_key(expander.as_ref(), self.suite.aead_alg);
+        let key = derive_traffic_key(expander.as_ref(), self.suite.aead_alg.key_len());
         let iv = derive_traffic_iv(expander.as_ref());
         self.suite.aead_alg.decrypter(key, iv)
     }
@@ -660,12 +607,27 @@ impl KeySchedule {
     }
 
     /// Input the given secret.
+    #[cfg(all(test, any(feature = "ring", feature = "aws_lc_rs")))]
     fn input_secret(&mut self, secret: &[u8]) {
         let salt = self.derive_for_empty_hash(SecretKind::DerivedSecret);
         self.current = self
             .suite
             .hkdf_provider
             .extract_from_secret(Some(salt.as_ref()), secret);
+    }
+
+    /// Input the shared secret resulting from completing the given key exchange.
+    fn input_from_key_exchange(
+        &mut self,
+        kx: Box<dyn ActiveKeyExchange>,
+        peer_public_key: &[u8],
+    ) -> Result<(), Error> {
+        let salt = self.derive_for_empty_hash(SecretKind::DerivedSecret);
+        self.current = self
+            .suite
+            .hkdf_provider
+            .extract_from_kx_shared_secret(Some(salt.as_ref()), kx, peer_public_key)?;
+        Ok(())
     }
 
     /// Derive a secret of given `kind`, using current handshake hash `hs_hash`.
@@ -780,23 +742,6 @@ impl KeySchedule {
     }
 }
 
-/// [HKDF-Expand-Label] where the output is an AEAD key.
-///
-/// [HKDF-Expand-Label]: <https://www.rfc-editor.org/rfc/rfc8446#section-7.1>
-pub fn derive_traffic_key(
-    expander: &dyn HkdfExpander,
-    aead_alg: &dyn Tls13AeadAlgorithm,
-) -> AeadKey {
-    hkdf_expand_label_aead_key(expander, aead_alg.key_len(), b"key", &[])
-}
-
-/// [HKDF-Expand-Label] where the output is an IV.
-///
-/// [HKDF-Expand-Label]: <https://www.rfc-editor.org/rfc/rfc8446#section-7.1>
-pub fn derive_traffic_iv(expander: &dyn HkdfExpander) -> Iv {
-    hkdf_expand_label(expander, b"iv", &[])
-}
-
 /// [HKDF-Expand-Label] where the output length is a compile-time constant, and therefore
 /// it is infallible.
 ///
@@ -847,27 +792,12 @@ fn hkdf_expand_label_slice(
     })
 }
 
-pub(crate) fn server_ech_hrr_confirmation_secret(
-    hkdf_provider: &'static dyn Hkdf,
-    client_hello_inner_random: &[u8],
-    hs_hash: hash::Output,
-) -> [u8; 8] {
-    /*
-    Per ietf-tls-esni-17 section 7.2.1:
-    <https://datatracker.ietf.org/doc/html/draft-ietf-tls-esni-17#section-7.2.1>
-    hrr_accept_confirmation = HKDF-Expand-Label(
-      HKDF-Extract(0, ClientHelloInner1.random),
-      "hrr ech accept confirmation",
-      transcript_hrr_ech_conf,
-      8)
-     */
-    hkdf_expand_label(
-        hkdf_provider
-            .extract_from_secret(None, client_hello_inner_random)
-            .as_ref(),
-        SecretKind::ServerEchHrrConfirmationSecret.to_bytes(),
-        hs_hash.as_ref(),
-    )
+pub(crate) fn derive_traffic_key(expander: &dyn HkdfExpander, aead_key_len: usize) -> AeadKey {
+    hkdf_expand_label_aead_key(expander, aead_key_len, b"key", &[])
+}
+
+pub(crate) fn derive_traffic_iv(expander: &dyn HkdfExpander) -> Iv {
+    hkdf_expand_label(expander, b"iv", &[])
 }
 
 fn hkdf_expand_label_inner<F, T>(
@@ -898,18 +828,17 @@ where
     f(expander, info)
 }
 
-#[cfg(test)]
-#[macro_rules_attribute::apply(test_for_each_provider)]
+#[cfg(all(test, any(feature = "ring", feature = "aws_lc_rs")))]
 mod tests {
     use core::fmt::Debug;
     use std::prelude::v1::*;
     use std::vec;
 
-    use super::provider::ring_like::aead;
-    use super::provider::tls13::{
+    use super::{derive_traffic_iv, derive_traffic_key, KeySchedule, SecretKind};
+    use crate::test_provider::ring_like::aead;
+    use crate::test_provider::tls13::{
         TLS13_AES_128_GCM_SHA256_INTERNAL, TLS13_CHACHA20_POLY1305_SHA256_INTERNAL,
     };
-    use super::{KeySchedule, SecretKind, derive_traffic_iv, derive_traffic_key};
     use crate::KeyLog;
 
     #[test]
@@ -1058,10 +987,7 @@ mod tests {
         let expander = TLS13_AES_128_GCM_SHA256_INTERNAL
             .hkdf_provider
             .expander_for_okm(&traffic_secret);
-        let key = derive_traffic_key(
-            expander.as_ref(),
-            TLS13_AES_128_GCM_SHA256_INTERNAL.aead_alg,
-        );
+        let key = derive_traffic_key(expander.as_ref(), aead_alg.key_len());
         let key = aead::UnboundKey::new(aead_alg, key.as_ref()).unwrap();
         let seal_output = seal_zeroes(key);
         let expected_key = aead::UnboundKey::new(aead_alg, expected_key).unwrap();
@@ -1086,15 +1012,15 @@ mod tests {
     }
 }
 
-#[cfg(all(test, bench))]
-#[macro_rules_attribute::apply(bench_for_each_provider)]
+#[cfg(bench)]
 mod benchmarks {
+    #[cfg(any(feature = "ring", feature = "aws_lc_rs"))]
     #[bench]
     fn bench_sha256(b: &mut test::Bencher) {
         use core::fmt::Debug;
 
-        use super::provider::tls13::TLS13_CHACHA20_POLY1305_SHA256_INTERNAL;
-        use super::{KeySchedule, SecretKind, derive_traffic_iv, derive_traffic_key};
+        use super::{derive_traffic_iv, derive_traffic_key, KeySchedule, SecretKind};
+        use crate::test_provider::tls13::TLS13_CHACHA20_POLY1305_SHA256_INTERNAL;
         use crate::KeyLog;
 
         fn extract_traffic_secret(ks: &KeySchedule, kind: SecretKind) {
@@ -1112,7 +1038,9 @@ mod benchmarks {
                 .expander_for_okm(&traffic_secret);
             test::black_box(derive_traffic_key(
                 traffic_secret_expander.as_ref(),
-                TLS13_CHACHA20_POLY1305_SHA256_INTERNAL.aead_alg,
+                TLS13_CHACHA20_POLY1305_SHA256_INTERNAL
+                    .aead_alg
+                    .key_len(),
             ));
             test::black_box(derive_traffic_iv(traffic_secret_expander.as_ref()));
         }

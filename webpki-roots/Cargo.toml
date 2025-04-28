@@ -12,7 +12,7 @@
 [package]
 edition = "2018"
 name = "webpki-roots"
-version = "0.26.8"
+version = "0.26.9"
 build = false
 autolib = false
 autobins = false
@@ -22,7 +22,7 @@ autobenches = false
 description = "Mozilla's CA root certificates for use with webpki"
 homepage = "https://github.com/rustls/webpki-roots"
 readme = "README.md"
-license = "MPL-2.0"
+license = "CDLA-Permissive-2.0"
 repository = "https://github.com/rustls/webpki-roots"
 
 [lib]

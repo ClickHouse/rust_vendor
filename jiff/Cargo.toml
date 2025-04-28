@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.70"
 name = "jiff"
-version = "0.2.8"
+version = "0.2.10"
 authors = ["Andrew Gallant <jamslam@gmail.com>"]
 build = false
 include = [
@@ -186,7 +186,7 @@ version = "0.2.70"
 optional = true
 
 [target."cfg(any())".dependencies.jiff-static]
-version = "=0.2.8"
+version = "=0.2.10"
 
 [target.'cfg(any(windows, target_family = "wasm"))'.dependencies.jiff-tzdb-platform]
 version = "0.1.3"

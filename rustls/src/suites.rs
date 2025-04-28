@@ -1,16 +1,16 @@
-use core::fmt;
-
 use crate::common_state::Protocol;
+use crate::crypto;
 use crate::crypto::cipher::{AeadKey, Iv};
-use crate::crypto::{self, KeyExchangeAlgorithm};
-use crate::enums::{CipherSuite, SignatureAlgorithm, SignatureScheme};
-use crate::msgs::handshake::ALL_KEY_EXCHANGE_ALGORITHMS;
+use crate::enums::{CipherSuite, ProtocolVersion, SignatureAlgorithm, SignatureScheme};
 #[cfg(feature = "tls12")]
 use crate::tls12::Tls12CipherSuite;
 use crate::tls13::Tls13CipherSuite;
 #[cfg(feature = "tls12")]
 use crate::versions::TLS12;
 use crate::versions::{SupportedProtocolVersion, TLS13};
+
+use alloc::vec::Vec;
+use core::fmt;
 
 /// Common state for cipher suites (both for TLS 1.2 and TLS 1.3)
 pub struct CipherSuiteCommon {
@@ -20,42 +20,25 @@ pub struct CipherSuiteCommon {
     /// Which hash function the suite uses.
     pub hash_provider: &'static dyn crypto::hash::Hash,
 
-    /// Number of TCP-TLS messages that can be safely encrypted with a single key of this type
+    /// Number of messages that can be safely encrypted with a single key of this type
     ///
     /// Once a `MessageEncrypter` produced for this suite has encrypted more than
     /// `confidentiality_limit` messages, an attacker gains an advantage in distinguishing it
     /// from an ideal pseudorandom permutation (PRP).
     ///
     /// This is to be set on the assumption that messages are maximally sized --
-    /// each is 2<sup>14</sup> bytes. It **does not** consider confidentiality limits for
-    /// QUIC connections - see the [`quic::KeyBuilder.confidentiality_limit`] field for
-    /// this context.
-    ///
-    /// For AES-GCM implementations, this should be set to 2<sup>24</sup> to limit attack
-    /// probability to one in 2<sup>60</sup>.  See [AEBounds] (Table 1) and [draft-irtf-aead-limits-08]:
-    ///
-    /// ```python
-    /// >>> p = 2 ** -60
-    /// >>> L = (2 ** 14 // 16) + 1
-    /// >>> qlim = (math.sqrt(p) * (2 ** (129 // 2)) - 1) / (L + 1)
-    /// >>> print(int(qlim).bit_length())
-    /// 24
-    /// ```
-    /// [AEBounds]: https://eprint.iacr.org/2024/051.pdf
-    /// [draft-irtf-aead-limits-08]: https://www.ietf.org/archive/id/draft-irtf-cfrg-aead-limits-08.html#section-5.1.1
-    ///
-    /// For chacha20-poly1305 implementations, this should be set to `u64::MAX`:
-    /// see <https://www.ietf.org/archive/id/draft-irtf-cfrg-aead-limits-08.html#section-5.2.1>
+    /// at least 2 ** 14 bytes for TCP-TLS and 2 ** 16 for QUIC.
     pub confidentiality_limit: u64,
-}
 
-impl CipherSuiteCommon {
-    /// Return `true` if this is backed by a FIPS-approved implementation.
+    /// Number of messages that can be safely decrypted with a single key of this type
     ///
-    /// This means all the constituent parts that do cryptography return `true` for `fips()`.
-    pub fn fips(&self) -> bool {
-        self.hash_provider.fips()
-    }
+    /// Once a `MessageDecrypter` produced for this suite has failed to decrypt `integrity_limit`
+    /// messages, an attacker gains an advantage in forging messages.
+    ///
+    /// This is not relevant for TLS over TCP (which is implemented in this crate)
+    /// because a single failed decryption is fatal to the connection.  However,
+    /// this quantity is used by QUIC.
+    pub integrity_limit: u64,
 }
 
 /// A cipher suite supported by rustls.
@@ -117,7 +100,7 @@ impl SupportedCipherSuite {
             Self::Tls12(inner) => inner
                 .sign
                 .iter()
-                .any(|scheme| scheme.algorithm() == _sig_alg),
+                .any(|scheme| scheme.sign() == _sig_alg),
         }
     }
 
@@ -134,39 +117,6 @@ impl SupportedCipherSuite {
                 .is_some(),
         }
     }
-
-    /// Return `true` if this is backed by a FIPS-approved implementation.
-    pub fn fips(&self) -> bool {
-        match self {
-            #[cfg(feature = "tls12")]
-            Self::Tls12(cs) => cs.fips(),
-            Self::Tls13(cs) => cs.fips(),
-        }
-    }
-
-    /// Return the list of `KeyExchangeAlgorithm`s supported by this cipher suite.
-    ///
-    /// TLS 1.3 cipher suites support both ECDHE and DHE key exchange, but TLS 1.2 suites
-    /// support one or the other.
-    pub(crate) fn key_exchange_algorithms(&self) -> &[KeyExchangeAlgorithm] {
-        match self {
-            #[cfg(feature = "tls12")]
-            Self::Tls12(tls12) => core::slice::from_ref(&tls12.kx),
-            Self::Tls13(_) => ALL_KEY_EXCHANGE_ALGORITHMS,
-        }
-    }
-
-    /// Say if the given `KeyExchangeAlgorithm` is supported by this cipher suite.
-    ///
-    /// TLS 1.3 cipher suites support all key exchange types, but TLS 1.2 suites
-    /// support only one.
-    pub(crate) fn usable_for_kx_algorithm(&self, _kxa: KeyExchangeAlgorithm) -> bool {
-        match self {
-            #[cfg(feature = "tls12")]
-            Self::Tls12(tls12) => tls12.kx == _kxa,
-            Self::Tls13(_) => true,
-        }
-    }
 }
 
 impl fmt::Debug for SupportedCipherSuite {
@@ -175,12 +125,68 @@ impl fmt::Debug for SupportedCipherSuite {
     }
 }
 
+// These both O(N^2)!
+pub(crate) fn choose_ciphersuite_preferring_client(
+    client_suites: &[CipherSuite],
+    server_suites: &[SupportedCipherSuite],
+) -> Option<SupportedCipherSuite> {
+    for client_suite in client_suites {
+        if let Some(selected) = server_suites
+            .iter()
+            .find(|x| *client_suite == x.suite())
+        {
+            return Some(*selected);
+        }
+    }
+
+    None
+}
+
+pub(crate) fn choose_ciphersuite_preferring_server(
+    client_suites: &[CipherSuite],
+    server_suites: &[SupportedCipherSuite],
+) -> Option<SupportedCipherSuite> {
+    if let Some(selected) = server_suites
+        .iter()
+        .find(|x| client_suites.contains(&x.suite()))
+    {
+        return Some(*selected);
+    }
+
+    None
+}
+
+/// Return a list of the ciphersuites in `all` with the suites
+/// incompatible with `SignatureAlgorithm` `sigalg` removed.
+pub(crate) fn reduce_given_sigalg(
+    all: &[SupportedCipherSuite],
+    sigalg: SignatureAlgorithm,
+) -> Vec<SupportedCipherSuite> {
+    all.iter()
+        .filter(|&&suite| suite.usable_for_signature_algorithm(sigalg))
+        .copied()
+        .collect()
+}
+
+/// Return a list of the ciphersuites in `all` with the suites
+/// incompatible with the chosen `version` removed.
+pub(crate) fn reduce_given_version_and_protocol(
+    all: &[SupportedCipherSuite],
+    version: ProtocolVersion,
+    proto: Protocol,
+) -> Vec<SupportedCipherSuite> {
+    all.iter()
+        .filter(|&&suite| suite.version().version == version && suite.usable_for_protocol(proto))
+        .copied()
+        .collect()
+}
+
 /// Return true if `sigscheme` is usable by any of the given suites.
 pub(crate) fn compatible_sigscheme_for_suites(
     sigscheme: SignatureScheme,
     common_suites: &[SupportedCipherSuite],
 ) -> bool {
-    let sigalg = sigscheme.algorithm();
+    let sigalg = sigscheme.sign();
     common_suites
         .iter()
         .any(|&suite| suite.usable_for_signature_algorithm(sigalg))
@@ -240,33 +246,66 @@ pub enum ConnectionTrafficSecrets {
     },
 }
 
-#[cfg(test)]
-#[macro_rules_attribute::apply(test_for_each_provider)]
+#[cfg(all(test, any(feature = "ring", feature = "aws_lc_rs")))]
 mod tests {
-    use std::println;
+    use super::*;
+    use crate::test_provider::tls13::*;
+    use std::{println, vec};
 
-    use super::provider::tls13::*;
+    #[test]
+    fn test_client_pref() {
+        let client = vec![
+            CipherSuite::TLS13_AES_128_GCM_SHA256,
+            CipherSuite::TLS13_AES_256_GCM_SHA384,
+        ];
+        let server = vec![TLS13_AES_256_GCM_SHA384, TLS13_AES_128_GCM_SHA256];
+        let chosen = choose_ciphersuite_preferring_client(&client, &server);
+        assert!(chosen.is_some());
+        assert_eq!(chosen.unwrap(), TLS13_AES_128_GCM_SHA256);
+    }
+
+    #[test]
+    fn test_server_pref() {
+        let client = vec![
+            CipherSuite::TLS13_AES_128_GCM_SHA256,
+            CipherSuite::TLS13_AES_256_GCM_SHA384,
+        ];
+        let server = vec![TLS13_AES_256_GCM_SHA384, TLS13_AES_128_GCM_SHA256];
+        let chosen = choose_ciphersuite_preferring_server(&client, &server);
+        assert!(chosen.is_some());
+        assert_eq!(chosen.unwrap(), TLS13_AES_256_GCM_SHA384);
+    }
+
+    #[test]
+    fn test_pref_fails() {
+        assert!(choose_ciphersuite_preferring_client(
+            &[CipherSuite::TLS_NULL_WITH_NULL_NULL],
+            crate::test_provider::ALL_CIPHER_SUITES
+        )
+        .is_none());
+        assert!(choose_ciphersuite_preferring_server(
+            &[CipherSuite::TLS_NULL_WITH_NULL_NULL],
+            crate::test_provider::ALL_CIPHER_SUITES
+        )
+        .is_none());
+    }
 
     #[test]
     fn test_scs_is_debug() {
-        println!("{:?}", super::provider::ALL_CIPHER_SUITES);
+        println!("{:?}", crate::test_provider::ALL_CIPHER_SUITES);
     }
 
     #[test]
     fn test_can_resume_to() {
-        assert!(
-            TLS13_AES_128_GCM_SHA256
-                .tls13()
-                .unwrap()
-                .can_resume_from(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL)
-                .is_some()
-        );
-        assert!(
-            TLS13_AES_256_GCM_SHA384
-                .tls13()
-                .unwrap()
-                .can_resume_from(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL)
-                .is_none()
-        );
+        assert!(TLS13_AES_128_GCM_SHA256
+            .tls13()
+            .unwrap()
+            .can_resume_from(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL)
+            .is_some());
+        assert!(TLS13_AES_256_GCM_SHA384
+            .tls13()
+            .unwrap()
+            .can_resume_from(TLS13_CHACHA20_POLY1305_SHA256_INTERNAL)
+            .is_none());
     }
 }

@@ -83,7 +83,6 @@ pub use self::name::{HeaderName, InvalidHeaderName};
 pub use self::value::{HeaderValue, InvalidHeaderValue, ToStrError};
 
 // Use header name constants
-#[rustfmt::skip]
 pub use self::name::{
     ACCEPT,
     ACCEPT_CHARSET,

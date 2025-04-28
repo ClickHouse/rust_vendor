@@ -110,7 +110,7 @@ pub struct RevocationOptions<'a> {
     pub(crate) expiration_policy: ExpirationPolicy,
 }
 
-impl RevocationOptions<'_> {
+impl<'a> RevocationOptions<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn check(
         &self,

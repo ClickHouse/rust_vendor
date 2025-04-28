@@ -6,15 +6,13 @@ use num_conv::prelude::*;
 
 use crate::convert::*;
 use crate::format_description::modifier;
-#[cfg(feature = "large-dates")]
-use crate::parsing::combinator::n_to_m_digits_padded;
 use crate::parsing::combinator::{
-    any_digit, exactly_n_digits, exactly_n_digits_padded, first_match, n_to_m_digits, opt, sign,
+    any_digit, exactly_n_digits, exactly_n_digits_padded, first_match, n_to_m_digits,
+    n_to_m_digits_padded, opt, sign,
 };
 use crate::parsing::ParsedItem;
 use crate::{Month, Weekday};
 
-// region: date components
 /// Parse the "year" component of a `Date`.
 pub(crate) fn parse_year(
     input: &[u8],
@@ -25,12 +23,13 @@ pub(crate) fn parse_year(
             let ParsedItem(input, sign) = opt(sign)(input);
 
             if let Some(sign) = sign {
-                #[cfg(not(feature = "large-dates"))]
-                let ParsedItem(input, year) =
-                    exactly_n_digits_padded::<4, u32>(modifiers.padding)(input)?;
-                #[cfg(feature = "large-dates")]
-                let ParsedItem(input, year) =
-                    n_to_m_digits_padded::<4, 6, u32>(modifiers.padding)(input)?;
+                let ParsedItem(input, year) = if cfg!(feature = "large-dates")
+                    && modifiers.range == modifier::YearRange::Extended
+                {
+                    n_to_m_digits_padded::<4, 6, u32>(modifiers.padding)(input)?
+                } else {
+                    exactly_n_digits_padded::<4, u32>(modifiers.padding)(input)?
+                };
 
                 Some(if sign == b'-' {
                     ParsedItem(input, (-year.cast_signed(), true))
@@ -49,12 +48,13 @@ pub(crate) fn parse_year(
             let ParsedItem(input, sign) = opt(sign)(input);
 
             if let Some(sign) = sign {
-                #[cfg(not(feature = "large-dates"))]
-                let ParsedItem(input, year) =
-                    exactly_n_digits_padded::<2, u32>(modifiers.padding)(input)?;
-                #[cfg(feature = "large-dates")]
-                let ParsedItem(input, year) =
-                    n_to_m_digits_padded::<2, 4, u32>(modifiers.padding)(input)?;
+                let ParsedItem(input, year) = if cfg!(feature = "large-dates")
+                    && modifiers.range == modifier::YearRange::Extended
+                {
+                    n_to_m_digits_padded::<2, 4, u32>(modifiers.padding)(input)?
+                } else {
+                    exactly_n_digits_padded::<2, u32>(modifiers.padding)(input)?
+                };
 
                 Some(if sign == b'-' {
                     ParsedItem(input, (-year.cast_signed(), true))
@@ -65,7 +65,7 @@ pub(crate) fn parse_year(
                 None
             } else {
                 let ParsedItem(input, year) =
-                    exactly_n_digits_padded::<2, u32>(modifiers.padding)(input)?;
+                    n_to_m_digits_padded::<1, 2, u32>(modifiers.padding)(input)?;
                 Some(ParsedItem(input, (year.cast_signed(), false)))
             }
         }
@@ -211,9 +211,7 @@ pub(crate) fn parse_day(
 ) -> Option<ParsedItem<'_, NonZeroU8>> {
     exactly_n_digits_padded::<2, _>(modifiers.padding)(input)
 }
-// endregion date components
 
-// region: time components
 /// Indicate whether the hour is "am" or "pm".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Period {
@@ -296,9 +294,7 @@ pub(crate) fn parse_subsecond(
         }
     })
 }
-// endregion time components
 
-// region: offset components
 /// Parse the "hour" component of a `UtcOffset`.
 ///
 /// Returns the value and whether the value is negative. This is used for when "-0" is parsed.
@@ -336,7 +332,6 @@ pub(crate) fn parse_offset_second(
             .map(|offset_second| offset_second.cast_signed()),
     )
 }
-// endregion offset components
 
 /// Ignore the given number of bytes.
 pub(crate) fn parse_ignore(

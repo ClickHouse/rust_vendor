@@ -1,13 +1,16 @@
 #![allow(clippy::duplicate_mod)]
 
-use alloc::boxed::Box;
-
 use super::ring_like;
 use crate::crypto;
 
+use alloc::boxed::Box;
+
+#[cfg(feature = "tls12")]
 pub(crate) static HMAC_SHA256: Hmac = Hmac(&ring_like::hmac::HMAC_SHA256);
+#[cfg(feature = "tls12")]
 pub(crate) static HMAC_SHA384: Hmac = Hmac(&ring_like::hmac::HMAC_SHA384);
-#[allow(dead_code)] // Only used for TLS 1.2 prf test, and aws-lc-rs HPKE suites.
+#[cfg(test)]
+#[allow(dead_code)] // only for TLS1.2 prf test
 pub(crate) static HMAC_SHA512: Hmac = Hmac(&ring_like::hmac::HMAC_SHA512);
 
 pub(crate) struct Hmac(&'static ring_like::hmac::Algorithm);
@@ -19,10 +22,6 @@ impl crypto::hmac::Hmac for Hmac {
 
     fn hash_output_len(&self) -> usize {
         self.0.digest_algorithm().output_len()
-    }
-
-    fn fips(&self) -> bool {
-        super::fips()
     }
 }
 

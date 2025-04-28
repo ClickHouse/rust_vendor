@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-#[cfg(all(doc, feature = "std"))]
+#[cfg(doc)]
 use crate::KeyLogFile;
 
 /// This trait represents the ability to do something useful
@@ -35,7 +35,7 @@ pub trait KeyLog: Debug + Send + Sync {
     ///   in a TLSv1.3 session.
     ///
     /// These strings are selected to match the NSS key log format:
-    /// <https://nss-crypto.org/reference/security/nss/legacy/key_log_format/index.html>
+    /// <https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Key_Log_Format>
     fn log(&self, label: &str, client_random: &[u8], secret: &[u8]);
 
     /// Indicates whether the secret with label `label` will be logged.

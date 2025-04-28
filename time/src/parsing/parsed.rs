@@ -22,7 +22,9 @@ use crate::parsing::component::{
     parse_subsecond, parse_unix_timestamp, parse_week_number, parse_weekday, parse_year, Period,
 };
 use crate::parsing::ParsedItem;
-use crate::{error, Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcOffset, Weekday};
+use crate::{
+    error, Date, Month, OffsetDateTime, PrimitiveDateTime, Time, UtcDateTime, UtcOffset, Weekday,
+};
 
 /// Sealed to prevent downstream implementations.
 mod sealed {
@@ -158,10 +160,10 @@ pub struct Parsed {
     offset_hour: OptionRangedI8<-23, 23>,
     /// Minutes within the hour of the UTC offset.
     offset_minute:
-        OptionRangedI8<{ -((Minute::per(Hour) - 1) as i8) }, { (Minute::per(Hour) - 1) as _ }>,
+        OptionRangedI8<{ -((Minute::per(Hour) - 1) as i8) }, { (Minute::per(Hour) - 1) as i8 }>,
     /// Seconds within the minute of the UTC offset.
     offset_second:
-        OptionRangedI8<{ -((Second::per(Minute) - 1) as i8) }, { (Second::per(Minute) - 1) as _ }>,
+        OptionRangedI8<{ -((Second::per(Minute) - 1) as i8) }, { (Second::per(Minute) - 1) as i8 }>,
     /// The Unix timestamp in nanoseconds.
     unix_timestamp_nanos: OptionRangedI128<
         {
@@ -557,7 +559,7 @@ impl Parsed {
 /// Generate setters based on the builders.
 macro_rules! setters {
     ($($name:ident $setter:ident $builder:ident $type:ty;)*) => {$(
-        #[doc = concat!("Set the `", stringify!($setter), "` component.")]
+        #[doc = concat!("Set the `", stringify!($name), "` component.")]
         pub fn $setter(&mut self, value: $type) -> Option<()> {
             *self = self.$builder(value)?;
             Some(())
@@ -808,7 +810,7 @@ impl Parsed {
         if value > i8::MAX as u8 {
             None
         } else {
-            self.with_offset_minute_signed(value as _)
+            self.with_offset_minute_signed(value as i8)
         }
     }
 
@@ -828,7 +830,7 @@ impl Parsed {
         if value > i8::MAX as u8 {
             None
         } else {
-            self.with_offset_second_signed(value as _)
+            self.with_offset_second_signed(value as i8)
         }
     }
 
@@ -970,25 +972,43 @@ impl TryFrom<Parsed> for Time {
     }
 }
 
+fn utc_offset_try_from_parsed<const REQUIRED: bool>(
+    parsed: Parsed,
+) -> Result<UtcOffset, error::TryFromParsed> {
+    let hour = match (REQUIRED, parsed.offset_hour()) {
+        // An offset is required, but the hour is missing. Return an error.
+        (true, None) => return Err(InsufficientInformation),
+        // An offset is not required (e.g. for `UtcDateTime`). As the hour is missing, minutes and
+        // seconds are not parsed. This is UTC.
+        (false, None) => return Ok(UtcOffset::UTC),
+        // Any other situation has an hour present.
+        (_, Some(hour)) => hour,
+    };
+    let minute = parsed.offset_minute_signed();
+    // Force `second` to be `None` if `minute` is `None`.
+    let second = minute.and_then(|_| parsed.offset_second_signed());
+
+    let minute = minute.unwrap_or(0);
+    let second = second.unwrap_or(0);
+
+    UtcOffset::from_hms(hour, minute, second).map_err(|mut err| {
+        // Provide the user a more accurate error.
+        if err.name == "hours" {
+            err.name = "offset hour";
+        } else if err.name == "minutes" {
+            err.name = "offset minute";
+        } else if err.name == "seconds" {
+            err.name = "offset second";
+        }
+        err.into()
+    })
+}
+
 impl TryFrom<Parsed> for UtcOffset {
     type Error = error::TryFromParsed;
 
     fn try_from(parsed: Parsed) -> Result<Self, Self::Error> {
-        let hour = parsed.offset_hour().ok_or(InsufficientInformation)?;
-        let minute = parsed.offset_minute_signed().unwrap_or(0);
-        let second = parsed.offset_second_signed().unwrap_or(0);
-
-        Self::from_hms(hour, minute, second).map_err(|mut err| {
-            // Provide the user a more accurate error.
-            if err.name == "hours" {
-                err.name = "offset hour";
-            } else if err.name == "minutes" {
-                err.name = "offset minute";
-            } else if err.name == "seconds" {
-                err.name = "offset second";
-            }
-            err.into()
-        })
+        utc_offset_try_from_parsed::<true>(parsed)
     }
 }
 
@@ -997,6 +1017,55 @@ impl TryFrom<Parsed> for PrimitiveDateTime {
 
     fn try_from(parsed: Parsed) -> Result<Self, Self::Error> {
         Ok(Self::new(parsed.try_into()?, parsed.try_into()?))
+    }
+}
+
+impl TryFrom<Parsed> for UtcDateTime {
+    type Error = error::TryFromParsed;
+
+    fn try_from(mut parsed: Parsed) -> Result<Self, Self::Error> {
+        if let Some(timestamp) = parsed.unix_timestamp_nanos() {
+            let mut value = Self::from_unix_timestamp_nanos(timestamp)?;
+            if let Some(subsecond) = parsed.subsecond() {
+                value = value.replace_nanosecond(subsecond)?;
+            }
+            return Ok(value);
+        }
+
+        // Some well-known formats explicitly allow leap seconds. We don't currently support them,
+        // so treat it as the nearest preceding moment that can be represented. Because leap seconds
+        // always fall at the end of a month UTC, reject any that are at other times.
+        let leap_second_input = if parsed.leap_second_allowed && parsed.second() == Some(60) {
+            if parsed.set_second(59).is_none() {
+                bug!("59 is a valid second");
+            }
+            if parsed.set_subsecond(999_999_999).is_none() {
+                bug!("999_999_999 is a valid subsecond");
+            }
+            true
+        } else {
+            false
+        };
+
+        let dt = OffsetDateTime::new_in_offset(
+            Date::try_from(parsed)?,
+            Time::try_from(parsed)?,
+            utc_offset_try_from_parsed::<false>(parsed)?,
+        )
+        .to_utc();
+
+        if leap_second_input && !dt.is_valid_leap_second_stand_in() {
+            return Err(error::TryFromParsed::ComponentRange(
+                error::ComponentRange {
+                    name: "second",
+                    minimum: 0,
+                    maximum: 59,
+                    value: 60,
+                    conditional_message: Some("because leap seconds are not supported"),
+                },
+            ));
+        }
+        Ok(dt)
     }
 }
 
@@ -1040,7 +1109,7 @@ impl TryFrom<Parsed> for OffsetDateTime {
                     minimum: 0,
                     maximum: 59,
                     value: 60,
-                    conditional_range: true,
+                    conditional_message: Some("because leap seconds are not supported"),
                 },
             ));
         }

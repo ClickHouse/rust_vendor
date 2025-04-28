@@ -206,7 +206,7 @@ impl Send {
         }
 
         // Transition the state to reset no matter what.
-        stream.set_reset(reason, initiator);
+        stream.state.set_reset(stream_id, reason, initiator);
 
         // If closed AND the send queue is flushed, then the stream cannot be
         // reset explicitly, either. Implicit resets can still be queued.
@@ -465,16 +465,6 @@ impl Send {
                     let mut total_reclaimed = 0;
                     store.try_for_each(|mut stream| {
                         let stream = &mut *stream;
-
-                        if stream.state.is_send_closed() && stream.buffered_send_data == 0 {
-                            tracing::trace!(
-                                "skipping send-closed stream; id={:?}; flow={:?}",
-                                stream.id,
-                                stream.send_flow
-                            );
-
-                            return Ok(());
-                        }
 
                         tracing::trace!(
                             "decrementing stream window; id={:?}; decr={}; flow={:?}",

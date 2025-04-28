@@ -13,12 +13,18 @@
 edition = "2021"
 rust-version = "1.62.1"
 name = "vte"
-version = "0.13.0"
+version = "0.15.0"
 authors = [
     "Joe Wilm <joe@jwilm.com>",
     "Christian Duerr <contact@christianduerr.com>",
 ]
+build = false
 exclude = ["/.travis.yml"]
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Parser for implementing terminal emulators"
 documentation = "https://docs.rs/vte/"
 readme = "README.md"
@@ -35,9 +41,26 @@ categories = [
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/alacritty/vte"
 
+[features]
+ansi = [
+    "log",
+    "cursor-icon",
+    "bitflags",
+]
+default = ["std"]
+serde = ["dep:serde"]
+std = ["memchr/std"]
+
+[lib]
+name = "vte"
+path = "src/lib.rs"
+
+[[example]]
+name = "parselog"
+path = "examples/parselog.rs"
+
 [dependencies.arrayvec]
 version = "0.7.2"
-optional = true
 default-features = false
 
 [dependencies.bitflags]
@@ -54,24 +77,11 @@ default-features = false
 version = "0.4.17"
 optional = true
 
+[dependencies.memchr]
+version = "2.7.4"
+default-features = false
+
 [dependencies.serde]
 version = "1.0.160"
 features = ["derive"]
 optional = true
-
-[dependencies.utf8parse]
-version = "0.2.0"
-
-[dependencies.vte_generate_state_changes]
-version = "0.1.0"
-
-[features]
-ansi = [
-    "log",
-    "cursor-icon",
-    "bitflags",
-]
-default = ["no_std"]
-nightly = ["utf8parse/nightly"]
-no_std = ["arrayvec"]
-serde = ["dep:serde"]

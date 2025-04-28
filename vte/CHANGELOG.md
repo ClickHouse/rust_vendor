@@ -1,6 +1,27 @@
 CHANGELOG
 =========
 
+## 0.15.0
+
+- Support `CSI ? 5 W` to reset tabs stops to every 8th column
+- Replaced `no_std` with a new `std` feature
+- Changed default features to include `std`
+
+## 0.14.1
+
+- Crash when partial advance buffer stopped inside some grapheme boundaries
+
+## 0.14.0
+
+- `Parser::advance` now takes byte slices, instead of individual bytes
+- `Parser::advance_until_terminated` allows premature termination,
+    by checking for `Perform::terminated` after each dispatch
+
+## 0.13.1
+
+- Add SCP control support
+- Improve SGR performance
+
 ## 0.13.0
 
 - Reexport `cursor_icon` crate in `ansi`

@@ -93,7 +93,7 @@ impl Recv {
         flow.assign_capacity(DEFAULT_INITIAL_WINDOW_SIZE).unwrap();
 
         Recv {
-            init_window_sz: DEFAULT_INITIAL_WINDOW_SIZE,
+            init_window_sz: config.local_init_window_sz,
             flow,
             in_flight_data: 0 as WindowSize,
             next_stream_id: Ok(next_stream_id.into()),
@@ -185,18 +185,6 @@ impl Recv {
                 };
 
                 stream.content_length = ContentLength::Remaining(content_length);
-                // END_STREAM on headers frame with non-zero content-length is malformed.
-                // https://datatracker.ietf.org/doc/html/rfc9113#section-8.1.1
-                if frame.is_end_stream()
-                    && content_length > 0
-                    && frame
-                        .pseudo()
-                        .status
-                        .map_or(true, |status| status != 204 && status != 304)
-                {
-                    proto_err!(stream: "recv_headers with END_STREAM: content-length is not zero; stream={:?};", stream.id);
-                    return Err(Error::library_reset(stream.id, Reason::PROTOCOL_ERROR).into());
-                }
             }
         }
 
@@ -308,7 +296,7 @@ impl Recv {
             let is_open = stream.state.ensure_recv_open()?;
 
             if is_open {
-                stream.push_task = Some(cx.waker().clone());
+                stream.recv_task = Some(cx.waker().clone());
                 Poll::Pending
             } else {
                 Poll::Ready(None)
@@ -731,16 +719,16 @@ impl Recv {
             // > that it cannot process.
             //
             // So, if peer is a server, we'll send a 431. In either case,
-            // an error is recorded, which will send a PROTOCOL_ERROR,
+            // an error is recorded, which will send a REFUSED_STREAM,
             // since we don't want any of the data frames either.
             tracing::debug!(
-                "stream error PROTOCOL_ERROR -- recv_push_promise: \
+                "stream error REFUSED_STREAM -- recv_push_promise: \
                  headers frame is over size; promised_id={:?};",
                 frame.promised_id(),
             );
             return Err(Error::library_reset(
                 frame.promised_id(),
-                Reason::PROTOCOL_ERROR,
+                Reason::REFUSED_STREAM,
             ));
         }
 
@@ -772,7 +760,6 @@ impl Recv {
             .pending_recv
             .push_back(&mut self.buffer, Event::Headers(Server(req)));
         stream.notify_recv();
-        stream.notify_push();
         Ok(())
     }
 
@@ -827,7 +814,6 @@ impl Recv {
 
         stream.notify_send();
         stream.notify_recv();
-        stream.notify_push();
 
         Ok(())
     }
@@ -840,7 +826,6 @@ impl Recv {
         // If a receiver is waiting, notify it
         stream.notify_send();
         stream.notify_recv();
-        stream.notify_push();
     }
 
     pub fn go_away(&mut self, last_processed_id: StreamId) {
@@ -852,7 +837,6 @@ impl Recv {
         stream.state.recv_eof();
         stream.notify_send();
         stream.notify_recv();
-        stream.notify_push();
     }
 
     pub(super) fn clear_recv_buffer(&mut self, stream: &mut Stream) {

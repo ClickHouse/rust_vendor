@@ -30,13 +30,13 @@ use pure_rust_locales::Locale;
 #[cfg(feature = "alloc")]
 use crate::format::DelayedFormat;
 use crate::format::{
-    parse, parse_and_remainder, write_hundreds, Item, Numeric, Pad, ParseError, ParseResult,
-    Parsed, StrftimeItems,
+    Item, Numeric, Pad, ParseError, ParseResult, Parsed, StrftimeItems, parse, parse_and_remainder,
+    write_hundreds,
 };
 use crate::month::Months;
 use crate::naive::{Days, IsoWeek, NaiveDateTime, NaiveTime, NaiveWeek};
-use crate::{expect, try_opt};
 use crate::{Datelike, TimeDelta, Weekday};
+use crate::{expect, try_opt};
 
 use super::internals::{Mdf, YearFlags};
 
@@ -60,7 +60,7 @@ mod tests;
 ///   on the same calendar date---April 23, 1616---but in the different calendar.
 ///   Britain used the Julian calendar at that time, so Shakespeare's death is later.)
 ///
-/// * ISO 8601 calendars has the year 0, which is 1 BCE (a year before 1 CE).
+/// * ISO 8601 calendars have the year 0, which is 1 BCE (a year before 1 CE).
 ///   If you need a typical BCE/BC and CE/AD notation for year numbers,
 ///   use the [`Datelike::year_ce`] method.
 ///
@@ -1142,7 +1142,7 @@ impl NaiveDate {
         let mut years = self.year() - base.year();
         // Comparing tuples is not (yet) possible in const context. Instead we combine month and
         // day into one `u32` for easy comparison.
-        if (self.month() << 5 | self.day()) < (base.month() << 5 | base.day()) {
+        if ((self.month() << 5) | self.day()) < ((base.month() << 5) | base.day()) {
             years -= 1;
         }
 

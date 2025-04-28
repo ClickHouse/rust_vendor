@@ -1,0 +1,1 @@
+{"name":"clickhouse-rs-cityhash-sys","vers":"0.1.2","deps":[{"name":"cc","req":"^1.0.28","features":[],"optional":false,"default_features":true,"target":null,"kind":"build","package":null}],"cksum":"","features":{},"yanked":false}

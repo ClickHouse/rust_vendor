@@ -12,12 +12,12 @@
 // ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 // OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-#![cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+#![cfg(any(feature = "ring", feature = "aws_lc_rs"))]
 
 use core::time::Duration;
 
 use pki_types::{CertificateDer, UnixTime};
-use webpki::{KeyUsage, anchor_from_trusted_cert};
+use webpki::{anchor_from_trusted_cert, KeyUsage};
 
 /* Checks we can verify netflix's cert chain.  This is notable
  * because they're rooted at a Verisign v1 root. */
@@ -34,8 +34,8 @@ fn netflix() {
 
     let ee = CertificateDer::from(ee);
     let cert = webpki::EndEntityCert::try_from(&ee).unwrap();
-    assert!(
-        cert.verify_for_usage(
+    assert!(cert
+        .verify_for_usage(
             webpki::ALL_VERIFICATION_ALGS,
             &anchors,
             &[inter],
@@ -44,8 +44,7 @@ fn netflix() {
             None,
             None,
         )
-        .is_ok()
-    );
+        .is_ok());
 }
 
 /* This is notable because it is a popular use of IP address subjectAltNames. */
@@ -65,8 +64,8 @@ fn cloudflare_dns() {
 
     let ee = CertificateDer::from(ee);
     let cert = webpki::EndEntityCert::try_from(&ee).unwrap();
-    assert!(
-        cert.verify_for_usage(
+    assert!(cert
+        .verify_for_usage(
             webpki::ALL_VERIFICATION_ALGS,
             &anchors,
             &[inter],
@@ -75,8 +74,7 @@ fn cloudflare_dns() {
             None,
             None,
         )
-        .is_ok()
-    );
+        .is_ok());
 
     let check_name = |name: &str| {
         let subject_name_ref = ServerName::try_from(name).unwrap();
@@ -119,8 +117,8 @@ fn wpt() {
 
     let time = UnixTime::since_unix_epoch(Duration::from_secs(1_619_256_684)); // 2021-04-24T09:31:24Z
     let cert = webpki::EndEntityCert::try_from(&ee).unwrap();
-    assert!(
-        cert.verify_for_usage(
+    assert!(cert
+        .verify_for_usage(
             webpki::ALL_VERIFICATION_ALGS,
             &anchors,
             &[],
@@ -129,8 +127,7 @@ fn wpt() {
             None,
             None,
         )
-        .is_ok()
-    );
+        .is_ok());
 }
 
 #[test]
@@ -143,8 +140,8 @@ fn ed25519() {
     let time = UnixTime::since_unix_epoch(Duration::from_secs(1_547_363_522)); // 2019-01-13T07:12:02Z
 
     let cert = webpki::EndEntityCert::try_from(&ee).unwrap();
-    assert!(
-        cert.verify_for_usage(
+    assert!(cert
+        .verify_for_usage(
             webpki::ALL_VERIFICATION_ALGS,
             &anchors,
             &[],
@@ -153,8 +150,7 @@ fn ed25519() {
             None,
             None,
         )
-        .is_ok()
-    );
+        .is_ok());
 }
 
 #[test]
@@ -221,8 +217,8 @@ fn read_ee_with_neg_serial() {
     let time = UnixTime::since_unix_epoch(Duration::from_secs(1_667_401_500)); // 2022-11-02T15:05:00Z
 
     let cert = webpki::EndEntityCert::try_from(&ee).unwrap();
-    assert!(
-        cert.verify_for_usage(
+    assert!(cert
+        .verify_for_usage(
             webpki::ALL_VERIFICATION_ALGS,
             &anchors,
             &[],
@@ -231,8 +227,7 @@ fn read_ee_with_neg_serial() {
             None,
             None,
         )
-        .is_ok()
-    );
+        .is_ok());
 }
 
 #[test]
@@ -324,57 +319,4 @@ fn expect_cert_dns_names<'name>(
         .expect("should parse end entity certificate correctly");
 
     assert!(cert.valid_dns_names().eq(expected_names))
-}
-
-#[cfg(feature = "alloc")]
-#[test]
-fn cert_time_validity() {
-    let ee: &[u8] = include_bytes!("netflix/ee.der");
-    let inter = CertificateDer::from(&include_bytes!("netflix/inter.der")[..]);
-    let ca = CertificateDer::from(&include_bytes!("netflix/ca.der")[..]);
-
-    let anchors = [anchor_from_trusted_cert(&ca).unwrap()];
-
-    let not_before = UnixTime::since_unix_epoch(Duration::from_secs(1_478_563_200));
-    let not_after = UnixTime::since_unix_epoch(Duration::from_secs(1_541_203_199));
-
-    let just_before = UnixTime::since_unix_epoch(Duration::from_secs(not_before.as_secs() - 1));
-    let just_after = UnixTime::since_unix_epoch(Duration::from_secs(not_after.as_secs() + 1));
-
-    let ee = CertificateDer::from(ee);
-    let cert = webpki::EndEntityCert::try_from(&ee).unwrap();
-
-    assert_eq!(
-        cert.verify_for_usage(
-            webpki::ALL_VERIFICATION_ALGS,
-            &anchors,
-            &[inter.clone()],
-            just_before,
-            KeyUsage::server_auth(),
-            None,
-            None,
-        )
-        .err(),
-        Some(webpki::Error::CertNotValidYet {
-            time: just_before,
-            not_before
-        })
-    );
-
-    assert_eq!(
-        cert.verify_for_usage(
-            webpki::ALL_VERIFICATION_ALGS,
-            &anchors,
-            &[inter],
-            just_after,
-            KeyUsage::server_auth(),
-            None,
-            None,
-        )
-        .err(),
-        Some(webpki::Error::CertExpired {
-            time: just_after,
-            not_after
-        })
-    );
 }

@@ -102,8 +102,9 @@ fn do_encode_bench_slice(b: &mut Bencher, &size: &usize) {
 fn do_encode_bench_stream(b: &mut Bencher, &size: &usize) {
     let mut v: Vec<u8> = Vec::with_capacity(size);
     fill(&mut v);
-    let mut buf = Vec::with_capacity(size * 2);
+    let mut buf = Vec::new();
 
+    buf.reserve(size * 2);
     b.iter(|| {
         buf.clear();
         let mut stream_enc = write::EncoderWriter::new(&mut buf, &STANDARD);

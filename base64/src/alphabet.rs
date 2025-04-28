@@ -202,7 +202,7 @@ pub const IMAP_MUTF7: Alphabet = Alphabet::from_str_unchecked(
 ///
 /// See [BinHex 4.0 Definition](http://files.stairways.com/other/binhex-40-specs-info.txt)
 pub const BIN_HEX: Alphabet = Alphabet::from_str_unchecked(
-    "!\"#$%&'()*+,-012345689@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdefhijklmpqr",
+    "!\"#$%&'()*+,-0123456789@ABCDEFGHIJKLMNPQRSTUVXYZ[`abcdehijklmpqr",
 );
 
 #[cfg(test)]

@@ -11,31 +11,10 @@
 
 [package]
 edition = "2021"
-rust-version = "1.65"
+rust-version = "1.60"
 name = "chrono-tz"
-version = "0.10.3"
+version = "0.8.6"
 build = "build.rs"
-include = [
-    "src/*.rs",
-    "tests/*.rs",
-    "build.rs",
-    "LICENSE",
-    "tz/africa",
-    "tz/antarctica",
-    "tz/asia",
-    "tz/australasia",
-    "tz/backward",
-    "tz/etcetera",
-    "tz/europe",
-    "tz/northamerica",
-    "tz/southamerica",
-    "tz/NEWS",
-]
-autolib = false
-autobins = false
-autoexamples = false
-autotests = false
-autobenches = false
 description = "TimeZone implementations for chrono from the IANA database"
 documentation = "https://docs.rs/chrono-tz"
 readme = "README.md"
@@ -44,9 +23,8 @@ keywords = [
     "time",
     "timezone",
     "zone",
-    "iana",
+    "calendar",
 ]
-categories = ["date-and-time"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/chronotope/chrono-tz"
 
@@ -57,32 +35,13 @@ rustdoc-args = [
     "docsrs",
 ]
 
-[features]
-case-insensitive = [
-    "dep:uncased",
-    "chrono-tz-build/case-insensitive",
-    "phf/uncased",
-]
-default = ["std"]
-filter-by-regex = ["chrono-tz-build/filter-by-regex"]
-serde = ["dep:serde"]
-std = []
-
-[lib]
-name = "chrono_tz"
-path = "src/lib.rs"
-
-[[test]]
-name = "numberphile"
-path = "tests/numberphile.rs"
-
 [dependencies.arbitrary]
 version = "1.2"
 features = ["derive"]
 optional = true
 
 [dependencies.chrono]
-version = "0.4.25"
+version = "0.4.24"
 default-features = false
 
 [dependencies.phf]
@@ -90,7 +49,7 @@ version = "0.11"
 default-features = false
 
 [dependencies.serde]
-version = "1.0.99"
+version = "1"
 optional = true
 default-features = false
 
@@ -108,4 +67,15 @@ default-features = false
 version = "1"
 
 [build-dependencies.chrono-tz-build]
-version = "0.4"
+version = "0.2.1"
+
+[features]
+case-insensitive = [
+    "dep:uncased",
+    "chrono-tz-build/case-insensitive",
+    "phf/uncased",
+]
+default = ["std"]
+filter-by-regex = ["chrono-tz-build/filter-by-regex"]
+serde = ["dep:serde"]
+std = []

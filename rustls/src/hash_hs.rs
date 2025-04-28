@@ -1,19 +1,18 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::mem;
-
 use crate::crypto::hash;
 use crate::msgs::codec::Codec;
 use crate::msgs::enums::HashAlgorithm;
 use crate::msgs::handshake::HandshakeMessagePayload;
 use crate::msgs::message::{Message, MessagePayload};
 
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::mem;
+
 /// Early stage buffering of handshake payloads.
 ///
 /// Before we know the hash algorithm to use to verify the handshake, we just buffer the messages.
 /// During the handshake, we may restart the transcript due to a HelloRetryRequest, reverting
 /// from the `HandshakeHash` to a `HandshakeHashBuffer` again.
-#[derive(Clone)]
 pub(crate) struct HandshakeHashBuffer {
     buffer: Vec<u8>,
     client_auth_enabled: bool,
@@ -34,21 +33,21 @@ impl HandshakeHashBuffer {
     }
 
     /// Hash/buffer a handshake message.
-    pub(crate) fn add_message(&mut self, m: &Message<'_>) {
-        match &m.payload {
-            MessagePayload::Handshake { encoded, .. } => self.add_raw(encoded.bytes()),
-            MessagePayload::HandshakeFlight(payload) => self.add_raw(payload.bytes()),
-            _ => {}
-        };
+    pub(crate) fn add_message(&mut self, m: &Message) {
+        if let MessagePayload::Handshake { encoded, .. } = &m.payload {
+            self.buffer
+                .extend_from_slice(&encoded.0);
+        }
     }
 
     /// Hash or buffer a byte slice.
-    fn add_raw(&mut self, buf: &[u8]) {
+    #[cfg(all(test, any(feature = "ring", feature = "aws_lc_rs")))]
+    fn update_raw(&mut self, buf: &[u8]) {
         self.buffer.extend_from_slice(buf);
     }
 
     /// Get the hash value if we were to hash `extra` too.
-    pub(crate) fn hash_given(
+    pub(crate) fn get_hash_given(
         &self,
         provider: &'static dyn hash::Hash,
         extra: &[u8],
@@ -97,21 +96,15 @@ impl HandshakeHash {
     }
 
     /// Hash/buffer a handshake message.
-    pub(crate) fn add_message(&mut self, m: &Message<'_>) -> &mut Self {
-        match &m.payload {
-            MessagePayload::Handshake { encoded, .. } => self.add_raw(encoded.bytes()),
-            MessagePayload::HandshakeFlight(payload) => self.add_raw(payload.bytes()),
-            _ => self,
+    pub(crate) fn add_message(&mut self, m: &Message) -> &mut Self {
+        if let MessagePayload::Handshake { encoded, .. } = &m.payload {
+            self.update_raw(&encoded.0);
         }
-    }
-
-    /// Hash/buffer an encoded handshake message.
-    pub(crate) fn add(&mut self, bytes: &[u8]) {
-        self.add_raw(bytes);
+        self
     }
 
     /// Hash or buffer a byte slice.
-    fn add_raw(&mut self, buf: &[u8]) -> &mut Self {
+    fn update_raw(&mut self, buf: &[u8]) -> &mut Self {
         self.ctx.update(buf);
 
         if let Some(buffer) = &mut self.client_auth {
@@ -123,7 +116,7 @@ impl HandshakeHash {
 
     /// Get the hash value if we were to hash `extra` too,
     /// using hash function `hash`.
-    pub(crate) fn hash_given(&self, extra: &[u8]) -> hash::Output {
+    pub(crate) fn get_hash_given(&self, extra: &[u8]) -> hash::Output {
         let mut ctx = self.ctx.fork();
         ctx.update(extra);
         ctx.finish()
@@ -151,11 +144,11 @@ impl HandshakeHash {
         let old_handshake_hash_msg =
             HandshakeMessagePayload::build_handshake_hash(old_hash.as_ref());
 
-        self.add_raw(&old_handshake_hash_msg.get_encoding());
+        self.update_raw(&old_handshake_hash_msg.get_encoding());
     }
 
     /// Get the current hash value.
-    pub(crate) fn current_hash(&self) -> hash::Output {
+    pub(crate) fn get_current_hash(&self) -> hash::Output {
         self.ctx.fork_finish()
     }
 
@@ -173,35 +166,20 @@ impl HandshakeHash {
     }
 }
 
-impl Clone for HandshakeHash {
-    fn clone(&self) -> Self {
-        Self {
-            provider: self.provider,
-            ctx: self.ctx.fork(),
-            client_auth: self.client_auth.clone(),
-        }
-    }
-}
-
-#[cfg(test)]
-#[macro_rules_attribute::apply(test_for_each_provider)]
+#[cfg(all(test, any(feature = "ring", feature = "aws_lc_rs")))]
 mod tests {
-    use super::provider::hash::SHA256;
-    use super::*;
-    use crate::crypto::hash::Hash;
-    use crate::enums::{HandshakeType, ProtocolVersion};
-    use crate::msgs::base::Payload;
-    use crate::msgs::handshake::{HandshakeMessagePayload, HandshakePayload};
+    use super::HandshakeHashBuffer;
+    use crate::test_provider::hash::SHA256;
 
     #[test]
     fn hashes_correctly() {
         let mut hhb = HandshakeHashBuffer::new();
-        hhb.add_raw(b"hello");
+        hhb.update_raw(b"hello");
         assert_eq!(hhb.buffer.len(), 5);
         let mut hh = hhb.start_hash(&SHA256);
         assert!(hh.client_auth.is_none());
-        hh.add_raw(b"world");
-        let h = hh.current_hash();
+        hh.update_raw(b"world");
+        let h = hh.get_current_hash();
         let h = h.as_ref();
         assert_eq!(h[0], 0x93);
         assert_eq!(h[1], 0x6a);
@@ -209,60 +187,12 @@ mod tests {
         assert_eq!(h[3], 0x5c);
     }
 
-    #[test]
-    fn hashes_message_types() {
-        // handshake protocol encoding of 0x0e 00 00 00
-        let server_hello_done_message = Message {
-            version: ProtocolVersion::TLSv1_2,
-            payload: MessagePayload::handshake(HandshakeMessagePayload {
-                typ: HandshakeType::ServerHelloDone,
-                payload: HandshakePayload::ServerHelloDone,
-            }),
-        };
-
-        let app_data_ignored = Message {
-            version: ProtocolVersion::TLSv1_3,
-            payload: MessagePayload::ApplicationData(Payload::Borrowed(b"hello")),
-        };
-
-        let end_of_early_data_flight = Message {
-            version: ProtocolVersion::TLSv1_3,
-            payload: MessagePayload::HandshakeFlight(Payload::Borrowed(b"\x05\x00\x00\x00")),
-        };
-
-        // buffered mode
-        let mut hhb = HandshakeHashBuffer::new();
-        hhb.add_message(&server_hello_done_message);
-        hhb.add_message(&app_data_ignored);
-        hhb.add_message(&end_of_early_data_flight);
-        assert_eq!(
-            hhb.start_hash(&SHA256)
-                .current_hash()
-                .as_ref(),
-            SHA256
-                .hash(b"\x0e\x00\x00\x00\x05\x00\x00\x00")
-                .as_ref()
-        );
-
-        // non-buffered mode
-        let mut hh = HandshakeHashBuffer::new().start_hash(&SHA256);
-        hh.add_message(&server_hello_done_message);
-        hh.add_message(&app_data_ignored);
-        hh.add_message(&end_of_early_data_flight);
-        assert_eq!(
-            hh.current_hash().as_ref(),
-            SHA256
-                .hash(b"\x0e\x00\x00\x00\x05\x00\x00\x00")
-                .as_ref()
-        );
-    }
-
     #[cfg(feature = "tls12")]
     #[test]
     fn buffers_correctly() {
         let mut hhb = HandshakeHashBuffer::new();
         hhb.set_client_auth_enabled();
-        hhb.add_raw(b"hello");
+        hhb.update_raw(b"hello");
         assert_eq!(hhb.buffer.len(), 5);
         let mut hh = hhb.start_hash(&SHA256);
         assert_eq!(
@@ -271,14 +201,14 @@ mod tests {
                 .map(|buf| buf.len()),
             Some(5)
         );
-        hh.add_raw(b"world");
+        hh.update_raw(b"world");
         assert_eq!(
             hh.client_auth
                 .as_ref()
                 .map(|buf| buf.len()),
             Some(10)
         );
-        let h = hh.current_hash();
+        let h = hh.get_current_hash();
         let h = h.as_ref();
         assert_eq!(h[0], 0x93);
         assert_eq!(h[1], 0x6a);
@@ -292,7 +222,7 @@ mod tests {
     fn abandon() {
         let mut hhb = HandshakeHashBuffer::new();
         hhb.set_client_auth_enabled();
-        hhb.add_raw(b"hello");
+        hhb.update_raw(b"hello");
         assert_eq!(hhb.buffer.len(), 5);
         let mut hh = hhb.start_hash(&SHA256);
         assert_eq!(
@@ -303,46 +233,13 @@ mod tests {
         );
         hh.abandon_client_auth();
         assert_eq!(hh.client_auth, None);
-        hh.add_raw(b"world");
+        hh.update_raw(b"world");
         assert_eq!(hh.client_auth, None);
-        let h = hh.current_hash();
+        let h = hh.get_current_hash();
         let h = h.as_ref();
         assert_eq!(h[0], 0x93);
         assert_eq!(h[1], 0x6a);
         assert_eq!(h[2], 0x18);
         assert_eq!(h[3], 0x5c);
-    }
-
-    #[test]
-    fn clones_correctly() {
-        let mut hhb = HandshakeHashBuffer::new();
-        hhb.set_client_auth_enabled();
-        hhb.add_raw(b"hello");
-        assert_eq!(hhb.buffer.len(), 5);
-
-        // Cloning the HHB should result in the same buffer and client auth state.
-        let mut hhb_prime = hhb.clone();
-        assert_eq!(hhb_prime.buffer, hhb.buffer);
-        assert!(hhb_prime.client_auth_enabled);
-
-        // Updating the HHB clone shouldn't affect the original.
-        hhb_prime.add_raw(b"world");
-        assert_eq!(hhb_prime.buffer.len(), 10);
-        assert_ne!(hhb.buffer, hhb_prime.buffer);
-
-        let hh = hhb.start_hash(&SHA256);
-        let hh_hash = hh.current_hash();
-        let hh_hash = hh_hash.as_ref();
-
-        // Cloning the HH should result in the same current hash.
-        let mut hh_prime = hh.clone();
-        let hh_prime_hash = hh_prime.current_hash();
-        let hh_prime_hash = hh_prime_hash.as_ref();
-        assert_eq!(hh_hash, hh_prime_hash);
-
-        // Updating the HH clone shouldn't affect the original.
-        hh_prime.add_raw(b"goodbye");
-        assert_eq!(hh.current_hash().as_ref(), hh_hash);
-        assert_ne!(hh_prime.current_hash().as_ref(), hh_hash);
     }
 }
