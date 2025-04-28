@@ -1,11 +1,12 @@
 #![allow(clippy::duplicate_mod)]
 
-use alloc::boxed::Box;
-
-use super::ring_like::aead;
 use crate::crypto::cipher::{AeadKey, Iv, Nonce};
 use crate::error::Error;
 use crate::quic;
+
+use alloc::boxed::Box;
+
+use super::ring_like::aead;
 
 pub(crate) struct HeaderProtectionKey(aead::quic::HeaderProtectionKey);
 
@@ -99,27 +100,15 @@ pub(crate) struct PacketKey {
     key: aead::LessSafeKey,
     /// Computes unique nonces for each packet
     iv: Iv,
-    /// Confidentiality limit (see [`quic::PacketKey::confidentiality_limit`])
-    confidentiality_limit: u64,
-    /// Integrity limit (see [`quic::PacketKey::integrity_limit`])
-    integrity_limit: u64,
 }
 
 impl PacketKey {
-    pub(crate) fn new(
-        key: AeadKey,
-        iv: Iv,
-        confidentiality_limit: u64,
-        integrity_limit: u64,
-        aead_algorithm: &'static aead::Algorithm,
-    ) -> Self {
+    pub(crate) fn new(key: AeadKey, iv: Iv, aead_algorithm: &'static aead::Algorithm) -> Self {
         Self {
             key: aead::LessSafeKey::new(
                 aead::UnboundKey::new(aead_algorithm, key.as_ref()).unwrap(),
             ),
             iv,
-            confidentiality_limit,
-            integrity_limit,
         }
     }
 }
@@ -169,60 +158,36 @@ impl quic::PacketKey for PacketKey {
     fn tag_len(&self) -> usize {
         self.key.algorithm().tag_len()
     }
-
-    /// Confidentiality limit (see [`quic::PacketKey::confidentiality_limit`])
-    fn confidentiality_limit(&self) -> u64 {
-        self.confidentiality_limit
-    }
-
-    /// Integrity limit (see [`quic::PacketKey::integrity_limit`])
-    fn integrity_limit(&self) -> u64 {
-        self.integrity_limit
-    }
 }
 
-pub(crate) struct KeyBuilder {
-    pub(crate) packet_alg: &'static aead::Algorithm,
-    pub(crate) header_alg: &'static aead::quic::Algorithm,
-    pub(crate) confidentiality_limit: u64,
-    pub(crate) integrity_limit: u64,
-}
+pub(crate) struct KeyBuilder(
+    pub(crate) &'static aead::Algorithm,
+    pub(crate) &'static aead::quic::Algorithm,
+);
 
 impl quic::Algorithm for KeyBuilder {
     fn packet_key(&self, key: AeadKey, iv: Iv) -> Box<dyn quic::PacketKey> {
-        Box::new(PacketKey::new(
-            key,
-            iv,
-            self.confidentiality_limit,
-            self.integrity_limit,
-            self.packet_alg,
-        ))
+        Box::new(PacketKey::new(key, iv, self.0))
     }
 
     fn header_protection_key(&self, key: AeadKey) -> Box<dyn quic::HeaderProtectionKey> {
-        Box::new(HeaderProtectionKey::new(key, self.header_alg))
+        Box::new(HeaderProtectionKey::new(key, self.1))
     }
 
     fn aead_key_len(&self) -> usize {
-        self.packet_alg.key_len()
-    }
-
-    fn fips(&self) -> bool {
-        super::fips()
+        self.0.key_len()
     }
 }
 
 #[cfg(test)]
-#[macro_rules_attribute::apply(test_for_each_provider)]
 mod tests {
-    use std::dbg;
-
-    use super::provider::tls13::{
-        TLS13_AES_128_GCM_SHA256_INTERNAL, TLS13_CHACHA20_POLY1305_SHA256_INTERNAL,
-    };
     use crate::common_state::Side;
     use crate::crypto::tls13::OkmBlock;
     use crate::quic::*;
+    use crate::test_provider::tls13::{
+        TLS13_AES_128_GCM_SHA256_INTERNAL, TLS13_CHACHA20_POLY1305_SHA256_INTERNAL,
+    };
+    use std::dbg;
 
     fn test_short_packet(version: Version, expected: &[u8]) {
         const PN: u64 = 654360564;

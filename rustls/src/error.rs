@@ -1,14 +1,14 @@
+use crate::enums::{AlertDescription, ContentType, HandshakeType};
+use crate::msgs::handshake::KeyExchangeAlgorithm;
+use crate::rand;
+
 use alloc::format;
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
-use pki_types::{ServerName, UnixTime};
-#[cfg(feature = "std")]
+use std::error::Error as StdError;
 use std::time::SystemTimeError;
-
-use crate::enums::{AlertDescription, ContentType, HandshakeType};
-use crate::msgs::handshake::{EchConfigPayload, KeyExchangeAlgorithm};
-use crate::rand;
 
 /// rustls reports protocol errors using this type.
 #[non_exhaustive]
@@ -35,9 +35,6 @@ pub enum Error {
         /// What handshake type we received
         got_type: HandshakeType,
     },
-
-    /// An error occurred while handling Encrypted Client Hello (ECH).
-    InvalidEncryptedClientHello(EncryptedClientHelloError),
 
     /// The peer sent us a TLS message with invalid contents.
     InvalidMessage(InvalidMessage),
@@ -98,11 +95,6 @@ pub enum Error {
     /// or too large.
     BadMaxFragmentSize,
 
-    /// Specific failure cases from [`keys_match`] or a [`crate::crypto::signer::SigningKey`] that cannot produce a corresponding public key.
-    ///
-    /// [`keys_match`]: crate::crypto::signer::CertifiedKey::keys_match
-    InconsistentKeys(InconsistentKeys),
-
     /// Any other error.
     ///
     /// This variant should only be used when the error is not better described by a more
@@ -113,37 +105,11 @@ pub enum Error {
     Other(OtherError),
 }
 
-/// Specific failure cases from [`keys_match`] or a [`crate::crypto::signer::SigningKey`] that cannot produce a corresponding public key.
-///
-/// [`keys_match`]: crate::crypto::signer::CertifiedKey::keys_match
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum InconsistentKeys {
-    /// The public key returned by the [`SigningKey`] does not match the public key information in the certificate.
-    ///
-    /// [`SigningKey`]: crate::crypto::signer::SigningKey
-    KeyMismatch,
-
-    /// The [`SigningKey`] cannot produce its corresponding public key.
-    ///
-    /// [`SigningKey`]: crate::crypto::signer::SigningKey
-    Unknown,
-}
-
-impl From<InconsistentKeys> for Error {
-    #[inline]
-    fn from(e: InconsistentKeys) -> Self {
-        Self::InconsistentKeys(e)
-    }
-}
-
 /// A corrupt TLS message payload that resulted in an error.
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq)]
 
 pub enum InvalidMessage {
-    /// A certificate payload exceeded rustls's 64KB limit
-    CertificatePayloadTooLarge,
     /// An advertised message was larger then expected.
     HandshakePayloadTooLarge,
     /// The peer sent us a syntactically incorrect ChangeCipherSpec payload.
@@ -227,11 +193,9 @@ pub enum PeerMisbehaved {
     IllegalHelloRetryRequestWithUnofferedNamedGroup,
     IllegalHelloRetryRequestWithUnsupportedVersion,
     IllegalHelloRetryRequestWithWrongSessionId,
-    IllegalHelloRetryRequestWithInvalidEch,
     IllegalMiddleboxChangeCipherSpec,
     IllegalTlsInnerPlaintext,
     IncorrectBinder,
-    InvalidCertCompression,
     InvalidMaxEarlyDataSize,
     InvalidKeyShare,
     KeyEpochWithPendingFragment,
@@ -241,7 +205,6 @@ pub enum PeerMisbehaved {
     MissingKeyShare,
     MissingPskModesExtension,
     MissingQuicTransportParameters,
-    OfferedDuplicateCertificateCompressions,
     OfferedDuplicateKeyShares,
     OfferedEarlyDataWithOldProtocolVersion,
     OfferedEmptyApplicationProtocol,
@@ -258,22 +221,16 @@ pub enum PeerMisbehaved {
     SelectedInvalidPsk,
     SelectedTls12UsingTls13VersionExtension,
     SelectedUnofferedApplicationProtocol,
-    SelectedUnofferedCertCompression,
     SelectedUnofferedCipherSuite,
     SelectedUnofferedCompression,
     SelectedUnofferedKxGroup,
     SelectedUnofferedPsk,
     SelectedUnusableCipherSuiteForVersion,
-    ServerEchoedCompatibilitySessionId,
     ServerHelloMustOfferUncompressedEcPoints,
     ServerNameDifferedOnRetry,
     ServerNameMustContainOneHostName,
     SignedKxWithWrongAlgorithm,
     SignedHandshakeWithUnadvertisedSigScheme,
-    TooManyEmptyFragments,
-    TooManyKeyUpdateRequests,
-    TooManyRenegotiationRequests,
-    TooManyWarningAlertsReceived,
     TooMuchEarlyDataReceived,
     UnexpectedCleartextExtension,
     UnsolicitedCertExtension,
@@ -281,7 +238,6 @@ pub enum PeerMisbehaved {
     UnsolicitedSctList,
     UnsolicitedServerHelloExtension,
     WrongGroupForKeyShare,
-    UnsolicitedEchExtension,
 }
 
 impl From<PeerMisbehaved> for Error {
@@ -301,8 +257,6 @@ impl From<PeerMisbehaved> for Error {
 /// versions.
 pub enum PeerIncompatible {
     EcPointsExtensionRequired,
-    ExtendedMasterSecretExtensionRequired,
-    IncorrectCertificateTypeExtension,
     KeyShareExtensionRequired,
     NamedGroupsExtensionRequired,
     NoCertificateRequestSignatureSchemesInCommon,
@@ -320,8 +274,6 @@ pub enum PeerIncompatible {
     Tls12NotOfferedOrEnabled,
     Tls13RequiredForQuic,
     UncompressedEcPointsRequired,
-    UnsolicitedCertificateTypeExtension,
-    ServerRejectedEncryptedClientHello(Option<Vec<EchConfigPayload>>),
 }
 
 impl From<PeerIncompatible> for Error {
@@ -347,30 +299,8 @@ pub enum CertificateError {
     /// The current time is after the `notAfter` time in the certificate.
     Expired,
 
-    /// The current time is after the `notAfter` time in the certificate.
-    ///
-    /// This variant is semantically the same as `Expired`, but includes
-    /// extra data to improve error reports.
-    ExpiredContext {
-        /// The validation time.
-        time: UnixTime,
-        /// The `notAfter` time of the certificate.
-        not_after: UnixTime,
-    },
-
     /// The current time is before the `notBefore` time in the certificate.
     NotValidYet,
-
-    /// The current time is before the `notBefore` time in the certificate.
-    ///
-    /// This variant is semantically the same as `NotValidYet`, but includes
-    /// extra data to improve error reports.
-    NotValidYetContext {
-        /// The validation time.
-        time: UnixTime,
-        /// The `notBefore` time of the certificate.
-        not_before: UnixTime,
-    },
 
     /// The certificate has been revoked.
     Revoked,
@@ -385,20 +315,6 @@ pub enum CertificateError {
     /// The certificate's revocation status could not be determined.
     UnknownRevocationStatus,
 
-    /// The certificate's revocation status could not be determined, because the CRL is expired.
-    ExpiredRevocationList,
-
-    /// The certificate's revocation status could not be determined, because the CRL is expired.
-    ///
-    /// This variant is semantically the same as `ExpiredRevocationList`, but includes
-    /// extra data to improve error reports.
-    ExpiredRevocationListContext {
-        /// The validation time.
-        time: UnixTime,
-        /// The nextUpdate time of the CRL.
-        next_update: UnixTime,
-    },
-
     /// A certificate is not correctly signed by the key of its alleged
     /// issuer.
     BadSignature,
@@ -406,22 +322,6 @@ pub enum CertificateError {
     /// The subject names in an end-entity certificate do not include
     /// the expected name.
     NotValidForName,
-
-    /// The subject names in an end-entity certificate do not include
-    /// the expected name.
-    ///
-    /// This variant is semantically the same as `NotValidForName`, but includes
-    /// extra data to improve error reports.
-    NotValidForNameContext {
-        /// Expected server name.
-        expected: ServerName<'static>,
-
-        /// The names presented in the end entity certificate.
-        ///
-        /// These are the subject names as present in the leaf certificate and may contain DNS names
-        /// with or without a wildcard label as well as IP address names.
-        presented: Vec<String>,
-    },
 
     /// The certificate is being used for a different purpose than allowed.
     InvalidPurpose,
@@ -450,56 +350,14 @@ impl PartialEq<Self> for CertificateError {
         match (self, other) {
             (BadEncoding, BadEncoding) => true,
             (Expired, Expired) => true,
-            (
-                ExpiredContext {
-                    time: left_time,
-                    not_after: left_not_after,
-                },
-                ExpiredContext {
-                    time: right_time,
-                    not_after: right_not_after,
-                },
-            ) => (left_time, left_not_after) == (right_time, right_not_after),
             (NotValidYet, NotValidYet) => true,
-            (
-                NotValidYetContext {
-                    time: left_time,
-                    not_before: left_not_before,
-                },
-                NotValidYetContext {
-                    time: right_time,
-                    not_before: right_not_before,
-                },
-            ) => (left_time, left_not_before) == (right_time, right_not_before),
             (Revoked, Revoked) => true,
             (UnhandledCriticalExtension, UnhandledCriticalExtension) => true,
             (UnknownIssuer, UnknownIssuer) => true,
             (BadSignature, BadSignature) => true,
             (NotValidForName, NotValidForName) => true,
-            (
-                NotValidForNameContext {
-                    expected: left_expected,
-                    presented: left_presented,
-                },
-                NotValidForNameContext {
-                    expected: right_expected,
-                    presented: right_presented,
-                },
-            ) => (left_expected, left_presented) == (right_expected, right_presented),
             (InvalidPurpose, InvalidPurpose) => true,
             (ApplicationVerificationFailure, ApplicationVerificationFailure) => true,
-            (UnknownRevocationStatus, UnknownRevocationStatus) => true,
-            (ExpiredRevocationList, ExpiredRevocationList) => true,
-            (
-                ExpiredRevocationListContext {
-                    time: left_time,
-                    next_update: left_next_update,
-                },
-                ExpiredRevocationListContext {
-                    time: right_time,
-                    next_update: right_next_update,
-                },
-            ) => (left_time, left_next_update) == (right_time, right_next_update),
             _ => false,
         }
     }
@@ -512,23 +370,15 @@ impl From<CertificateError> for AlertDescription {
     fn from(e: CertificateError) -> Self {
         use CertificateError::*;
         match e {
-            BadEncoding
-            | UnhandledCriticalExtension
-            | NotValidForName
-            | NotValidForNameContext { .. } => Self::BadCertificate,
+            BadEncoding | UnhandledCriticalExtension | NotValidForName => Self::BadCertificate,
             // RFC 5246/RFC 8446
             // certificate_expired
             //  A certificate has expired or **is not currently valid**.
-            Expired | ExpiredContext { .. } | NotValidYet | NotValidYetContext { .. } => {
-                Self::CertificateExpired
-            }
+            Expired | NotValidYet => Self::CertificateExpired,
             Revoked => Self::CertificateRevoked,
             // OpenSSL, BoringSSL and AWS-LC all generate an Unknown CA alert for
             // the case where revocation status can not be determined, so we do the same here.
-            UnknownIssuer
-            | UnknownRevocationStatus
-            | ExpiredRevocationList
-            | ExpiredRevocationListContext { .. } => Self::UnknownCA,
+            UnknownIssuer | UnknownRevocationStatus => Self::UnknownCA,
             BadSignature => Self::DecryptError,
             InvalidPurpose => Self::UnsupportedCertificate,
             ApplicationVerificationFailure => Self::AccessDenied,
@@ -536,85 +386,7 @@ impl From<CertificateError> for AlertDescription {
             // certificate_unknown
             //  Some other (unspecified) issue arose in processing the
             //  certificate, rendering it unacceptable.
-            Other(..) => Self::CertificateUnknown,
-        }
-    }
-}
-
-impl fmt::Display for CertificateError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            #[cfg(feature = "std")]
-            Self::NotValidForNameContext {
-                expected,
-                presented,
-            } => {
-                write!(
-                    f,
-                    "certificate not valid for name {:?}; certificate ",
-                    expected.to_str()
-                )?;
-
-                match presented.as_slice() {
-                    &[] => write!(
-                        f,
-                        "is not valid for any names (according to its subjectAltName extension)"
-                    ),
-                    [one] => write!(f, "is only valid for {}", one),
-                    many => {
-                        write!(f, "is only valid for ")?;
-
-                        let n = many.len();
-                        let all_but_last = &many[..n - 1];
-                        let last = &many[n - 1];
-
-                        for (i, name) in all_but_last.iter().enumerate() {
-                            write!(f, "{}", name)?;
-                            if i < n - 2 {
-                                write!(f, ", ")?;
-                            }
-                        }
-                        write!(f, " or {}", last)
-                    }
-                }
-            }
-
-            Self::ExpiredContext { time, not_after } => write!(
-                f,
-                "certificate expired: verification time {} (UNIX), \
-                 but certificate is not valid after {} \
-                 ({} seconds ago)",
-                time.as_secs(),
-                not_after.as_secs(),
-                time.as_secs()
-                    .saturating_sub(not_after.as_secs())
-            ),
-
-            Self::NotValidYetContext { time, not_before } => write!(
-                f,
-                "certificate not valid yet: verification time {} (UNIX), \
-                 but certificate is not valid before {} \
-                 ({} seconds in future)",
-                time.as_secs(),
-                not_before.as_secs(),
-                not_before
-                    .as_secs()
-                    .saturating_sub(time.as_secs())
-            ),
-
-            Self::ExpiredRevocationListContext { time, next_update } => write!(
-                f,
-                "certificate revocation list expired: \
-                 verification time {} (UNIX), \
-                 but CRL is not valid after {} \
-                 ({} seconds ago)",
-                time.as_secs(),
-                next_update.as_secs(),
-                time.as_secs()
-                    .saturating_sub(next_update.as_secs())
-            ),
-
-            other => write!(f, "{:?}", other),
+            Other(_) => Self::CertificateUnknown,
         }
     }
 }
@@ -697,25 +469,6 @@ impl From<CertRevocationListError> for Error {
     }
 }
 
-#[non_exhaustive]
-#[derive(Debug, Clone, Eq, PartialEq)]
-/// An error that occurred while handling Encrypted Client Hello (ECH).
-pub enum EncryptedClientHelloError {
-    /// The provided ECH configuration list was invalid.
-    InvalidConfigList,
-    /// No compatible ECH configuration.
-    NoCompatibleConfig,
-    /// The client configuration has server name indication (SNI) disabled.
-    SniRequired,
-}
-
-impl From<EncryptedClientHelloError> for Error {
-    #[inline]
-    fn from(e: EncryptedClientHelloError) -> Self {
-        Self::InvalidEncryptedClientHello(e)
-    }
-}
-
 fn join<T: fmt::Debug>(items: &[T]) -> String {
     items
         .iter()
@@ -725,11 +478,11 @@ fn join<T: fmt::Debug>(items: &[T]) -> String {
 }
 
 impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
             Self::InappropriateMessage {
-                expect_types,
-                got_type,
+                ref expect_types,
+                ref got_type,
             } => write!(
                 f,
                 "received unexpected message: got {:?} when expecting {}",
@@ -737,32 +490,29 @@ impl fmt::Display for Error {
                 join::<ContentType>(expect_types)
             ),
             Self::InappropriateHandshakeMessage {
-                expect_types,
-                got_type,
+                ref expect_types,
+                ref got_type,
             } => write!(
                 f,
                 "received unexpected handshake message: got {:?} when expecting {}",
                 got_type,
                 join::<HandshakeType>(expect_types)
             ),
-            Self::InvalidMessage(typ) => {
+            Self::InvalidMessage(ref typ) => {
                 write!(f, "received corrupt message of type {:?}", typ)
             }
-            Self::PeerIncompatible(why) => write!(f, "peer is incompatible: {:?}", why),
-            Self::PeerMisbehaved(why) => write!(f, "peer misbehaved: {:?}", why),
-            Self::AlertReceived(alert) => write!(f, "received fatal alert: {:?}", alert),
-            Self::InvalidCertificate(err) => {
-                write!(f, "invalid peer certificate: {}", err)
+            Self::PeerIncompatible(ref why) => write!(f, "peer is incompatible: {:?}", why),
+            Self::PeerMisbehaved(ref why) => write!(f, "peer misbehaved: {:?}", why),
+            Self::AlertReceived(ref alert) => write!(f, "received fatal alert: {:?}", alert),
+            Self::InvalidCertificate(ref err) => {
+                write!(f, "invalid peer certificate: {:?}", err)
             }
-            Self::InvalidCertRevocationList(err) => {
+            Self::InvalidCertRevocationList(ref err) => {
                 write!(f, "invalid certificate revocation list: {:?}", err)
             }
             Self::NoCertificatesPresented => write!(f, "peer sent no certificates"),
             Self::UnsupportedNameType => write!(f, "presented server name type wasn't supported"),
             Self::DecryptError => write!(f, "cannot decrypt peer's message"),
-            Self::InvalidEncryptedClientHello(err) => {
-                write!(f, "encrypted client hello failure: {:?}", err)
-            }
             Self::EncryptError => write!(f, "cannot encrypt message"),
             Self::PeerSentOversizedRecord => write!(f, "peer sent excess record size"),
             Self::HandshakeNotComplete => write!(f, "handshake not complete"),
@@ -772,16 +522,12 @@ impl fmt::Display for Error {
             Self::BadMaxFragmentSize => {
                 write!(f, "the supplied max_fragment_size was too small or large")
             }
-            Self::InconsistentKeys(why) => {
-                write!(f, "keys may not be consistent: {:?}", why)
-            }
-            Self::General(err) => write!(f, "unexpected error: {}", err),
-            Self::Other(err) => write!(f, "other error: {}", err),
+            Self::General(ref err) => write!(f, "unexpected error: {}", err),
+            Self::Other(ref err) => write!(f, "other error: {}", err),
         }
     }
 }
 
-#[cfg(feature = "std")]
 impl From<SystemTimeError> for Error {
     #[inline]
     fn from(_: SystemTimeError) -> Self {
@@ -789,8 +535,7 @@ impl From<SystemTimeError> for Error {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for Error {}
+impl StdError for Error {}
 
 impl From<rand::GetRandomFailed> for Error {
     fn from(_: rand::GetRandomFailed) -> Self {
@@ -798,176 +543,63 @@ impl From<rand::GetRandomFailed> for Error {
     }
 }
 
-mod other_error {
-    use core::fmt;
-    #[cfg(feature = "std")]
-    use std::error::Error as StdError;
+/// Any other error that cannot be expressed by a more specific [`Error`] variant.
+///
+/// For example, an `OtherError` could be produced by a custom crypto provider
+/// exposing a provider specific error.
+///
+/// Enums holding this type will never compare equal to each other.
+#[derive(Debug, Clone)]
+pub struct OtherError(pub Arc<dyn StdError + Send + Sync>);
 
-    use super::Error;
-    #[cfg(feature = "std")]
-    use crate::sync::Arc;
-
-    /// Any other error that cannot be expressed by a more specific [`Error`] variant.
-    ///
-    /// For example, an `OtherError` could be produced by a custom crypto provider
-    /// exposing a provider specific error.
-    ///
-    /// Enums holding this type will never compare equal to each other.
-    #[derive(Debug, Clone)]
-    pub struct OtherError(#[cfg(feature = "std")] pub Arc<dyn StdError + Send + Sync>);
-
-    impl PartialEq<Self> for OtherError {
-        fn eq(&self, _other: &Self) -> bool {
-            false
-        }
-    }
-
-    impl From<OtherError> for Error {
-        fn from(value: OtherError) -> Self {
-            Self::Other(value)
-        }
-    }
-
-    impl fmt::Display for OtherError {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            #[cfg(feature = "std")]
-            {
-                write!(f, "{}", self.0)
-            }
-            #[cfg(not(feature = "std"))]
-            {
-                f.write_str("no further information available")
-            }
-        }
-    }
-
-    #[cfg(feature = "std")]
-    impl StdError for OtherError {
-        fn source(&self) -> Option<&(dyn StdError + 'static)> {
-            Some(self.0.as_ref())
-        }
+impl PartialEq<Self> for OtherError {
+    fn eq(&self, _other: &Self) -> bool {
+        false
     }
 }
 
-pub use other_error::OtherError;
+impl From<OtherError> for Error {
+    fn from(value: OtherError) -> Self {
+        Self::Other(value)
+    }
+}
+
+impl fmt::Display for OtherError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl StdError for OtherError {
+    fn source(&self) -> Option<&(dyn StdError + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use core::time::Duration;
+    use super::{Error, InvalidMessage};
+    use crate::error::{CertRevocationListError, OtherError};
     use std::prelude::v1::*;
     use std::{println, vec};
-
-    use super::{
-        CertRevocationListError, Error, InconsistentKeys, InvalidMessage, OtherError, UnixTime,
-    };
-    #[cfg(feature = "std")]
-    use crate::sync::Arc;
-    use pki_types::ServerName;
 
     #[test]
     fn certificate_error_equality() {
         use super::CertificateError::*;
         assert_eq!(BadEncoding, BadEncoding);
         assert_eq!(Expired, Expired);
-        let context = ExpiredContext {
-            time: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-            not_after: UnixTime::since_unix_epoch(Duration::from_secs(123)),
-        };
-        assert_eq!(context, context);
-        assert_ne!(
-            context,
-            ExpiredContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(12345)),
-                not_after: UnixTime::since_unix_epoch(Duration::from_secs(123)),
-            }
-        );
-        assert_ne!(
-            context,
-            ExpiredContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-                not_after: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-            }
-        );
         assert_eq!(NotValidYet, NotValidYet);
-        let context = NotValidYetContext {
-            time: UnixTime::since_unix_epoch(Duration::from_secs(123)),
-            not_before: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-        };
-        assert_eq!(context, context);
-        assert_ne!(
-            context,
-            NotValidYetContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-                not_before: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-            }
-        );
-        assert_ne!(
-            context,
-            NotValidYetContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(123)),
-                not_before: UnixTime::since_unix_epoch(Duration::from_secs(12345)),
-            }
-        );
         assert_eq!(Revoked, Revoked);
         assert_eq!(UnhandledCriticalExtension, UnhandledCriticalExtension);
         assert_eq!(UnknownIssuer, UnknownIssuer);
-        assert_eq!(ExpiredRevocationList, ExpiredRevocationList);
-        assert_eq!(UnknownRevocationStatus, UnknownRevocationStatus);
-        let context = ExpiredRevocationListContext {
-            time: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-            next_update: UnixTime::since_unix_epoch(Duration::from_secs(123)),
-        };
-        assert_eq!(context, context);
-        assert_ne!(
-            context,
-            ExpiredRevocationListContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(12345)),
-                next_update: UnixTime::since_unix_epoch(Duration::from_secs(123)),
-            }
-        );
-        assert_ne!(
-            context,
-            ExpiredRevocationListContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-                next_update: UnixTime::since_unix_epoch(Duration::from_secs(1234)),
-            }
-        );
         assert_eq!(BadSignature, BadSignature);
         assert_eq!(NotValidForName, NotValidForName);
-        let context = NotValidForNameContext {
-            expected: ServerName::try_from("example.com")
-                .unwrap()
-                .to_owned(),
-            presented: vec!["other.com".into()],
-        };
-        assert_eq!(context, context);
-        assert_ne!(
-            context,
-            NotValidForNameContext {
-                expected: ServerName::try_from("example.com")
-                    .unwrap()
-                    .to_owned(),
-                presented: vec![]
-            }
-        );
-        assert_ne!(
-            context,
-            NotValidForNameContext {
-                expected: ServerName::try_from("huh.com")
-                    .unwrap()
-                    .to_owned(),
-                presented: vec!["other.com".into()],
-            }
-        );
         assert_eq!(InvalidPurpose, InvalidPurpose);
         assert_eq!(
             ApplicationVerificationFailure,
             ApplicationVerificationFailure
         );
-        let other = Other(OtherError(
-            #[cfg(feature = "std")]
-            Arc::from(Box::from("")),
-        ));
+        let other = Other(OtherError(alloc::sync::Arc::from(Box::from(""))));
         assert_ne!(other, other);
         assert_ne!(BadEncoding, Expired);
     }
@@ -988,18 +620,14 @@ mod tests {
         assert_eq!(UnsupportedDeltaCrl, UnsupportedDeltaCrl);
         assert_eq!(UnsupportedIndirectCrl, UnsupportedIndirectCrl);
         assert_eq!(UnsupportedRevocationReason, UnsupportedRevocationReason);
-        let other = Other(OtherError(
-            #[cfg(feature = "std")]
-            Arc::from(Box::from("")),
-        ));
+        let other = Other(OtherError(alloc::sync::Arc::from(Box::from(""))));
         assert_ne!(other, other);
         assert_ne!(BadSignature, InvalidCrlNumber);
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn other_error_equality() {
-        let other_error = OtherError(Arc::from(Box::from("")));
+        let other_error = OtherError(alloc::sync::Arc::from(Box::from("")));
         assert_ne!(other_error, other_error);
         let other: Error = other_error.into();
         assert_ne!(other, other);
@@ -1025,45 +653,6 @@ mod tests {
             super::PeerMisbehaved::UnsolicitedCertExtension.into(),
             Error::AlertReceived(AlertDescription::ExportRestriction),
             super::CertificateError::Expired.into(),
-            super::CertificateError::NotValidForNameContext {
-                expected: ServerName::try_from("example.com")
-                    .unwrap()
-                    .to_owned(),
-                presented: vec![],
-            }
-            .into(),
-            super::CertificateError::NotValidForNameContext {
-                expected: ServerName::try_from("example.com")
-                    .unwrap()
-                    .to_owned(),
-                presented: vec!["DnsName(\"hello.com\")".into()],
-            }
-            .into(),
-            super::CertificateError::NotValidForNameContext {
-                expected: ServerName::try_from("example.com")
-                    .unwrap()
-                    .to_owned(),
-                presented: vec![
-                    "DnsName(\"hello.com\")".into(),
-                    "DnsName(\"goodbye.com\")".into(),
-                ],
-            }
-            .into(),
-            super::CertificateError::NotValidYetContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(300)),
-                not_before: UnixTime::since_unix_epoch(Duration::from_secs(320)),
-            }
-            .into(),
-            super::CertificateError::ExpiredContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(320)),
-                not_after: UnixTime::since_unix_epoch(Duration::from_secs(300)),
-            }
-            .into(),
-            super::CertificateError::ExpiredRevocationListContext {
-                time: UnixTime::since_unix_epoch(Duration::from_secs(320)),
-                next_update: UnixTime::since_unix_epoch(Duration::from_secs(300)),
-            }
-            .into(),
             Error::General("undocumented error".to_string()),
             Error::FailedToGetCurrentTime,
             Error::FailedToGetRandomBytes,
@@ -1071,13 +660,8 @@ mod tests {
             Error::PeerSentOversizedRecord,
             Error::NoApplicationProtocol,
             Error::BadMaxFragmentSize,
-            Error::InconsistentKeys(InconsistentKeys::KeyMismatch),
-            Error::InconsistentKeys(InconsistentKeys::Unknown),
             Error::InvalidCertRevocationList(CertRevocationListError::BadSignature),
-            Error::Other(OtherError(
-                #[cfg(feature = "std")]
-                Arc::from(Box::from("")),
-            )),
+            Error::Other(OtherError(alloc::sync::Arc::from(Box::from("")))),
         ];
 
         for err in all {
@@ -1093,7 +677,6 @@ mod tests {
         assert_eq!(err, Error::FailedToGetRandomBytes);
     }
 
-    #[cfg(feature = "std")]
     #[test]
     fn time_error_mapping() {
         use std::time::SystemTime;

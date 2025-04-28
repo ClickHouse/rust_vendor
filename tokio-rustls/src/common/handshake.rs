@@ -4,11 +4,10 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::{io, mem};
 
-use rustls::server::AcceptedAlert;
 use rustls::{ConnectionCommon, SideData};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::common::{Stream, SyncWriteAdapter, TlsState};
+use crate::common::{Stream, TlsState};
 
 pub(crate) trait IoSession {
     type Io;
@@ -22,15 +21,7 @@ pub(crate) trait IoSession {
 pub(crate) enum MidHandshake<IS: IoSession> {
     Handshaking(IS),
     End,
-    SendAlert {
-        io: IS::Io,
-        alert: AcceptedAlert,
-        error: io::Error,
-    },
-    Error {
-        io: IS::Io,
-        error: io::Error,
-    },
+    Error { io: IS::Io, error: io::Error },
 }
 
 impl<IS, SD> Future for MidHandshake<IS>
@@ -47,20 +38,6 @@ where
 
         let mut stream = match mem::replace(this, MidHandshake::End) {
             MidHandshake::Handshaking(stream) => stream,
-            MidHandshake::SendAlert {
-                mut io,
-                mut alert,
-                error,
-            } => loop {
-                match alert.write(&mut SyncWriteAdapter { io: &mut io, cx }) {
-                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                        *this = MidHandshake::SendAlert { io, error, alert };
-                        return Poll::Pending;
-                    }
-                    Err(_) | Ok(0) => return Poll::Ready(Err((error, io))),
-                    Ok(_) => {}
-                };
-            },
             // Starting the handshake returned an error; fail the future immediately.
             MidHandshake::Error { io, error } => return Poll::Ready(Err((error, io))),
             _ => panic!("unexpected polling after handshake"),

@@ -2,11 +2,7 @@
 //! and adaptors.
 //!
 //! In particular we test the tedious size_hint and exact size correctness.
-//!
-//! **NOTE:** Due to performance limitations, these tests are not run with miri!
-//! They cannot be relied upon to discover soundness issues.
 
-#![cfg(not(miri))]
 #![allow(deprecated, unstable_name_collisions)]
 
 use itertools::free::{
@@ -257,6 +253,7 @@ where
         let mut it = get_it();
 
         for _ in 0..(counts.len() - 1) {
+            #[allow(clippy::manual_assert)]
             if it.next().is_none() {
                 panic!("Iterator shouldn't be finished, may not be deterministic");
             }
@@ -1515,12 +1512,13 @@ quickcheck! {
                 acc + val
             });
 
+        // TODO: Swap `fold1` with stdlib's `reduce` when it's stabilized
         let group_map_lookup = a.iter()
             .map(|&b| b as u64)
             .map(|i| (i % modulo, i))
             .into_group_map()
             .into_iter()
-            .map(|(key, vals)| (key, vals.into_iter().reduce(|acc, val| acc + val).unwrap()))
+            .map(|(key, vals)| (key, vals.into_iter().fold1(|acc, val| acc + val).unwrap()))
             .collect::<HashMap<_,_>>();
         assert_eq!(lookup, group_map_lookup);
 

@@ -20,7 +20,7 @@ use pki_types::{
 
 use crate::crl::RevocationOptions;
 use crate::error::Error;
-use crate::subject_name::{verify_dns_names, verify_ip_address_names};
+use crate::subject_name::{verify_dns_names, verify_ip_address_names, NameIterator};
 use crate::verify_cert::{self, KeyUsage, VerifiedPath};
 use crate::{cert, signed_data};
 
@@ -72,7 +72,7 @@ impl<'a> TryFrom<&'a CertificateDer<'a>> for EndEntityCert<'a> {
     }
 }
 
-impl EndEntityCert<'_> {
+impl<'a> EndEntityCert<'a> {
     /// Verifies that the end-entity certificate is valid for use against the
     /// specified Extended Key Usage (EKU).
     ///
@@ -125,10 +125,16 @@ impl EndEntityCert<'_> {
         server_name: &ServerName<'_>,
     ) -> Result<(), Error> {
         match server_name {
-            ServerName::DnsName(dns_name) => verify_dns_names(dns_name, &self.inner),
+            ServerName::DnsName(dns_name) => verify_dns_names(
+                dns_name,
+                NameIterator::new(Some(self.inner.subject), self.inner.subject_alt_name),
+            ),
             // IP addresses are not compared against the subject field;
             // only against Subject Alternative Names.
-            ServerName::IpAddress(ip_address) => verify_ip_address_names(ip_address, &self.inner),
+            ServerName::IpAddress(ip_address) => verify_ip_address_names(
+                ip_address,
+                NameIterator::new(None, self.inner.subject_alt_name),
+            ),
             _ => Err(Error::UnsupportedNameType),
         }
     }

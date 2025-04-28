@@ -88,9 +88,11 @@ pub mod ext;
 pub mod format_description;
 #[cfg(feature = "formatting")]
 pub mod formatting;
+mod hint;
 #[cfg(feature = "std")]
 mod instant;
 mod internal_macros;
+mod interop;
 #[cfg(feature = "macros")]
 pub mod macros;
 mod month;
@@ -103,12 +105,12 @@ mod quickcheck;
 #[cfg(feature = "rand")]
 mod rand;
 #[cfg(feature = "serde")]
-#[allow(missing_copy_implementations, missing_debug_implementations)]
 pub mod serde;
 mod sys;
 #[cfg(test)]
 mod tests;
 mod time;
+mod utc_date_time;
 mod utc_offset;
 pub mod util;
 mod weekday;
@@ -126,6 +128,7 @@ pub use crate::month::Month;
 pub use crate::offset_date_time::OffsetDateTime;
 pub use crate::primitive_date_time::PrimitiveDateTime;
 pub use crate::time::Time;
+pub use crate::utc_date_time::UtcDateTime;
 pub use crate::utc_offset::UtcOffset;
 pub use crate::weekday::Weekday;
 
@@ -138,4 +141,13 @@ pub type Result<T> = core::result::Result<T, Error>;
 #[track_caller]
 const fn expect_failed(message: &str) -> ! {
     panic!("{}", message)
+}
+
+/// Returns the size of the pointed-to value in bytes.
+///
+/// This is a `const fn` in the standard library starting in Rust 1.85. When MSRV is at least that,
+/// this can be removed.
+#[allow(unused_qualifications)] // added to prelude after MSRV
+const fn size_of_val<T>(_: &T) -> usize {
+    core::mem::size_of::<T>()
 }

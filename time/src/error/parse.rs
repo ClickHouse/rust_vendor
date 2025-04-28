@@ -1,26 +1,29 @@
 //! Error that occurred at some stage of parsing
 
+use core::convert::Infallible;
 use core::fmt;
 
 use crate::error::{self, ParseFromDescription, TryFromParsed};
-use crate::internal_macros::bug;
 
 /// An error that occurred at some stage of parsing.
-#[allow(variant_size_differences)]
 #[non_exhaustive]
+#[allow(variant_size_differences)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Parse {
     #[allow(missing_docs)]
     TryFromParsed(TryFromParsed),
     #[allow(missing_docs)]
     ParseFromDescription(ParseFromDescription),
-    /// The input should have ended, but there were characters remaining.
+    #[allow(missing_docs)]
     #[non_exhaustive]
     #[deprecated(
         since = "0.3.28",
         note = "no longer output. moved to the `ParseFromDescription` variant"
     )]
-    UnexpectedTrailingCharacters,
+    UnexpectedTrailingCharacters {
+        #[doc(hidden)]
+        never: Infallible,
+    },
 }
 
 impl fmt::Display for Parse {
@@ -29,20 +32,19 @@ impl fmt::Display for Parse {
             Self::TryFromParsed(err) => err.fmt(f),
             Self::ParseFromDescription(err) => err.fmt(f),
             #[allow(deprecated)]
-            Self::UnexpectedTrailingCharacters => bug!("variant should not be used"),
+            Self::UnexpectedTrailingCharacters { never } => match *never {},
         }
     }
 }
 
 #[cfg(feature = "std")]
-#[allow(clippy::std_instead_of_core)]
 impl std::error::Error for Parse {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::TryFromParsed(err) => Some(err),
             Self::ParseFromDescription(err) => Some(err),
             #[allow(deprecated)]
-            Self::UnexpectedTrailingCharacters => bug!("variant should not be used"),
+            Self::UnexpectedTrailingCharacters { never } => match *never {},
         }
     }
 }
@@ -87,7 +89,7 @@ impl From<Parse> for crate::Error {
             Parse::TryFromParsed(err) => Self::TryFromParsed(err),
             Parse::ParseFromDescription(err) => Self::ParseFromDescription(err),
             #[allow(deprecated)]
-            Parse::UnexpectedTrailingCharacters => bug!("variant should not be used"),
+            Parse::UnexpectedTrailingCharacters { never } => match never {},
         }
     }
 }
@@ -99,7 +101,7 @@ impl TryFrom<crate::Error> for Parse {
         match err {
             crate::Error::ParseFromDescription(err) => Ok(Self::ParseFromDescription(err)),
             #[allow(deprecated)]
-            crate::Error::UnexpectedTrailingCharacters => bug!("variant should not be used"),
+            crate::Error::UnexpectedTrailingCharacters { never } => match never {},
             crate::Error::TryFromParsed(err) => Ok(Self::TryFromParsed(err)),
             _ => Err(error::DifferentVariant),
         }

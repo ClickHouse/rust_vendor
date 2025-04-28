@@ -1,5 +1,6 @@
 use crate::enums::{ContentType, HandshakeType};
 use crate::error::Error;
+#[cfg(feature = "logging")]
 use crate::log::warn;
 use crate::msgs::message::MessagePayload;
 
@@ -40,7 +41,7 @@ macro_rules! require_handshake_msg_move(
 );
 
 pub(crate) fn inappropriate_message(
-    payload: &MessagePayload<'_>,
+    payload: &MessagePayload,
     content_types: &[ContentType],
 ) -> Error {
     warn!(
@@ -55,7 +56,7 @@ pub(crate) fn inappropriate_message(
 }
 
 pub(crate) fn inappropriate_handshake_message(
-    payload: &MessagePayload<'_>,
+    payload: &MessagePayload,
     content_types: &[ContentType],
     handshake_types: &[HandshakeType],
 ) -> Error {

@@ -128,7 +128,7 @@
 //! assert!(TZ_VARIANTS.iter().any(|v| *v == Tz::UTC));
 //! ```
 
-#![cfg_attr(not(any(feature = "std", test)), no_std)]
+#![cfg_attr(not(feature = "std"), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
 
 #[cfg(feature = "serde")]
@@ -140,7 +140,7 @@ mod timezone_impl;
 mod timezones;
 
 pub use crate::directory::*;
-pub use crate::timezone_impl::{GapInfo, OffsetComponents, OffsetName, TzOffset};
+pub use crate::timezone_impl::{OffsetComponents, OffsetName};
 pub use crate::timezones::ParseError;
 pub use crate::timezones::Tz;
 pub use crate::timezones::TZ_VARIANTS;
@@ -148,10 +148,7 @@ pub use crate::IANA_TZDB_VERSION;
 
 #[cfg(test)]
 mod tests {
-    use super::Africa::Addis_Ababa;
     use super::America::Danmarkshavn;
-    use super::America::Scoresbysund;
-    use super::Antarctica::Casey;
     use super::Asia::Dhaka;
     use super::Australia::Adelaide;
     use super::Europe::Berlin;
@@ -159,7 +156,6 @@ mod tests {
     use super::Europe::Moscow;
     use super::Europe::Vilnius;
     use super::Europe::Warsaw;
-    use super::GapInfo;
     use super::Pacific::Apia;
     use super::Pacific::Noumea;
     use super::Pacific::Tahiti;
@@ -167,7 +163,6 @@ mod tests {
     use super::IANA_TZDB_VERSION;
     use super::US::Eastern;
     use super::UTC;
-    use chrono::NaiveDateTime;
     use chrono::{Duration, NaiveDate, TimeZone};
 
     #[test]
@@ -210,28 +205,16 @@ mod tests {
 
     #[test]
     fn vilnius_utc_offset() {
-        let dt = UTC
-            .with_ymd_and_hms(1916, 12, 31, 22, 35, 59)
-            .unwrap()
-            .with_timezone(&Vilnius);
-        assert_eq!(
-            dt,
-            Vilnius.with_ymd_and_hms(1916, 12, 31, 23, 59, 59).unwrap()
-        );
+        let dt = UTC.with_ymd_and_hms(1916, 12, 31, 22, 35, 59).unwrap().with_timezone(&Vilnius);
+        assert_eq!(dt, Vilnius.with_ymd_and_hms(1916, 12, 31, 23, 59, 59).unwrap());
         let dt = dt + Duration::seconds(1);
         assert_eq!(dt, Vilnius.with_ymd_and_hms(1917, 1, 1, 0, 11, 36).unwrap());
     }
 
     #[test]
     fn victorian_times() {
-        let dt = UTC
-            .with_ymd_and_hms(1847, 12, 1, 0, 1, 14)
-            .unwrap()
-            .with_timezone(&London);
-        assert_eq!(
-            dt,
-            London.with_ymd_and_hms(1847, 11, 30, 23, 59, 59).unwrap()
-        );
+        let dt = UTC.with_ymd_and_hms(1847, 12, 1, 0, 1, 14).unwrap().with_timezone(&London);
+        assert_eq!(dt, London.with_ymd_and_hms(1847, 11, 30, 23, 59, 59).unwrap());
         let dt = dt + Duration::seconds(1);
         assert_eq!(dt, London.with_ymd_and_hms(1847, 12, 1, 0, 1, 15).unwrap());
     }
@@ -246,10 +229,7 @@ mod tests {
 
     #[test]
     fn international_date_line_change() {
-        let dt = UTC
-            .with_ymd_and_hms(2011, 12, 30, 9, 59, 59)
-            .unwrap()
-            .with_timezone(&Apia);
+        let dt = UTC.with_ymd_and_hms(2011, 12, 30, 9, 59, 59).unwrap().with_timezone(&Apia);
         assert_eq!(dt, Apia.with_ymd_and_hms(2011, 12, 29, 23, 59, 59).unwrap());
         let dt = dt + Duration::seconds(1);
         assert_eq!(dt, Apia.with_ymd_and_hms(2011, 12, 31, 0, 0, 0).unwrap());
@@ -257,16 +237,8 @@ mod tests {
 
     #[test]
     fn negative_offset_with_minutes_and_seconds() {
-        let dt = UTC
-            .with_ymd_and_hms(1900, 1, 1, 12, 0, 0)
-            .unwrap()
-            .with_timezone(&Danmarkshavn);
-        assert_eq!(
-            dt,
-            Danmarkshavn
-                .with_ymd_and_hms(1900, 1, 1, 10, 45, 20)
-                .unwrap()
-        );
+        let dt = UTC.with_ymd_and_hms(1900, 1, 1, 12, 0, 0).unwrap().with_timezone(&Danmarkshavn);
+        assert_eq!(dt, Danmarkshavn.with_ymd_and_hms(1900, 1, 1, 10, 45, 20).unwrap());
     }
 
     #[test]
@@ -318,10 +290,7 @@ mod tests {
 
     #[test]
     fn string_representation() {
-        let dt = UTC
-            .with_ymd_and_hms(2000, 9, 1, 12, 30, 15)
-            .unwrap()
-            .with_timezone(&Adelaide);
+        let dt = UTC.with_ymd_and_hms(2000, 9, 1, 12, 30, 15).unwrap().with_timezone(&Adelaide);
         assert_eq!(dt.to_string(), "2000-09-01 22:00:15 ACST");
         assert_eq!(format!("{:?}", dt), "2000-09-01T22:00:15ACST");
         assert_eq!(dt.to_rfc3339(), "2000-09-01T22:00:15+09:30");
@@ -330,144 +299,86 @@ mod tests {
 
     #[test]
     fn tahiti() {
-        let dt = UTC
-            .with_ymd_and_hms(1912, 10, 1, 9, 58, 16)
-            .unwrap()
-            .with_timezone(&Tahiti);
+        let dt = UTC.with_ymd_and_hms(1912, 10, 1, 9, 58, 16).unwrap().with_timezone(&Tahiti);
         let before = dt - Duration::hours(1);
-        assert_eq!(
-            before,
-            Tahiti.with_ymd_and_hms(1912, 9, 30, 23, 0, 0).unwrap()
-        );
+        assert_eq!(before, Tahiti.with_ymd_and_hms(1912, 9, 30, 23, 0, 0).unwrap());
         let after = dt + Duration::hours(1);
-        assert_eq!(
-            after,
-            Tahiti.with_ymd_and_hms(1912, 10, 1, 0, 58, 16).unwrap()
-        );
+        assert_eq!(after, Tahiti.with_ymd_and_hms(1912, 10, 1, 0, 58, 16).unwrap());
     }
 
     #[test]
     fn nonexistent_time() {
-        assert!(London
-            .with_ymd_and_hms(2016, 3, 27, 1, 30, 0)
-            .single()
-            .is_none());
+        assert!(London.with_ymd_and_hms(2016, 3, 27, 1, 30, 0).single().is_none());
     }
 
     #[test]
     fn nonexistent_time_2() {
-        assert!(London
-            .with_ymd_and_hms(2016, 3, 27, 1, 0, 0)
-            .single()
-            .is_none());
+        assert!(London.with_ymd_and_hms(2016, 3, 27, 1, 0, 0).single().is_none());
     }
 
     #[test]
     fn time_exists() {
-        assert!(London
-            .with_ymd_and_hms(2016, 3, 27, 2, 0, 0)
-            .single()
-            .is_some());
+        assert!(London.with_ymd_and_hms(2016, 3, 27, 2, 0, 0).single().is_some());
     }
 
     #[test]
     fn ambiguous_time() {
         let ambiguous = London.with_ymd_and_hms(2016, 10, 30, 1, 0, 0);
-        let earliest_utc = NaiveDate::from_ymd_opt(2016, 10, 30)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap();
-        assert_eq!(
-            ambiguous.earliest().unwrap(),
-            London.from_utc_datetime(&earliest_utc)
-        );
-        let latest_utc = NaiveDate::from_ymd_opt(2016, 10, 30)
-            .unwrap()
-            .and_hms_opt(1, 0, 0)
-            .unwrap();
-        assert_eq!(
-            ambiguous.latest().unwrap(),
-            London.from_utc_datetime(&latest_utc)
-        );
+        let earliest_utc =
+            NaiveDate::from_ymd_opt(2016, 10, 30).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        assert_eq!(ambiguous.earliest().unwrap(), London.from_utc_datetime(&earliest_utc));
+        let latest_utc =
+            NaiveDate::from_ymd_opt(2016, 10, 30).unwrap().and_hms_opt(1, 0, 0).unwrap();
+        assert_eq!(ambiguous.latest().unwrap(), London.from_utc_datetime(&latest_utc));
     }
 
     #[test]
     fn ambiguous_time_2() {
         let ambiguous = London.with_ymd_and_hms(2016, 10, 30, 1, 30, 0);
-        let earliest_utc = NaiveDate::from_ymd_opt(2016, 10, 30)
-            .unwrap()
-            .and_hms_opt(0, 30, 0)
-            .unwrap();
-        assert_eq!(
-            ambiguous.earliest().unwrap(),
-            London.from_utc_datetime(&earliest_utc)
-        );
-        let latest_utc = NaiveDate::from_ymd_opt(2016, 10, 30)
-            .unwrap()
-            .and_hms_opt(1, 30, 0)
-            .unwrap();
-        assert_eq!(
-            ambiguous.latest().unwrap(),
-            London.from_utc_datetime(&latest_utc)
-        );
+        let earliest_utc =
+            NaiveDate::from_ymd_opt(2016, 10, 30).unwrap().and_hms_opt(0, 30, 0).unwrap();
+        assert_eq!(ambiguous.earliest().unwrap(), London.from_utc_datetime(&earliest_utc));
+        let latest_utc =
+            NaiveDate::from_ymd_opt(2016, 10, 30).unwrap().and_hms_opt(1, 30, 0).unwrap();
+        assert_eq!(ambiguous.latest().unwrap(), London.from_utc_datetime(&latest_utc));
     }
 
     #[test]
     fn ambiguous_time_3() {
         let ambiguous = Moscow.with_ymd_and_hms(2014, 10, 26, 1, 30, 0);
-        let earliest_utc = NaiveDate::from_ymd_opt(2014, 10, 25)
-            .unwrap()
-            .and_hms_opt(21, 30, 0)
-            .unwrap();
+        let earliest_utc =
+            NaiveDate::from_ymd_opt(2014, 10, 25).unwrap().and_hms_opt(21, 30, 0).unwrap();
         assert_eq!(
             ambiguous.earliest().unwrap().fixed_offset(),
             Moscow.from_utc_datetime(&earliest_utc).fixed_offset()
         );
-        let latest_utc = NaiveDate::from_ymd_opt(2014, 10, 25)
-            .unwrap()
-            .and_hms_opt(22, 30, 0)
-            .unwrap();
-        assert_eq!(
-            ambiguous.latest().unwrap(),
-            Moscow.from_utc_datetime(&latest_utc)
-        );
+        let latest_utc =
+            NaiveDate::from_ymd_opt(2014, 10, 25).unwrap().and_hms_opt(22, 30, 0).unwrap();
+        assert_eq!(ambiguous.latest().unwrap(), Moscow.from_utc_datetime(&latest_utc));
     }
 
     #[test]
     fn ambiguous_time_4() {
         let ambiguous = Moscow.with_ymd_and_hms(2014, 10, 26, 1, 0, 0);
-        let earliest_utc = NaiveDate::from_ymd_opt(2014, 10, 25)
-            .unwrap()
-            .and_hms_opt(21, 0, 0)
-            .unwrap();
+        let earliest_utc =
+            NaiveDate::from_ymd_opt(2014, 10, 25).unwrap().and_hms_opt(21, 0, 0).unwrap();
         assert_eq!(
             ambiguous.earliest().unwrap().fixed_offset(),
             Moscow.from_utc_datetime(&earliest_utc).fixed_offset()
         );
-        let latest_utc = NaiveDate::from_ymd_opt(2014, 10, 25)
-            .unwrap()
-            .and_hms_opt(22, 0, 0)
-            .unwrap();
-        assert_eq!(
-            ambiguous.latest().unwrap(),
-            Moscow.from_utc_datetime(&latest_utc)
-        );
+        let latest_utc =
+            NaiveDate::from_ymd_opt(2014, 10, 25).unwrap().and_hms_opt(22, 0, 0).unwrap();
+        assert_eq!(ambiguous.latest().unwrap(), Moscow.from_utc_datetime(&latest_utc));
     }
 
     #[test]
     fn unambiguous_time() {
-        assert!(London
-            .with_ymd_and_hms(2016, 10, 30, 2, 0, 0)
-            .single()
-            .is_some());
+        assert!(London.with_ymd_and_hms(2016, 10, 30, 2, 0, 0).single().is_some());
     }
 
     #[test]
     fn unambiguous_time_2() {
-        assert!(Moscow
-            .with_ymd_and_hms(2014, 10, 26, 2, 0, 0)
-            .single()
-            .is_some());
+        assert!(Moscow.with_ymd_and_hms(2014, 10, 26, 2, 0, 0).single().is_some());
     }
 
     #[test]
@@ -500,111 +411,5 @@ mod tests {
         let numbers: Vec<&str> = IANA_TZDB_VERSION.matches(char::is_numeric).collect();
         assert_eq!(4, numbers.len());
         assert!(IANA_TZDB_VERSION.ends_with(|c: char| c.is_ascii_lowercase()));
-    }
-
-    #[test]
-    fn test_numeric_names() {
-        let dt = Scoresbysund
-            .with_ymd_and_hms(2024, 05, 01, 0, 0, 0)
-            .unwrap();
-        assert_eq!(format!("{}", dt.offset()), "-01");
-        assert_eq!(format!("{:?}", dt.offset()), "-01");
-        let dt = Casey.with_ymd_and_hms(2022, 11, 01, 0, 0, 0).unwrap();
-        assert_eq!(format!("{}", dt.offset()), "+11");
-        assert_eq!(format!("{:?}", dt.offset()), "+11");
-        let dt = Addis_Ababa.with_ymd_and_hms(1937, 02, 01, 0, 0, 0).unwrap();
-        assert_eq!(format!("{}", dt.offset()), "+0245");
-        assert_eq!(format!("{:?}", dt.offset()), "+0245");
-    }
-
-    fn gap_info_test(tz: Tz, gap_begin: NaiveDateTime, gap_end: NaiveDateTime) {
-        let before = gap_begin - Duration::seconds(1);
-        let before_offset = tz.offset_from_local_datetime(&before).single().unwrap();
-
-        let gap_end = tz.from_local_datetime(&gap_end).single().unwrap();
-
-        let in_gap = gap_begin + Duration::seconds(1);
-        let GapInfo { begin, end } = GapInfo::new(&in_gap, &tz).unwrap();
-        let (begin_time, begin_offset) = begin.unwrap();
-        let end = end.unwrap();
-
-        assert_eq!(gap_begin, begin_time);
-        assert_eq!(before_offset, begin_offset);
-        assert_eq!(gap_end, end);
-    }
-
-    #[test]
-    fn gap_info_europe_london() {
-        gap_info_test(
-            Tz::Europe__London,
-            NaiveDate::from_ymd_opt(2024, 3, 31)
-                .unwrap()
-                .and_hms_opt(1, 0, 0)
-                .unwrap(),
-            NaiveDate::from_ymd_opt(2024, 3, 31)
-                .unwrap()
-                .and_hms_opt(2, 0, 0)
-                .unwrap(),
-        );
-    }
-
-    #[test]
-    fn gap_info_europe_dublin() {
-        gap_info_test(
-            Tz::Europe__Dublin,
-            NaiveDate::from_ymd_opt(2024, 3, 31)
-                .unwrap()
-                .and_hms_opt(1, 0, 0)
-                .unwrap(),
-            NaiveDate::from_ymd_opt(2024, 3, 31)
-                .unwrap()
-                .and_hms_opt(2, 0, 0)
-                .unwrap(),
-        );
-    }
-
-    #[test]
-    fn gap_info_australia_adelaide() {
-        gap_info_test(
-            Tz::Australia__Adelaide,
-            NaiveDate::from_ymd_opt(2024, 10, 6)
-                .unwrap()
-                .and_hms_opt(2, 0, 0)
-                .unwrap(),
-            NaiveDate::from_ymd_opt(2024, 10, 6)
-                .unwrap()
-                .and_hms_opt(3, 0, 0)
-                .unwrap(),
-        );
-    }
-
-    #[test]
-    fn gap_info_samoa_skips_a_day() {
-        gap_info_test(
-            Tz::Pacific__Apia,
-            NaiveDate::from_ymd_opt(2011, 12, 30)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap(),
-            NaiveDate::from_ymd_opt(2011, 12, 31)
-                .unwrap()
-                .and_hms_opt(0, 0, 0)
-                .unwrap(),
-        );
-    }
-
-    #[test]
-    fn gap_info_libya_2013() {
-        gap_info_test(
-            Tz::Libya,
-            NaiveDate::from_ymd_opt(2013, 3, 29)
-                .unwrap()
-                .and_hms_opt(1, 0, 0)
-                .unwrap(),
-            NaiveDate::from_ymd_opt(2013, 3, 29)
-                .unwrap()
-                .and_hms_opt(2, 0, 0)
-                .unwrap(),
-        );
     }
 }

@@ -1,10 +1,3 @@
-use alloc::boxed::Box;
-use alloc::vec;
-use alloc::vec::Vec;
-use core::fmt;
-
-use zeroize::Zeroize;
-
 use crate::common_state::{CommonState, Side};
 use crate::conn::ConnectionRandoms;
 use crate::crypto;
@@ -13,8 +6,15 @@ use crate::crypto::hash;
 use crate::enums::{AlertDescription, SignatureScheme};
 use crate::error::{Error, InvalidMessage};
 use crate::msgs::codec::{Codec, Reader};
-use crate::msgs::handshake::{KeyExchangeAlgorithm, KxDecode};
+use crate::msgs::handshake::KeyExchangeAlgorithm;
 use crate::suites::{CipherSuiteCommon, PartiallyExtractedSecrets, SupportedCipherSuite};
+
+use alloc::boxed::Box;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::fmt;
+
+use zeroize::Zeroize;
 
 /// A TLS 1.2 cipher suite supported by rustls.
 pub struct Tls12CipherSuite {
@@ -61,13 +61,6 @@ impl Tls12CipherSuite {
             .filter(|pref| offered.contains(pref))
             .cloned()
             .collect()
-    }
-
-    /// Return `true` if this is backed by a FIPS-approved implementation.
-    ///
-    /// This means all the constituent parts that do cryptography return `true` for `fips()`.
-    pub fn fips(&self) -> bool {
-        self.common.fips() && self.prf_provider.fips() && self.aead_alg.fips()
     }
 }
 
@@ -320,15 +313,14 @@ fn join_randoms(first: &[u8; 32], second: &[u8; 32]) -> [u8; 64] {
 
 type MessageCipherPair = (Box<dyn MessageDecrypter>, Box<dyn MessageEncrypter>);
 
-pub(crate) fn decode_kx_params<'a, T: KxDecode<'a>>(
-    kx_algorithm: KeyExchangeAlgorithm,
+pub(crate) fn decode_ecdh_params<T: Codec>(
     common: &mut CommonState,
-    kx_params: &'a [u8],
+    kx_params: &[u8],
 ) -> Result<T, Error> {
     let mut rd = Reader::init(kx_params);
-    let kx_params = T::decode(&mut rd, kx_algorithm)?;
+    let ecdh_params = T::read(&mut rd)?;
     match rd.any_left() {
-        false => Ok(kx_params),
+        false => Ok(ecdh_params),
         true => Err(common.send_fatal_alert(
             AlertDescription::DecodeError,
             InvalidMessage::InvalidDhParams,
@@ -338,13 +330,11 @@ pub(crate) fn decode_kx_params<'a, T: KxDecode<'a>>(
 
 pub(crate) const DOWNGRADE_SENTINEL: [u8; 8] = [0x44, 0x4f, 0x57, 0x4e, 0x47, 0x52, 0x44, 0x01];
 
-#[cfg(test)]
-#[macro_rules_attribute::apply(test_for_each_provider)]
+#[cfg(all(test, any(feature = "ring", feature = "aws_lc_rs")))]
 mod tests {
-    use super::provider::kx_group::X25519;
     use super::*;
-    use crate::common_state::{CommonState, Side};
-    use crate::msgs::handshake::{ServerEcdhParams, ServerKeyExchangeParams};
+    use crate::msgs::handshake::{ClientEcdhParams, ServerEcdhParams};
+    use crate::test_provider::kx_group::X25519;
 
     #[test]
     fn server_ecdhe_remaining_bytes() {
@@ -355,26 +345,12 @@ mod tests {
         server_buf.push(34);
 
         let mut common = CommonState::new(Side::Client);
-        assert!(
-            decode_kx_params::<ServerKeyExchangeParams>(
-                KeyExchangeAlgorithm::ECDHE,
-                &mut common,
-                &server_buf
-            )
-            .is_err()
-        );
+        assert!(decode_ecdh_params::<ServerEcdhParams>(&mut common, &server_buf).is_err());
     }
 
     #[test]
     fn client_ecdhe_invalid() {
         let mut common = CommonState::new(Side::Server);
-        assert!(
-            decode_kx_params::<ServerKeyExchangeParams>(
-                KeyExchangeAlgorithm::ECDHE,
-                &mut common,
-                &[34],
-            )
-            .is_err()
-        );
+        assert!(decode_ecdh_params::<ClientEcdhParams>(&mut common, &[34]).is_err());
     }
 }

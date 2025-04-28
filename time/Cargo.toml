@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.67.1"
 name = "time"
-version = "0.3.37"
+version = "0.3.41"
 authors = [
     "Jacob Pratt <open-source@jhpratt.dev>",
     "Time contributors",
@@ -51,80 +51,6 @@ repository = "https://github.com/time-rs/time"
 all-features = true
 rustdoc-args = ["--generate-link-to-definition"]
 targets = ["x86_64-unknown-linux-gnu"]
-
-[lib]
-name = "time"
-path = "src/lib.rs"
-bench = false
-
-[dependencies.deranged]
-version = "0.3.9"
-features = ["powerfmt"]
-default-features = false
-
-[dependencies.itoa]
-version = "1.0.1"
-optional = true
-
-[dependencies.num-conv]
-version = "0.1.0"
-
-[dependencies.powerfmt]
-version = "0.2.0"
-default-features = false
-
-[dependencies.quickcheck]
-version = "1.0.3"
-optional = true
-default-features = false
-
-[dependencies.rand]
-version = "0.8.4"
-optional = true
-default-features = false
-
-[dependencies.serde]
-version = "1.0.184"
-optional = true
-default-features = false
-
-[dependencies.time-core]
-version = "=0.1.2"
-
-[dependencies.time-macros]
-version = "=0.2.19"
-optional = true
-
-[dev-dependencies.num-conv]
-version = "0.1.0"
-
-[dev-dependencies.quickcheck_macros]
-version = "1.0.0"
-
-[dev-dependencies.rand]
-version = "0.8.4"
-default-features = false
-
-[dev-dependencies.rstest]
-version = "0.23.0"
-default-features = false
-
-[dev-dependencies.rstest_reuse]
-version = "0.7.0"
-
-[dev-dependencies.serde]
-version = "1.0.184"
-features = ["derive"]
-default-features = false
-
-[dev-dependencies.serde_json]
-version = "1.0.68"
-
-[dev-dependencies.serde_test]
-version = "1.0.126"
-
-[dev-dependencies.time-macros]
-version = "=0.2.19"
 
 [features]
 alloc = ["serde?/alloc"]
@@ -172,8 +98,82 @@ std = [
 ]
 wasm-bindgen = ["dep:js-sys"]
 
-[target."cfg(__ui_tests)".dev-dependencies.trybuild]
+[lib]
+name = "time"
+path = "src/lib.rs"
+bench = false
+
+[dependencies.deranged]
+version = "0.4.0"
+features = ["powerfmt"]
+default-features = false
+
+[dependencies.itoa]
+version = "1.0.1"
+optional = true
+
+[dependencies.num-conv]
+version = "0.1.0"
+
+[dependencies.powerfmt]
+version = "0.2.0"
+default-features = false
+
+[dependencies.quickcheck]
+version = "1.0.3"
+optional = true
+default-features = false
+
+[dependencies.rand]
+version = "0.8.4"
+optional = true
+default-features = false
+
+[dependencies.serde]
+version = "1.0.184"
+optional = true
+default-features = false
+
+[dependencies.time-core]
+version = "=0.1.4"
+
+[dependencies.time-macros]
+version = "=0.2.22"
+optional = true
+
+[dev-dependencies.num-conv]
+version = "0.1.0"
+
+[dev-dependencies.quickcheck_macros]
+version = "1.0.0"
+
+[dev-dependencies.rand]
+version = "0.8.4"
+default-features = false
+
+[dev-dependencies.rstest]
+version = "0.23.0"
+default-features = false
+
+[dev-dependencies.rstest_reuse]
+version = "0.7.0"
+
+[dev-dependencies.serde]
+version = "1.0.184"
+features = ["derive"]
+default-features = false
+
+[dev-dependencies.serde_json]
 version = "1.0.68"
+
+[dev-dependencies.serde_test]
+version = "1.0.126"
+
+[dev-dependencies.time-macros]
+version = "=0.2.22"
+
+[target."cfg(__ui_tests)".dev-dependencies.trybuild]
+version = "1.0.102"
 
 [target.'cfg(all(target_family = "wasm", not(any(target_os = "emscripten", target_os = "wasi"))))'.dependencies.js-sys]
 version = "0.3.58"
@@ -193,6 +193,7 @@ optional = true
 
 [lints.clippy]
 alloc-instead-of-core = "deny"
+as-underscore = "warn"
 dbg-macro = "warn"
 decimal-literal-representation = "warn"
 explicit-auto-deref = "warn"
@@ -226,6 +227,10 @@ level = "allow"
 priority = 1
 
 [lints.clippy.redundant-pub-crate]
+level = "allow"
+priority = 1
+
+[lints.clippy.uninhabited-references]
 level = "allow"
 priority = 1
 

@@ -83,13 +83,17 @@ pub trait Engine: Send + Sync {
     ///
     /// Non-canonical trailing bits in the final tokens or non-canonical padding must be reported as
     /// errors unless the engine is configured otherwise.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `output` is too small.
     #[doc(hidden)]
     fn internal_decode(
         &self,
         input: &[u8],
         output: &mut [u8],
         decode_estimate: Self::DecodeEstimate,
-    ) -> Result<DecodeMetadata, DecodeSliceError>;
+    ) -> Result<DecodeMetadata, DecodeError>;
 
     /// Returns the config for this engine.
     fn config(&self) -> &Self::Config;
@@ -109,7 +113,6 @@ pub trait Engine: Send + Sync {
     ///     engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::NO_PAD);
     ///
     /// let b64_url = CUSTOM_ENGINE.encode(b"hello internet~");
-    /// ```
     #[cfg(any(feature = "alloc", test))]
     #[inline]
     fn encode<T: AsRef<[u8]>>(&self, input: T) -> String {
@@ -250,13 +253,7 @@ pub trait Engine: Send + Sync {
             let mut buffer = vec![0; estimate.decoded_len_estimate()];
 
             let bytes_written = engine
-                .internal_decode(input_bytes, &mut buffer, estimate)
-                .map_err(|e| match e {
-                    DecodeSliceError::DecodeError(e) => e,
-                    DecodeSliceError::OutputSliceTooSmall => {
-                        unreachable!("Vec is sized conservatively")
-                    }
-                })?
+                .internal_decode(input_bytes, &mut buffer, estimate)?
                 .decoded_len;
 
             buffer.truncate(bytes_written);
@@ -321,13 +318,7 @@ pub trait Engine: Send + Sync {
             let buffer_slice = &mut buffer.as_mut_slice()[starting_output_len..];
 
             let bytes_written = engine
-                .internal_decode(input_bytes, buffer_slice, estimate)
-                .map_err(|e| match e {
-                    DecodeSliceError::DecodeError(e) => e,
-                    DecodeSliceError::OutputSliceTooSmall => {
-                        unreachable!("Vec is sized conservatively")
-                    }
-                })?
+                .internal_decode(input_bytes, buffer_slice, estimate)?
                 .decoded_len;
 
             buffer.truncate(starting_output_len + bytes_written);
@@ -363,12 +354,15 @@ pub trait Engine: Send + Sync {
         where
             E: Engine + ?Sized,
         {
+            let estimate = engine.internal_decoded_len_estimate(input_bytes.len());
+
+            if output.len() < estimate.decoded_len_estimate() {
+                return Err(DecodeSliceError::OutputSliceTooSmall);
+            }
+
             engine
-                .internal_decode(
-                    input_bytes,
-                    output,
-                    engine.internal_decoded_len_estimate(input_bytes.len()),
-                )
+                .internal_decode(input_bytes, output, estimate)
+                .map_err(|e| e.into())
                 .map(|dm| dm.decoded_len)
         }
 
@@ -406,12 +400,6 @@ pub trait Engine: Send + Sync {
                     engine.internal_decoded_len_estimate(input_bytes.len()),
                 )
                 .map(|dm| dm.decoded_len)
-                .map_err(|e| match e {
-                    DecodeSliceError::DecodeError(e) => e,
-                    DecodeSliceError::OutputSliceTooSmall => {
-                        panic!("Output slice is too small")
-                    }
-                })
         }
 
         inner(self, input.as_ref(), output)

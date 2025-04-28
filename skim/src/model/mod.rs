@@ -4,11 +4,12 @@ mod status;
 use options::InfoDisplay;
 use status::{ClearStrategy, Direction, Status};
 
+use std::cmp::max;
 use std::env;
 
 use std::process::Command;
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 
 use chrono::Duration as TimerDuration;
@@ -27,7 +28,7 @@ use crate::item::{ItemPool, MatchedItem, RankBuilder};
 use crate::matcher::{Matcher, MatcherControl};
 use crate::options::SkimOptions;
 use crate::output::SkimOutput;
-use crate::previewer::Previewer;
+use crate::previewer::{PreviewSource, Previewer};
 use crate::query::Query;
 use crate::reader::{Reader, ReaderControl};
 use crate::selection::Selection;
@@ -35,14 +36,11 @@ use crate::spinlock::SpinLock;
 use crate::theme::ColorTheme;
 use crate::util::{depends_on_items, inject_command, margin_string_to_size, parse_margin, InjectContext};
 use crate::{FuzzyAlgorithm, MatchEngineFactory, MatchRange, SkimItem};
-use std::cmp::max;
 
 const REFRESH_DURATION: i64 = 100;
 
-lazy_static! {
-    static ref RE_FIELDS: Regex = Regex::new(r"\\?(\{-?[0-9.,q]*?})").unwrap();
-    static ref RE_PREVIEW_OFFSET: Regex = Regex::new(r"^\+([0-9]+|\{-?[0-9]+\})(-[0-9]+|-/[1-9][0-9]*)?$").unwrap();
-}
+static RE_PREVIEW_OFFSET: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\+([0-9]+|\{-?[0-9]+\})(-[0-9]+|-/[1-9][0-9]*)?$").unwrap());
 
 struct ModelEnv {
     pub cmd: String,
@@ -215,10 +213,18 @@ impl Model {
         self.preview_size = preview_size;
         self.preview_hidden = !preview_shown;
 
-        if let Some(preview_cmd) = options.preview.clone() {
-            let tx = Arc::new(SpinLock::new(self.tx.clone()));
+        let preview_source = if let Some(cmd) = &options.preview {
+            PreviewSource::Command(cmd.to_string())
+        } else if let Some(ref callback) = options.preview_fn {
+            PreviewSource::Callback(callback.clone())
+        } else {
+            PreviewSource::Empty
+        };
+
+        let tx = Arc::new(SpinLock::new(self.tx.clone()));
+        if !matches!(preview_source, PreviewSource::Empty) {
             self.previewer = Some(
-                Previewer::new(Some(preview_cmd.to_string()), move || {
+                Previewer::new(preview_source, move || {
                     let _ = tx.lock().send((Key::Null, Event::EvHeartBeat));
                 })
                 .wrap(preview_wrap)
@@ -229,6 +235,7 @@ impl Model {
 
         self.select_1 = options.select_1;
         self.exit_0 = options.exit_0;
+
         self.sync = options.sync;
         self.no_clear_if_empty = options.no_clear_if_empty;
     }

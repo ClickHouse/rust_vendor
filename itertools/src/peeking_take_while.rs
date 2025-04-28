@@ -22,7 +22,7 @@ pub trait PeekingNext: Iterator {
         F: FnOnce(&Self::Item) -> bool;
 }
 
-impl<I> PeekingNext for &mut I
+impl<'a, I> PeekingNext for &'a mut I
 where
     I: PeekingNext,
 {
@@ -133,7 +133,7 @@ where
     PeekingTakeWhile { iter, f }
 }
 
-impl<I, F> Iterator for PeekingTakeWhile<'_, I, F>
+impl<'a, I, F> Iterator for PeekingTakeWhile<'a, I, F>
 where
     I: PeekingNext,
     F: FnMut(&I::Item) -> bool,
@@ -148,7 +148,7 @@ where
     }
 }
 
-impl<I, F> PeekingNext for PeekingTakeWhile<'_, I, F>
+impl<'a, I, F> PeekingNext for PeekingTakeWhile<'a, I, F>
 where
     I: PeekingNext,
     F: FnMut(&I::Item) -> bool,

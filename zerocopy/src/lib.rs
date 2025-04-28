@@ -278,7 +278,10 @@
     clippy::unwrap_used,
     clippy::use_debug
 )]
-#![allow(clippy::type_complexity)]
+// `clippy::incompatible_msrv` (implied by `clippy::suspicious`): This sometimes
+// has false positives, and we test on our MSRV in CI, so it doesn't help us
+// anyway.
+#![allow(clippy::needless_lifetimes, clippy::type_complexity, clippy::incompatible_msrv)]
 #![deny(
     rustdoc::bare_urls,
     rustdoc::broken_intra_doc_links,
@@ -347,13 +350,15 @@ mod macros;
 #[doc(hidden)]
 pub mod pointer;
 mod r#ref;
-// TODO(#252): If we make this pub, come up with a better name.
+mod split_at;
+// FIXME(#252): If we make this pub, come up with a better name.
 mod wrappers;
 
 pub use crate::byte_slice::*;
 pub use crate::byteorder::*;
 pub use crate::error::*;
 pub use crate::r#ref::*;
+pub use crate::split_at::{Split, SplitAt};
 pub use crate::wrappers::*;
 
 use core::{
@@ -381,6 +386,7 @@ use crate::pointer::invariant::{self, BecauseExclusive};
 extern crate alloc;
 #[cfg(any(feature = "alloc", test))]
 use alloc::{boxed::Box, vec::Vec};
+use util::MetadataOf;
 
 #[cfg(any(feature = "alloc", test))]
 use core::alloc::Layout;
@@ -807,6 +813,29 @@ pub unsafe trait KnownLayout {
     }
 }
 
+/// Efficiently produces the [`TrailingSliceLayout`] of `T`.
+#[inline(always)]
+pub(crate) fn trailing_slice_layout<T>() -> TrailingSliceLayout
+where
+    T: ?Sized + KnownLayout<PointerMetadata = usize>,
+{
+    trait LayoutFacts {
+        const SIZE_INFO: TrailingSliceLayout;
+    }
+
+    impl<T: ?Sized> LayoutFacts for T
+    where
+        T: KnownLayout<PointerMetadata = usize>,
+    {
+        const SIZE_INFO: TrailingSliceLayout = match T::LAYOUT.size_info {
+            crate::SizeInfo::Sized { .. } => const_panic!("unreachable"),
+            crate::SizeInfo::SliceDst(info) => info,
+        };
+    }
+
+    T::SIZE_INFO
+}
+
 /// The metadata associated with a [`KnownLayout`] type.
 #[doc(hidden)]
 pub trait PointerMetadata: Copy + Eq + Debug {
@@ -919,7 +948,7 @@ unsafe impl<T> KnownLayout for [T] {
     // refers to an object with `elems` elements by construction.
     #[inline(always)]
     fn raw_from_ptr_len(data: NonNull<u8>, elems: usize) -> NonNull<Self> {
-        // TODO(#67): Remove this allow. See NonNullExt for more details.
+        // FIXME(#67): Remove this allow. See NonNullExt for more details.
         #[allow(unstable_name_collisions)]
         NonNull::slice_from_raw_parts(data.cast::<T>(), elems)
     }
@@ -981,45 +1010,45 @@ impl_known_layout!(
 );
 impl_known_layout!(const N: usize, T => [T; N]);
 
-safety_comment! {
-    /// SAFETY:
-    /// `str` has the same representation as `[u8]`. `ManuallyDrop<T>` [1],
-    /// `UnsafeCell<T>` [2], and `Cell<T>` [3] have the same representation as
-    /// `T`.
-    ///
-    /// [1] Per https://doc.rust-lang.org/1.85.0/std/mem/struct.ManuallyDrop.html:
-    ///
-    ///   `ManuallyDrop<T>` is guaranteed to have the same layout and bit
-    ///   validity as `T`
-    ///
-    /// [2] Per https://doc.rust-lang.org/1.85.0/core/cell/struct.UnsafeCell.html#memory-layout:
-    ///
-    ///   `UnsafeCell<T>` has the same in-memory representation as its inner
-    ///   type `T`.
-    ///
-    /// [3] Per https://doc.rust-lang.org/1.85.0/core/cell/struct.Cell.html#memory-layout:
-    ///
-    ///   `Cell<T>` has the same in-memory representation as `T`.
-    unsafe_impl_known_layout!(#[repr([u8])] str);
+// SAFETY: `str` has the same representation as `[u8]`. `ManuallyDrop<T>` [1],
+// `UnsafeCell<T>` [2], and `Cell<T>` [3] have the same representation as `T`.
+//
+// [1] Per https://doc.rust-lang.org/1.85.0/std/mem/struct.ManuallyDrop.html:
+//
+//   `ManuallyDrop<T>` is guaranteed to have the same layout and bit validity as
+//   `T`
+//
+// [2] Per https://doc.rust-lang.org/1.85.0/core/cell/struct.UnsafeCell.html#memory-layout:
+//
+//   `UnsafeCell<T>` has the same in-memory representation as its inner type
+//   `T`.
+//
+// [3] Per https://doc.rust-lang.org/1.85.0/core/cell/struct.Cell.html#memory-layout:
+//
+//   `Cell<T>` has the same in-memory representation as `T`.
+const _: () = unsafe {
+    unsafe_impl_known_layout!(
+        #[repr([u8])]
+        str
+    );
     unsafe_impl_known_layout!(T: ?Sized + KnownLayout => #[repr(T)] ManuallyDrop<T>);
     unsafe_impl_known_layout!(T: ?Sized + KnownLayout => #[repr(T)] UnsafeCell<T>);
     unsafe_impl_known_layout!(T: ?Sized + KnownLayout => #[repr(T)] Cell<T>);
-}
+};
 
-safety_comment! {
-    /// SAFETY:
-    /// - By consequence of the invariant on `T::MaybeUninit` that `T::LAYOUT`
-    ///   and `T::MaybeUninit::LAYOUT` are equal, `T` and `T::MaybeUninit`
-    ///   have the same:
-    ///   - Fixed prefix size
-    ///   - Alignment
-    ///   - (For DSTs) trailing slice element size
-    /// - By consequence of the above, referents `T::MaybeUninit` and `T` have
-    ///   the require the same kind of pointer metadata, and thus it is valid to
-    ///   perform an `as` cast from `*mut T` and `*mut T::MaybeUninit`, and this
-    ///   operation preserves referent size (ie, `size_of_val_raw`).
-    unsafe_impl_known_layout!(T: ?Sized + KnownLayout => #[repr(T::MaybeUninit)] MaybeUninit<T>);
-}
+// SAFETY:
+// - By consequence of the invariant on `T::MaybeUninit` that `T::LAYOUT` and
+//   `T::MaybeUninit::LAYOUT` are equal, `T` and `T::MaybeUninit` have the same:
+//   - Fixed prefix size
+//   - Alignment
+//   - (For DSTs) trailing slice element size
+// - By consequence of the above, referents `T::MaybeUninit` and `T` have the
+//   require the same kind of pointer metadata, and thus it is valid to perform
+//   an `as` cast from `*mut T` and `*mut T::MaybeUninit`, and this operation
+//   preserves referent size (ie, `size_of_val_raw`).
+const _: () = unsafe {
+    unsafe_impl_known_layout!(T: ?Sized + KnownLayout => #[repr(T::MaybeUninit)] MaybeUninit<T>)
+};
 
 /// Analyzes whether a type is [`FromZeros`].
 ///
@@ -1109,7 +1138,7 @@ safety_comment! {
 ///
 /// Whether a struct is soundly `FromZeros` therefore solely depends on whether
 /// its fields are `FromZeros`.
-// TODO(#146): Document why we don't require an enum to have an explicit `repr`
+// FIXME(#146): Document why we don't require an enum to have an explicit `repr`
 // attribute.
 #[cfg(any(feature = "derive", test))]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "derive")))]
@@ -2881,8 +2910,7 @@ unsafe fn try_read_from<S, T: TryFromBytes>(
     Ok(unsafe { candidate.assume_init() })
 }
 
-/// Types for which a sequence of bytes all set to zero represents a valid
-/// instance of the type.
+/// Types for which a sequence of `0` bytes is a valid instance.
 ///
 /// Any memory region of the appropriate length which is guaranteed to contain
 /// only zero bytes can be viewed as any `FromZeros` type with no runtime
@@ -3017,7 +3045,7 @@ pub unsafe trait FromZeros: TryFromBytes {
         // - Since `Self: FromZeros`, the all-zeros instance is a valid instance
         //   of `Self.`
         //
-        // TODO(#429): Add references to docs and quotes.
+        // FIXME(#429): Add references to docs and quotes.
         unsafe { ptr::write_bytes(slf.cast::<u8>(), 0, len) };
     }
 
@@ -3104,13 +3132,13 @@ pub unsafe trait FromZeros: TryFromBytes {
             return Ok(unsafe { Box::from_raw(NonNull::dangling().as_ptr()) });
         }
 
-        // TODO(#429): Add a "SAFETY" comment and remove this `allow`.
+        // FIXME(#429): Add a "SAFETY" comment and remove this `allow`.
         #[allow(clippy::undocumented_unsafe_blocks)]
         let ptr = unsafe { alloc::alloc::alloc_zeroed(layout).cast::<Self>() };
         if ptr.is_null() {
             return Err(AllocError);
         }
-        // TODO(#429): Add a "SAFETY" comment and remove this `allow`.
+        // FIXME(#429): Add a "SAFETY" comment and remove this `allow`.
         #[allow(clippy::undocumented_unsafe_blocks)]
         Ok(unsafe { Box::from_raw(ptr) })
     }
@@ -3231,7 +3259,6 @@ pub unsafe trait FromZeros: TryFromBytes {
         assert!(position <= v.len());
         // We only conditionally compile on versions on which `try_reserve` is
         // stable; the Clippy lint is a false positive.
-        #[allow(clippy::incompatible_msrv)]
         v.try_reserve(additional).map_err(|_| AllocError)?;
         // SAFETY: The `try_reserve` call guarantees that these cannot overflow:
         // * `ptr.add(position)`
@@ -3359,7 +3386,7 @@ pub unsafe trait FromZeros: TryFromBytes {
 ///
 /// Whether a struct is soundly `FromBytes` therefore solely depends on whether
 /// its fields are `FromBytes`.
-// TODO(#146): Document why we don't require an enum to have an explicit `repr`
+// FIXME(#146): Document why we don't require an enum to have an explicit `repr`
 // attribute.
 #[cfg(any(feature = "derive", test))]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "derive")))]
@@ -5005,7 +5032,7 @@ pub unsafe trait IntoBytes {
         //   `isize::MAX` because no allocation produced by safe code can be
         //   larger than `isize::MAX`.
         //
-        // TODO(#429): Add references to docs and quotes.
+        // FIXME(#429): Add references to docs and quotes.
         unsafe { slice::from_raw_parts(slf.cast::<u8>(), len) }
     }
 
@@ -5077,7 +5104,7 @@ pub unsafe trait IntoBytes {
         //   `isize::MAX` because no allocation produced by safe code can be
         //   larger than `isize::MAX`.
         //
-        // TODO(#429): Add references to docs and quotes.
+        // FIXME(#429): Add references to docs and quotes.
         unsafe { slice::from_raw_parts_mut(slf.cast::<u8>(), len) }
     }
 
@@ -5501,14 +5528,37 @@ pub unsafe trait Unaligned {
         Self: Sized;
 }
 
-/// Derives an optimized implementation of [`Hash`] for types that implement
-/// [`IntoBytes`] and [`Immutable`].
+/// Derives an optimized [`Hash`] implementation.
 ///
-/// The standard library's derive for `Hash` generates a recursive descent
-/// into the fields of the type it is applied to. Instead, the implementation
-/// derived by this macro makes a single call to [`Hasher::write()`] for both
-/// [`Hash::hash()`] and [`Hash::hash_slice()`], feeding the hasher the bytes
-/// of the type or slice all at once.
+/// This derive can be applied to structs and enums implementing both
+/// [`Immutable`] and [`IntoBytes`]; e.g.:
+///
+/// ```
+/// # use zerocopy_derive::{ByteHash, Immutable, IntoBytes};
+/// #[derive(ByteHash, Immutable, IntoBytes)]
+/// #[repr(C)]
+/// struct MyStruct {
+/// # /*
+///     ...
+/// # */
+/// }
+///
+/// #[derive(ByteHash, Immutable, IntoBytes)]
+/// #[repr(u8)]
+/// enum MyEnum {
+/// #   Variant,
+/// # /*
+///     ...
+/// # */
+/// }
+/// ```
+///
+/// The standard library's [`derive(Hash)`][derive@Hash] produces hashes by
+/// individually hashing each field and combining the results. Instead, the
+/// implementations of [`Hash::hash()`] and [`Hash::hash_slice()`] generated by
+/// `derive(ByteHash)` convert the entirey of `self` to a byte slice and hashes
+/// it in a single call to [`Hasher::write()`]. This may have performance
+/// advantages.
 ///
 /// [`Hash`]: core::hash::Hash
 /// [`Hash::hash()`]: core::hash::Hash::hash()
@@ -5517,16 +5567,57 @@ pub unsafe trait Unaligned {
 #[cfg_attr(doc_cfg, doc(cfg(feature = "derive")))]
 pub use zerocopy_derive::ByteHash;
 
-/// Derives an optimized implementation of [`PartialEq`] and [`Eq`] for types
-/// that implement [`IntoBytes`] and [`Immutable`].
+/// Derives optimized [`PartialEq`] and [`Eq`] implementations.
 ///
-/// The standard library's derive for [`PartialEq`] generates a recursive
-/// descent into the fields of the type it is applied to. Instead, the
-/// implementation derived by this macro performs a single slice comparison of
-/// the bytes of the two values being compared.
+/// This derive can be applied to structs and enums implementing both
+/// [`Immutable`] and [`IntoBytes`]; e.g.:
+///
+/// ```
+/// # use zerocopy_derive::{ByteEq, Immutable, IntoBytes};
+/// #[derive(ByteEq, Immutable, IntoBytes)]
+/// #[repr(C)]
+/// struct MyStruct {
+/// # /*
+///     ...
+/// # */
+/// }
+///
+/// #[derive(ByteEq, Immutable, IntoBytes)]
+/// #[repr(u8)]
+/// enum MyEnum {
+/// #   Variant,
+/// # /*
+///     ...
+/// # */
+/// }
+/// ```
+///
+/// The standard library's [`derive(Eq, PartialEq)`][derive@PartialEq] computes
+/// equality by individually comparing each field. Instead, the implementation
+/// of [`PartialEq::eq`] emitted by `derive(ByteHash)` converts the entirey of
+/// `self` and `other` to byte slices and compares those slices for equality.
+/// This may have performance advantages.
 #[cfg(any(feature = "derive", test))]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "derive")))]
 pub use zerocopy_derive::ByteEq;
+
+/// Implements [`SplitAt`].
+///
+/// This derive can be applied to structs; e.g.:
+///
+/// ```
+/// # use zerocopy_derive::{ByteEq, Immutable, IntoBytes};
+/// #[derive(ByteEq, Immutable, IntoBytes)]
+/// #[repr(C)]
+/// struct MyStruct {
+/// # /*
+///     ...
+/// # */
+/// }
+/// ```
+#[cfg(any(feature = "derive", test))]
+#[cfg_attr(doc_cfg, doc(cfg(feature = "derive")))]
+pub use zerocopy_derive::SplitAt;
 
 #[cfg(feature = "alloc")]
 #[cfg_attr(doc_cfg, doc(cfg(feature = "alloc")))]

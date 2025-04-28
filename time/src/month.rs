@@ -59,8 +59,8 @@ impl Month {
                 name: "month",
                 minimum: 1,
                 maximum: 12,
-                value: n as _,
-                conditional_range: false,
+                value: n as i64,
+                conditional_message: None,
             }),
         }
     }
@@ -72,12 +72,7 @@ impl Month {
     /// assert_eq!(Month::February.length(2020), 29);
     /// ```
     pub const fn length(self, year: i32) -> u8 {
-        match self {
-            January | March | May | July | August | October | December => 31,
-            April | June | September | November => 30,
-            February if util::is_leap_year(year) => 29,
-            February => 28,
-        }
+        util::days_in_month(self, year)
     }
 
     /// Get the previous month.
@@ -256,7 +251,7 @@ impl FromStr for Month {
 
 impl From<Month> for u8 {
     fn from(month: Month) -> Self {
-        month as _
+        month as Self
     }
 }
 
@@ -271,7 +266,7 @@ impl TryFrom<u8> for Month {
                 minimum: 1,
                 maximum: 12,
                 value: 0,
-                conditional_range: false,
+                conditional_message: None,
             }),
         }
     }

@@ -192,9 +192,7 @@ impl ANSIParser {
     pub fn parse_ansi(&mut self, text: &str) -> AnsiString<'static> {
         let mut statemachine = vte::Parser::new();
 
-        for byte in text.as_bytes() {
-            statemachine.advance(self, *byte);
-        }
+        statemachine.advance(self, text.as_bytes());
         self.save_str();
 
         let stripped = std::mem::take(&mut self.stripped);
@@ -359,7 +357,7 @@ impl<'a> AnsiStringIterator<'a> {
     }
 }
 
-impl<'a> Iterator for AnsiStringIterator<'a> {
+impl Iterator for AnsiStringIterator<'_> {
     type Item = (char, Attr);
 
     fn next(&mut self) -> Option<Self::Item> {

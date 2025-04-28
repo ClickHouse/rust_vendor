@@ -1,17 +1,15 @@
 use alloc::boxed::Box;
 use alloc::string::ToString;
 use core::fmt;
-
-use zeroize::Zeroize;
+use std::error::Error as StdError;
 
 use crate::enums::{ContentType, ProtocolVersion};
 use crate::error::Error;
 use crate::msgs::codec;
-pub use crate::msgs::message::{
-    BorrowedPayload, InboundOpaqueMessage, InboundPlainMessage, OutboundChunks,
-    OutboundOpaqueMessage, OutboundPlainMessage, PlainMessage, PrefixedPayload,
-};
+pub use crate::msgs::message::{BorrowedPlainMessage, OpaqueMessage, PlainMessage};
 use crate::suites::ConnectionTrafficSecrets;
+
+use zeroize::Zeroize;
 
 /// Factory trait for building `MessageEncrypter` and `MessageDecrypter` for a TLS1.3 cipher suite.
 pub trait Tls13AeadAlgorithm: Send + Sync {
@@ -33,11 +31,6 @@ pub trait Tls13AeadAlgorithm: Send + Sync {
         key: AeadKey,
         iv: Iv,
     ) -> Result<ConnectionTrafficSecrets, UnsupportedOperationError>;
-
-    /// Return `true` if this is backed by a FIPS-approved implementation.
-    fn fips(&self) -> bool {
-        false
-    }
 }
 
 /// Factory trait for building `MessageEncrypter` and `MessageDecrypter` for a TLS1.2 cipher suite.
@@ -79,11 +72,6 @@ pub trait Tls12AeadAlgorithm: Send + Sync + 'static {
         iv: &[u8],
         explicit: &[u8],
     ) -> Result<ConnectionTrafficSecrets, UnsupportedOperationError>;
-
-    /// Return `true` if this is backed by a FIPS-approved implementation.
-    fn fips(&self) -> bool {
-        false
-    }
 }
 
 /// An error indicating that the AEAD algorithm does not support the requested operation.
@@ -102,8 +90,7 @@ impl fmt::Display for UnsupportedOperationError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for UnsupportedOperationError {}
+impl StdError for UnsupportedOperationError {}
 
 /// How a TLS1.2 `key_block` is partitioned.
 ///
@@ -137,22 +124,14 @@ pub struct KeyBlockShape {
 pub trait MessageDecrypter: Send + Sync {
     /// Decrypt the given TLS message `msg`, using the sequence number
     /// `seq` which can be used to derive a unique [`Nonce`].
-    fn decrypt<'a>(
-        &mut self,
-        msg: InboundOpaqueMessage<'a>,
-        seq: u64,
-    ) -> Result<InboundPlainMessage<'a>, Error>;
+    fn decrypt(&mut self, msg: OpaqueMessage, seq: u64) -> Result<PlainMessage, Error>;
 }
 
 /// Objects with this trait can encrypt TLS messages.
 pub trait MessageEncrypter: Send + Sync {
     /// Encrypt the given TLS message `msg`, using the sequence number
-    /// `seq` which can be used to derive a unique [`Nonce`].
-    fn encrypt(
-        &mut self,
-        msg: OutboundPlainMessage<'_>,
-        seq: u64,
-    ) -> Result<OutboundOpaqueMessage, Error>;
+    /// `seq which can be used to derive a unique [`Nonce`].
+    fn encrypt(&mut self, msg: BorrowedPlainMessage, seq: u64) -> Result<OpaqueMessage, Error>;
 
     /// Return the length of the ciphertext that results from encrypting plaintext of
     /// length `payload_len`
@@ -237,12 +216,11 @@ pub const NONCE_LEN: usize = 12;
 /// See RFC8446 s5.2 for the `additional_data` definition.
 #[inline]
 pub fn make_tls13_aad(payload_len: usize) -> [u8; 5] {
-    let version = ProtocolVersion::TLSv1_2.to_array();
     [
-        ContentType::ApplicationData.into(),
+        ContentType::ApplicationData.get_u8(),
         // Note: this is `legacy_record_version`, i.e. TLS1.2 even for TLS1.3.
-        version[0],
-        version[1],
+        (ProtocolVersion::TLSv1_2.get_u16() >> 8) as u8,
+        (ProtocolVersion::TLSv1_2.get_u16() & 0xff) as u8,
         (payload_len >> 8) as u8,
         (payload_len & 0xff) as u8,
     ]
@@ -260,8 +238,8 @@ pub fn make_tls12_aad(
 ) -> [u8; TLS12_AAD_SIZE] {
     let mut out = [0; TLS12_AAD_SIZE];
     codec::put_u64(seq, &mut out[0..]);
-    out[8] = typ.into();
-    codec::put_u16(vers.into(), &mut out[9..]);
+    out[8] = typ.get_u8();
+    codec::put_u16(vers.get_u16(), &mut out[9..]);
     codec::put_u16(len as u16, &mut out[11..]);
     out
 }
@@ -323,11 +301,7 @@ impl From<[u8; Self::MAX_LEN]> for AeadKey {
 struct InvalidMessageEncrypter {}
 
 impl MessageEncrypter for InvalidMessageEncrypter {
-    fn encrypt(
-        &mut self,
-        _m: OutboundPlainMessage<'_>,
-        _seq: u64,
-    ) -> Result<OutboundOpaqueMessage, Error> {
+    fn encrypt(&mut self, _m: BorrowedPlainMessage, _seq: u64) -> Result<OpaqueMessage, Error> {
         Err(Error::EncryptError)
     }
 
@@ -340,11 +314,7 @@ impl MessageEncrypter for InvalidMessageEncrypter {
 struct InvalidMessageDecrypter {}
 
 impl MessageDecrypter for InvalidMessageDecrypter {
-    fn decrypt<'a>(
-        &mut self,
-        _m: InboundOpaqueMessage<'a>,
-        _seq: u64,
-    ) -> Result<InboundPlainMessage<'a>, Error> {
+    fn decrypt(&mut self, _m: OpaqueMessage, _seq: u64) -> Result<PlainMessage, Error> {
         Err(Error::DecryptError)
     }
 }

@@ -47,7 +47,7 @@ where
     }
 }
 
-impl<I, F> fmt::Display for FormatWith<'_, I, F>
+impl<'a, I, F> fmt::Display for FormatWith<'a, I, F>
 where
     I: Iterator,
     F: FnMut(I::Item, &mut dyn FnMut(&dyn fmt::Display) -> fmt::Result) -> fmt::Result,
@@ -71,7 +71,7 @@ where
     }
 }
 
-impl<I, F> fmt::Debug for FormatWith<'_, I, F>
+impl<'a, I, F> fmt::Debug for FormatWith<'a, I, F>
 where
     I: Iterator,
     F: FnMut(I::Item, &mut dyn FnMut(&dyn fmt::Display) -> fmt::Result) -> fmt::Result,
@@ -81,7 +81,7 @@ where
     }
 }
 
-impl<I> Format<'_, I>
+impl<'a, I> Format<'a, I>
 where
     I: Iterator,
 {
@@ -125,7 +125,7 @@ macro_rules! impl_format {
 
 impl_format! {Display Debug UpperExp LowerExp UpperHex LowerHex Octal Binary Pointer}
 
-impl<I, F> Clone for FormatWith<'_, I, F>
+impl<'a, I, F> Clone for FormatWith<'a, I, F>
 where
     (I, F): Clone,
 {
@@ -135,7 +135,7 @@ where
             inner: Option<(I, F)>,
         }
         // This ensures we preserve the state of the original `FormatWith` if `Clone` panics
-        impl<I, F> Drop for PutBackOnDrop<'_, '_, I, F> {
+        impl<'r, 'a, I, F> Drop for PutBackOnDrop<'r, 'a, I, F> {
             fn drop(&mut self) {
                 self.into.inner.set(self.inner.take())
             }
@@ -151,7 +151,7 @@ where
     }
 }
 
-impl<I> Clone for Format<'_, I>
+impl<'a, I> Clone for Format<'a, I>
 where
     I: Clone,
 {
@@ -161,7 +161,7 @@ where
             inner: Option<I>,
         }
         // This ensures we preserve the state of the original `FormatWith` if `Clone` panics
-        impl<I> Drop for PutBackOnDrop<'_, '_, I> {
+        impl<'r, 'a, I> Drop for PutBackOnDrop<'r, 'a, I> {
             fn drop(&mut self) {
                 self.into.inner.set(self.inner.take())
             }

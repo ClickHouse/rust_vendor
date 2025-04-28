@@ -1,15 +1,12 @@
-use alloc::format;
-use alloc::vec::Vec;
-use core::fmt;
-use core::marker::PhantomData;
-
-use crate::client::EchMode;
 use crate::crypto::CryptoProvider;
 use crate::error::Error;
-use crate::msgs::handshake::ALL_KEY_EXCHANGE_ALGORITHMS;
-use crate::sync::Arc;
-use crate::time_provider::TimeProvider;
 use crate::versions;
+
+use alloc::format;
+use core::fmt;
+use core::marker::PhantomData;
+use std::sync::Arc;
+
 #[cfg(doc)]
 use crate::{ClientConfig, ServerConfig};
 
@@ -30,8 +27,7 @@ use crate::{ClientConfig, ServerConfig};
 /// supported protocol versions.
 ///
 /// ```
-/// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # #[cfg(feature = "ring")] {
 /// use rustls::{ClientConfig, ServerConfig};
 /// ClientConfig::builder()
 /// //  ...
@@ -46,8 +42,7 @@ use crate::{ClientConfig, ServerConfig};
 /// You may also override the choice of protocol versions:
 ///
 /// ```no_run
-/// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # #[cfg(feature = "ring")] {
 /// # use rustls::ServerConfig;
 /// ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
 /// //  ...
@@ -82,8 +77,7 @@ use crate::{ClientConfig, ServerConfig};
 /// For example:
 ///
 /// ```
-/// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # #[cfg(feature = "ring")] {
 /// # use rustls::ClientConfig;
 /// # let root_certs = rustls::RootCertStore::empty();
 /// ClientConfig::builder()
@@ -106,8 +100,7 @@ use crate::{ClientConfig, ServerConfig};
 /// For example:
 ///
 /// ```no_run
-/// # #[cfg(feature = "aws_lc_rs")] {
-/// # rustls::crypto::aws_lc_rs::default_provider().install_default();
+/// # #[cfg(feature = "ring")] {
 /// # use rustls::ServerConfig;
 /// # let certs = vec![];
 /// # let private_key = pki_types::PrivateKeyDer::from(
@@ -143,7 +136,7 @@ use crate::{ClientConfig, ServerConfig};
 /// Additionally, ServerConfig and ClientConfig carry a private field containing a
 /// [`CryptoProvider`], from [`ClientConfig::builder_with_provider()`] or
 /// [`ServerConfig::builder_with_provider()`]. This determines which cryptographic backend
-/// is used. The default is [the process-default provider](`CryptoProvider::get_default`).
+/// is used. The default is [`ring::provider`].
 ///
 /// [builder]: https://rust-unofficial.github.io/patterns/patterns/creational/builder.html
 /// [typestate]: http://cliffle.com/blog/rust-typestate/
@@ -158,21 +151,12 @@ use crate::{ClientConfig, ServerConfig};
 /// [`ConfigBuilder<ServerConfig, WantsVerifier>`]: struct.ConfigBuilder.html#impl-6
 /// [`WantsClientCert`]: crate::client::WantsClientCert
 /// [`WantsServerCert`]: crate::server::WantsServerCert
-/// [`CryptoProvider::get_default`]: crate::crypto::CryptoProvider::get_default
+/// [`ring::provider`]: crate::crypto::ring::default_provider
 /// [`DangerousClientConfigBuilder::with_custom_certificate_verifier`]: crate::client::danger::DangerousClientConfigBuilder::with_custom_certificate_verifier
 #[derive(Clone)]
 pub struct ConfigBuilder<Side: ConfigSide, State> {
     pub(crate) state: State,
-    pub(crate) provider: Arc<CryptoProvider>,
-    pub(crate) time_provider: Arc<dyn TimeProvider>,
     pub(crate) side: PhantomData<Side>,
-}
-
-impl<Side: ConfigSide, State> ConfigBuilder<Side, State> {
-    /// Return the crypto provider used to construct this builder.
-    pub fn crypto_provider(&self) -> &Arc<CryptoProvider> {
-        &self.provider
-    }
 }
 
 impl<Side: ConfigSide, State: fmt::Debug> fmt::Debug for ConfigBuilder<Side, State> {
@@ -193,7 +177,9 @@ impl<Side: ConfigSide, State: fmt::Debug> fmt::Debug for ConfigBuilder<Side, Sta
 ///
 /// For more information, see the [`ConfigBuilder`] documentation.
 #[derive(Clone, Debug)]
-pub struct WantsVersions {}
+pub struct WantsVersions {
+    pub(crate) provider: Arc<CryptoProvider>,
+}
 
 impl<S: ConfigSide> ConfigBuilder<S, WantsVersions> {
     /// Accept the default protocol versions: both TLS1.2 and TLS1.3 are enabled.
@@ -209,7 +195,7 @@ impl<S: ConfigSide> ConfigBuilder<S, WantsVersions> {
         versions: &[&'static versions::SupportedProtocolVersion],
     ) -> Result<ConfigBuilder<S, WantsVerifier>, Error> {
         let mut any_usable_suite = false;
-        for suite in &self.provider.cipher_suites {
+        for suite in &self.state.provider.cipher_suites {
             if versions.contains(&suite.version()) {
                 any_usable_suite = true;
                 break;
@@ -220,46 +206,15 @@ impl<S: ConfigSide> ConfigBuilder<S, WantsVersions> {
             return Err(Error::General("no usable cipher suites configured".into()));
         }
 
-        if self.provider.kx_groups.is_empty() {
+        if self.state.provider.kx_groups.is_empty() {
             return Err(Error::General("no kx groups configured".into()));
-        }
-
-        // verifying cipher suites have matching kx groups
-        let mut supported_kx_algos = Vec::with_capacity(ALL_KEY_EXCHANGE_ALGORITHMS.len());
-        for group in self.provider.kx_groups.iter() {
-            let kx = group.name().key_exchange_algorithm();
-            if !supported_kx_algos.contains(&kx) {
-                supported_kx_algos.push(kx);
-            }
-            // Small optimization. We don't need to go over other key exchange groups
-            // if we already cover all supported key exchange algorithms
-            if supported_kx_algos.len() == ALL_KEY_EXCHANGE_ALGORITHMS.len() {
-                break;
-            }
-        }
-
-        for cs in self.provider.cipher_suites.iter() {
-            let cs_kx = cs.key_exchange_algorithms();
-            if cs_kx
-                .iter()
-                .any(|kx| supported_kx_algos.contains(kx))
-            {
-                continue;
-            }
-            let suite_name = cs.common().suite;
-            return Err(Error::General(alloc::format!(
-                "Ciphersuite {suite_name:?} requires {cs_kx:?} key exchange, but no {cs_kx:?}-compatible \
-                key exchange groups were present in `CryptoProvider`'s `kx_groups` field",
-            )));
         }
 
         Ok(ConfigBuilder {
             state: WantsVerifier {
+                provider: self.state.provider,
                 versions: versions::EnabledVersions::new(versions),
-                client_ech_mode: None,
             },
-            provider: self.provider,
-            time_provider: self.time_provider,
             side: self.side,
         })
     }
@@ -270,8 +225,8 @@ impl<S: ConfigSide> ConfigBuilder<S, WantsVersions> {
 /// For more information, see the [`ConfigBuilder`] documentation.
 #[derive(Clone, Debug)]
 pub struct WantsVerifier {
+    pub(crate) provider: Arc<CryptoProvider>,
     pub(crate) versions: versions::EnabledVersions,
-    pub(crate) client_ech_mode: Option<EchMode>,
 }
 
 /// Helper trait to abstract [`ConfigBuilder`] over building a [`ClientConfig`] or [`ServerConfig`].

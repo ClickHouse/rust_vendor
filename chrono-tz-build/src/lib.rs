@@ -32,27 +32,15 @@ fn strip_comments(mut line: String) -> String {
 // to this zone, as a string representation of a static slice.
 fn format_rest(rest: Vec<(i64, FixedTimespan)>) -> String {
     let mut ret = "&[\n".to_string();
-    for (
-        start,
-        FixedTimespan {
-            utc_offset,
-            dst_offset,
-            name,
-        },
-    ) in rest
-    {
-        let timespan_name = match name.as_ref() {
-            "%z" => None,
-            name => Some(name),
-        };
+    for (start, FixedTimespan { utc_offset, dst_offset, name }) in rest {
         ret.push_str(&format!(
             "                    ({start}, FixedTimespan {{ \
-             utc_offset: {utc}, dst_offset: {dst}, name: {name:?} \
+             utc_offset: {utc}, dst_offset: {dst}, name: \"{name}\" \
              }}),\n",
             start = start,
             utc = utc_offset,
             dst = dst_offset,
-            name = timespan_name,
+            name = name,
         ));
     }
     ret.push_str("                ]");
@@ -65,12 +53,7 @@ fn format_rest(rest: Vec<(i64, FixedTimespan)>) -> String {
 fn convert_bad_chars(name: &str) -> String {
     let name = name.replace('/', "__").replace('+', "Plus");
     if let Some(pos) = name.find('-') {
-        if name[pos + 1..]
-            .chars()
-            .next()
-            .map(char::is_numeric)
-            .unwrap_or(false)
-        {
+        if name[pos + 1..].chars().next().map(char::is_numeric).unwrap_or(false) {
             name.replace('-', "Minus")
         } else {
             name.replace('-', "")
@@ -84,15 +67,8 @@ fn convert_bad_chars(name: &str) -> String {
 // database. The `Wrap` wrapper in the `timezone_impl` module then implements
 // TimeZone for any contained struct that implements `Timespans`.
 fn write_timezone_file(timezone_file: &mut File, table: &Table) -> io::Result<()> {
-    let zones = table
-        .zonesets
-        .keys()
-        .chain(table.links.keys())
-        .collect::<BTreeSet<_>>();
-    writeln!(
-        timezone_file,
-        "use core::fmt::{{self, Debug, Display, Formatter}};",
-    )?;
+    let zones = table.zonesets.keys().chain(table.links.keys()).collect::<BTreeSet<_>>();
+    writeln!(timezone_file, "use core::fmt::{{self, Debug, Display, Formatter}};",)?;
     writeln!(timezone_file, "use core::str::FromStr;\n",)?;
     writeln!(
         timezone_file,
@@ -107,10 +83,7 @@ fn write_timezone_file(timezone_file: &mut File, table: &Table) -> io::Result<()
 /// for details."
     )?;
     writeln!(timezone_file, "#[derive(Clone, Copy, PartialEq, Eq, Hash)]")?;
-    writeln!(
-        timezone_file,
-        r#"#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]"#
-    )?;
+    writeln!(timezone_file, r#"#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]"#)?;
     writeln!(timezone_file, "pub enum Tz {{")?;
     for zone in &zones {
         let zone_name = convert_bad_chars(zone);
@@ -127,50 +100,39 @@ fn write_timezone_file(timezone_file: &mut File, table: &Table) -> io::Result<()
     for zone in &zones {
         map.entry(zone, &format!("Tz::{}", convert_bad_chars(zone)));
     }
-    writeln!(
-        timezone_file,
-        "static TIMEZONES: ::phf::Map<&'static str, Tz> = \n{};",
-        map.build()
-    )?;
+    writeln!(timezone_file, "static TIMEZONES: ::phf::Map<&'static str, Tz> = \n{};", map.build())?;
 
     #[cfg(feature = "case-insensitive")]
     {
         writeln!(timezone_file, "use uncased::UncasedStr;\n",)?;
         let mut map = phf_codegen::Map::new();
         for zone in &zones {
-            map.entry(
-                uncased::UncasedStr::new(zone),
-                &format!("Tz::{}", convert_bad_chars(zone)),
-            );
+            map.entry(uncased::UncasedStr::new(zone), &format!("Tz::{}", convert_bad_chars(zone)));
         }
         writeln!(
             timezone_file,
             "static TIMEZONES_UNCASED: ::phf::Map<&'static uncased::UncasedStr, Tz> = \n{};",
-            map.build()
+            // FIXME(petrosagg): remove this once rust-phf/rust-phf#232 is released
+            map.build().to_string().replace("::std::mem::transmute", "::core::mem::transmute")
         )?;
     }
 
     writeln!(
         timezone_file,
-        r#"#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct ParseError(());
-
-impl Display for ParseError {{
-    fn fmt(&self, f: &mut Formatter) -> fmt::Result {{
-        f.write_str("failed to parse timezone")
-    }}
-}}
-
-#[cfg(feature = "std")]
-impl std::error::Error for ParseError {{}}
+        "#[cfg(feature = \"std\")]
+pub type ParseError = String;
+#[cfg(not(feature = \"std\"))]
+pub type ParseError = &'static str;
 
 impl FromStr for Tz {{
     type Err = ParseError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {{
-        return TIMEZONES.get(s).cloned().ok_or(ParseError(()));
+        #[cfg(feature = \"std\")]
+        return TIMEZONES.get(s).cloned().ok_or_else(|| format!(\"'{{}}' is not a valid timezone\", s));
+        #[cfg(not(feature = \"std\"))]
+        return TIMEZONES.get(s).cloned().ok_or(\"received invalid timezone\");
     }}
-}}
-"#
+}}\n"
     )?;
 
     writeln!(
@@ -202,7 +164,10 @@ impl FromStr for Tz {{
     #[cfg(feature = "case-insensitive")]
     /// Parses a timezone string in a case-insensitive way
     pub fn from_str_insensitive(s: &str) -> Result<Self, ParseError> {{
-        return TIMEZONES_UNCASED.get(s.into()).cloned().ok_or(ParseError(()));
+        #[cfg(feature = "std")]
+        return TIMEZONES_UNCASED.get(s.into()).cloned().ok_or_else(|| format!("'{{}}' is not a valid timezone", s));
+        #[cfg(not(feature = "std"))]
+        return TIMEZONES_UNCASED.get(s.into()).cloned().ok_or("received invalid timezone");
     }}"#
         )?;
     }
@@ -234,10 +199,6 @@ impl FromStr for Tz {{
     for zone in &zones {
         let timespans = table.timespans(zone).unwrap();
         let zone_name = convert_bad_chars(zone);
-        let timespan_name = match timespans.first.name.as_ref() {
-            "%z" => None,
-            name => Some(name),
-        };
         writeln!(
             timezone_file,
             "            Tz::{zone} => {{
@@ -246,7 +207,7 @@ impl FromStr for Tz {{
                     first: FixedTimespan {{
                         utc_offset: {utc},
                         dst_offset: {dst},
-                        name: {name:?},
+                        name: \"{name}\",
                     }},
                     rest: REST
                 }}
@@ -255,7 +216,7 @@ impl FromStr for Tz {{
             rest = format_rest(timespans.rest),
             utc = timespans.first.utc_offset,
             dst = timespans.first.dst_offset,
-            name = timespan_name,
+            name = timespans.first.name,
         )?;
     }
     write!(
@@ -279,11 +240,7 @@ pub static TZ_VARIANTS: [Tz; {num}] = [
         num = zones.len()
     )?;
     for zone in &zones {
-        writeln!(
-            timezone_file,
-            "    Tz::{zone},",
-            zone = convert_bad_chars(zone)
-        )?;
+        writeln!(timezone_file, "    Tz::{zone},", zone = convert_bad_chars(zone))?;
     }
     write!(timezone_file, "];")?;
     Ok(())
@@ -293,10 +250,7 @@ pub static TZ_VARIANTS: [Tz; {num}] = [
 // instead of having to use chrono_tz::timezones::Europe__London
 fn write_directory_file(directory_file: &mut File, table: &Table, version: &str) -> io::Result<()> {
     // expose the underlying IANA TZDB version
-    writeln!(
-        directory_file,
-        "pub const IANA_TZDB_VERSION : &str = \"{version}\";\n"
-    )?;
+    writeln!(directory_file, "pub const IANA_TZDB_VERSION : &str = \"{version}\";\n")?;
     // add the `loose' zone definitions first
     writeln!(directory_file, "use crate::timezones::Tz;\n")?;
     let zones = table
@@ -307,11 +261,7 @@ fn write_directory_file(directory_file: &mut File, table: &Table, version: &str)
         .collect::<BTreeSet<_>>();
     for zone in zones {
         let zone = convert_bad_chars(zone);
-        writeln!(
-            directory_file,
-            "pub const {name} : Tz = Tz::{name};",
-            name = zone
-        )?;
+        writeln!(directory_file, "pub const {name} : Tz = Tz::{name};", name = zone)?;
     }
     writeln!(directory_file)?;
 
@@ -327,11 +277,7 @@ fn write_directory_file(directory_file: &mut File, table: &Table, version: &str)
             match child {
                 Child::Submodule(name) => {
                     let submodule_name = convert_bad_chars(name);
-                    writeln!(
-                        directory_file,
-                        "    pub mod {name} {{",
-                        name = submodule_name
-                    )?;
+                    writeln!(directory_file, "    pub mod {name} {{", name = submodule_name)?;
                     writeln!(directory_file, "        use crate::timezones::Tz;\n",)?;
                     let full_name = entry.name.to_string() + "/" + name;
                     for entry in table.structure() {
@@ -380,8 +326,6 @@ mod filter {
 }
 
 /// Module containing code supporting filter-by-regex feature
-///
-/// The "GMT" and "UTC" time zones are always included.
 #[cfg(feature = "filter-by-regex")]
 mod filter {
     use std::collections::HashSet;
@@ -444,13 +388,13 @@ mod filter {
     fn filter_timezone_table(table: &mut Table, filter_regex: Regex) {
         // Compute the transitive closure of things to keep.
         // Doing this, instead of just filtering `zonesets` and `links` by the
-        // regex, helps to keep the `structure()` intact.
+        // regiex, helps to keep the `structure()` intact.
         let mut keep = HashSet::new();
         for (k, v) in &table.links {
-            if filter_regex.is_match(k) || k == "GMT" || k == "UTC" {
+            if filter_regex.is_match(k) {
                 insert_keep_entry(&mut keep, k);
             }
-            if filter_regex.is_match(v) || k == "GMT" || k == "UTC" {
+            if filter_regex.is_match(v) {
                 insert_keep_entry(&mut keep, v);
             }
         }
@@ -480,9 +424,7 @@ mod filter {
         }
 
         // Actually do the filtering.
-        table
-            .links
-            .retain(|k, v| keep.contains(k) || keep.contains(v));
+        table.links.retain(|k, v| keep.contains(k) || keep.contains(v));
 
         table
             .zonesets
@@ -514,7 +456,7 @@ fn detect_iana_db_version() -> String {
 pub fn main() {
     println!("cargo:rerun-if-env-changed={}", FILTER_ENV_VAR_NAME);
 
-    let parser = LineParser::default();
+    let parser = LineParser::new();
     let mut table = TableBuilder::new();
 
     let tzfiles = [

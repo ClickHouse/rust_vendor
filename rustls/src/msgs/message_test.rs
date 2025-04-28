@@ -1,14 +1,15 @@
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::prelude::v1::*;
-use std::{format, fs, println, vec};
+use crate::enums::{AlertDescription, HandshakeType};
+use crate::msgs::base::{PayloadU16, PayloadU24, PayloadU8};
 
 use super::base::Payload;
 use super::codec::Reader;
 use super::enums::AlertLevel;
-use super::message::{Message, OutboundOpaqueMessage, PlainMessage};
-use crate::enums::{AlertDescription, HandshakeType};
-use crate::msgs::base::{PayloadU8, PayloadU16, PayloadU24};
+use super::message::{Message, OpaqueMessage, PlainMessage};
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+use std::prelude::v1::*;
+use std::{format, fs, println, vec};
 
 #[test]
 fn test_read_fuzz_corpus() {
@@ -29,13 +30,14 @@ fn test_read_fuzz_corpus() {
         f.read_to_end(&mut bytes).unwrap();
 
         let mut rd = Reader::init(&bytes);
-        let msg = OutboundOpaqueMessage::read(&mut rd)
+        let msg = OpaqueMessage::read(&mut rd)
             .unwrap()
             .into_plain_message();
         println!("{:?}", msg);
 
-        let Ok(msg) = Message::try_from(msg) else {
-            continue;
+        let msg = match Message::try_from(msg) {
+            Ok(msg) => msg,
+            Err(_) => continue,
         };
 
         let enc = PlainMessage::from(msg)
@@ -47,7 +49,7 @@ fn test_read_fuzz_corpus() {
 }
 
 #[test]
-fn can_read_safari_client_hello_with_ip_address_in_sni_extension() {
+fn can_read_safari_client_hello() {
     let _ = env_logger::Builder::new()
         .filter(None, log::LevelFilter::Trace)
         .try_init();
@@ -69,9 +71,9 @@ fn can_read_safari_client_hello_with_ip_address_in_sni_extension() {
         \x79\x2f\x33\x08\x68\x74\x74\x70\x2f\x31\x2e\x31\x00\x0b\x00\x02\
         \x01\x00\x00\x0a\x00\x0a\x00\x08\x00\x1d\x00\x17\x00\x18\x00\x19";
     let mut rd = Reader::init(bytes);
-    let m = OutboundOpaqueMessage::read(&mut rd).unwrap();
+    let m = OpaqueMessage::read(&mut rd).unwrap();
     println!("m = {:?}", m);
-    Message::try_from(m.into_plain_message()).unwrap();
+    assert!(Message::try_from(m.into_plain_message()).is_err());
 }
 
 #[test]
@@ -90,7 +92,7 @@ fn construct_all_types() {
         &b"\x18\x03\x04\x00\x04\x11\x22\x33\x44"[..],
     ];
     for &bytes in samples.iter() {
-        let m = OutboundOpaqueMessage::read(&mut Reader::init(bytes)).unwrap();
+        let m = OpaqueMessage::read(&mut Reader::init(bytes)).unwrap();
         println!("m = {:?}", m);
         let m = Message::try_from(m.into_plain_message());
         println!("m' = {:?}", m);
@@ -99,11 +101,8 @@ fn construct_all_types() {
 
 #[test]
 fn debug_payload() {
-    assert_eq!("01020304", format!("{:?}", Payload::new(vec![1, 2, 3, 4])));
+    assert_eq!("01020304", format!("{:?}", Payload(vec![1, 2, 3, 4])));
     assert_eq!("01020304", format!("{:?}", PayloadU8(vec![1, 2, 3, 4])));
     assert_eq!("01020304", format!("{:?}", PayloadU16(vec![1, 2, 3, 4])));
-    assert_eq!(
-        "01020304",
-        format!("{:?}", PayloadU24(Payload::new(vec![1, 2, 3, 4])))
-    );
+    assert_eq!("01020304", format!("{:?}", PayloadU24(vec![1, 2, 3, 4])));
 }

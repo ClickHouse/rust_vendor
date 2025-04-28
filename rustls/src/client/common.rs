@@ -1,34 +1,25 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-
 use super::ResolvesClientCert;
+#[cfg(feature = "logging")]
 use crate::log::{debug, trace};
 use crate::msgs::enums::ExtensionType;
-use crate::msgs::handshake::{CertificateChain, DistinguishedName, ServerExtension};
-use crate::sync::Arc;
-use crate::{SignatureScheme, compress, sign};
+use crate::msgs::handshake::ServerExtension;
+use crate::msgs::handshake::{CertificateChain, DistinguishedName};
+use crate::{sign, SignatureScheme};
+
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
 #[derive(Debug)]
-pub(super) struct ServerCertDetails<'a> {
-    pub(super) cert_chain: CertificateChain<'a>,
+pub(super) struct ServerCertDetails {
+    pub(super) cert_chain: CertificateChain,
     pub(super) ocsp_response: Vec<u8>,
 }
 
-impl<'a> ServerCertDetails<'a> {
-    pub(super) fn new(cert_chain: CertificateChain<'a>, ocsp_response: Vec<u8>) -> Self {
+impl ServerCertDetails {
+    pub(super) fn new(cert_chain: CertificateChain, ocsp_response: Vec<u8>) -> Self {
         Self {
             cert_chain,
-            ocsp_response,
-        }
-    }
-
-    pub(super) fn into_owned(self) -> ServerCertDetails<'static> {
-        let Self {
-            cert_chain,
-            ocsp_response,
-        } = self;
-        ServerCertDetails {
-            cert_chain: cert_chain.into_owned(),
             ocsp_response,
         }
     }
@@ -36,16 +27,12 @@ impl<'a> ServerCertDetails<'a> {
 
 pub(super) struct ClientHelloDetails {
     pub(super) sent_extensions: Vec<ExtensionType>,
-    pub(super) extension_order_seed: u16,
-    pub(super) offered_cert_compression: bool,
 }
 
 impl ClientHelloDetails {
-    pub(super) fn new(extension_order_seed: u16) -> Self {
+    pub(super) fn new() -> Self {
         Self {
             sent_extensions: Vec::new(),
-            extension_order_seed,
-            offered_cert_compression: false,
         }
     }
 
@@ -55,7 +42,7 @@ impl ClientHelloDetails {
         allowed_unsolicited: &[ExtensionType],
     ) -> bool {
         for ext in received_exts {
-            let ext_type = ext.ext_type();
+            let ext_type = ext.get_type();
             if !self.sent_extensions.contains(&ext_type) && !allowed_unsolicited.contains(&ext_type)
             {
                 trace!("Unsolicited extension {:?}", ext_type);
@@ -75,7 +62,6 @@ pub(super) enum ClientAuthDetails {
         certkey: Arc<sign::CertifiedKey>,
         signer: Box<dyn sign::Signer>,
         auth_context_tls13: Option<Vec<u8>>,
-        compressor: Option<&'static dyn compress::CertCompressor>,
     },
 }
 
@@ -85,7 +71,6 @@ impl ClientAuthDetails {
         canames: Option<&[DistinguishedName]>,
         sigschemes: &[SignatureScheme],
         auth_context_tls13: Option<Vec<u8>>,
-        compressor: Option<&'static dyn compress::CertCompressor>,
     ) -> Self {
         let acceptable_issuers = canames
             .unwrap_or_default()
@@ -100,7 +85,6 @@ impl ClientAuthDetails {
                     certkey,
                     signer,
                     auth_context_tls13,
-                    compressor,
                 };
             }
         }

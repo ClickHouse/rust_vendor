@@ -1,10 +1,10 @@
 #![allow(clippy::duplicate_mod)]
 
-use alloc::boxed::Box;
-
 use super::ring_like::digest;
 use crate::crypto;
 use crate::msgs::enums::HashAlgorithm;
+
+use alloc::boxed::Box;
 
 pub(crate) static SHA256: Hash = Hash(&digest::SHA256, HashAlgorithm::SHA256);
 pub(crate) static SHA384: Hash = Hash(&digest::SHA384, HashAlgorithm::SHA384);
@@ -28,10 +28,6 @@ impl crypto::hash::Hash for Hash {
 
     fn algorithm(&self) -> HashAlgorithm {
         self.1
-    }
-
-    fn fips(&self) -> bool {
-        super::fips()
     }
 }
 

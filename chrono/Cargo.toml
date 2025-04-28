@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.61.0"
 name = "chrono"
-version = "0.4.39"
+version = "0.4.40"
 build = false
 include = [
     "src/*",
@@ -53,6 +53,49 @@ rustdoc-args = [
 
 [package.metadata.playground]
 features = ["serde"]
+
+[features]
+__internal_bench = []
+alloc = []
+clock = [
+    "winapi",
+    "iana-time-zone",
+    "android-tzdata",
+    "now",
+]
+default = [
+    "clock",
+    "std",
+    "oldtime",
+    "wasmbind",
+]
+libc = []
+now = ["std"]
+oldtime = []
+rkyv = [
+    "dep:rkyv",
+    "rkyv/size_32",
+]
+rkyv-16 = [
+    "dep:rkyv",
+    "rkyv?/size_16",
+]
+rkyv-32 = [
+    "dep:rkyv",
+    "rkyv?/size_32",
+]
+rkyv-64 = [
+    "dep:rkyv",
+    "rkyv?/size_64",
+]
+rkyv-validation = ["rkyv?/validation"]
+std = ["alloc"]
+unstable-locales = ["pure-rust-locales"]
+wasmbind = [
+    "wasm-bindgen",
+    "js-sys",
+]
+winapi = ["windows-link"]
 
 [lib]
 name = "chrono"
@@ -103,48 +146,8 @@ default-features = false
 [dev-dependencies.serde_json]
 version = "1"
 
-[features]
-__internal_bench = []
-alloc = []
-clock = [
-    "winapi",
-    "iana-time-zone",
-    "android-tzdata",
-    "now",
-]
-default = [
-    "clock",
-    "std",
-    "oldtime",
-    "wasmbind",
-]
-libc = []
-now = ["std"]
-oldtime = []
-rkyv = [
-    "dep:rkyv",
-    "rkyv/size_32",
-]
-rkyv-16 = [
-    "dep:rkyv",
-    "rkyv?/size_16",
-]
-rkyv-32 = [
-    "dep:rkyv",
-    "rkyv?/size_32",
-]
-rkyv-64 = [
-    "dep:rkyv",
-    "rkyv?/size_64",
-]
-rkyv-validation = ["rkyv?/validation"]
-std = ["alloc"]
-unstable-locales = ["pure-rust-locales"]
-wasmbind = [
-    "wasm-bindgen",
-    "js-sys",
-]
-winapi = ["windows-targets"]
+[dev-dependencies.similar-asserts]
+version = "1.6.1"
 
 [target.'cfg(all(target_arch = "wasm32", not(any(target_os = "emscripten", target_os = "wasi"))))'.dependencies.js-sys]
 version = "0.3"
@@ -166,9 +169,9 @@ version = "0.1.45"
 features = ["fallback"]
 optional = true
 
-[target."cfg(windows)".dependencies.windows-targets]
-version = "0.52"
+[target."cfg(windows)".dependencies.windows-link]
+version = "0.1"
 optional = true
 
 [target."cfg(windows)".dev-dependencies.windows-bindgen]
-version = "0.58"
+version = "0.60"

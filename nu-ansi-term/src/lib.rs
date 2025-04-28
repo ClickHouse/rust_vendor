@@ -236,14 +236,8 @@
 #![warn(trivial_casts, trivial_numeric_casts)]
 // #![warn(unused_extern_crates, unused_qualifications)]
 
-#[cfg(target_os = "windows")]
-extern crate winapi;
 #[cfg(test)]
-#[macro_use]
-extern crate doc_comment;
-
-#[cfg(test)]
-doctest!("../README.md");
+doc_comment::doctest!("../README.md");
 
 pub mod ansi;
 pub use ansi::{Infix, Prefix, Suffix};
@@ -258,7 +252,7 @@ pub use display::*;
 mod write;
 
 mod windows;
-pub use windows::*;
+pub use crate::windows::*;
 
 mod util;
 pub use util::*;

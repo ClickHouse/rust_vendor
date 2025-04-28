@@ -1,27 +1,26 @@
-#![cfg(any(feature = "ring", feature = "aws-lc-rs"))]
+#![cfg(any(feature = "ring", feature = "aws_lc_rs"))]
 
 use core::time::Duration;
 use std::collections::HashMap;
 use std::fs::File;
 
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use bzip2::read::BzDecoder;
-use pki_types::{
-    CertificateDer, ServerName, SignatureVerificationAlgorithm, TrustAnchor, UnixTime,
-};
+use pki_types::{ServerName, UnixTime};
 use serde::Deserialize;
 
-use webpki::{KeyUsage, anchor_from_trusted_cert};
+use webpki::types::{CertificateDer, SignatureVerificationAlgorithm, TrustAnchor};
+use webpki::{anchor_from_trusted_cert, KeyUsage};
 
 // All of the BetterTLS testcases use P256 keys.
 static ALGS: &[&dyn SignatureVerificationAlgorithm] = &[
     #[cfg(feature = "ring")]
     webpki::ring::ECDSA_P256_SHA256,
-    #[cfg(feature = "aws-lc-rs")]
+    #[cfg(feature = "aws_lc_rs")]
     webpki::aws_lc_rs::ECDSA_P256_SHA256,
 ];
 
-#[ignore] // Runs slower than other unit tests - opt-in with `cargo test -- --include-ignored`
+#[ignore] // Runs slower than other unit tests - opt-in with `cargo test -- --ignored`
 #[test]
 fn path_building() {
     let better_tls = testdata();
@@ -40,7 +39,7 @@ fn path_building() {
     );
 }
 
-#[ignore] // Runs slower than other unit tests - opt-in with `cargo test -- --include-ignored`
+#[ignore] // Runs slower than other unit tests - opt-in with `cargo test -- --ignored`
 #[test]
 fn name_constraints() {
     let better_tls = testdata();

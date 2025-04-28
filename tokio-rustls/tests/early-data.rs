@@ -1,19 +1,21 @@
 #![cfg(feature = "early-data")]
 
-use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpListener};
+use std::io::{self, BufRead, BufReader, Cursor};
+use std::net::SocketAddr;
 use std::pin::Pin;
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread;
+use std::time::Duration;
 
-use futures_util::{future::Future, ready};
-use rustls::pki_types::ServerName;
-use rustls::{self, ClientConfig, ServerConnection, Stream};
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
+use futures_util::{future, future::Future, ready};
+use rustls::{self, ClientConfig, RootCertStore};
+use tokio::io::{split, AsyncRead, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
-use tokio_rustls::client::TlsStream;
-use tokio_rustls::TlsConnector;
+use tokio::sync::oneshot;
+use tokio::time::sleep;
+use tokio_rustls::{client::TlsStream, TlsConnector};
 
 struct Read1<T>(T);
 
@@ -39,85 +41,130 @@ async fn send(
     config: Arc<ClientConfig>,
     addr: SocketAddr,
     data: &[u8],
-    vectored: bool,
-) -> io::Result<(TlsStream<TcpStream>, Vec<u8>)> {
+) -> io::Result<TlsStream<TcpStream>> {
     let connector = TlsConnector::from(config).early_data(true);
     let stream = TcpStream::connect(&addr).await?;
-    let domain = ServerName::try_from("foobar.com").unwrap();
+    let domain = pki_types::ServerName::try_from("foobar.com").unwrap();
 
-    let mut stream = connector.connect(domain, stream).await?;
-    utils::write(&mut stream, data, vectored).await?;
-    stream.flush().await?;
-    stream.shutdown().await?;
+    let stream = connector.connect(domain, stream).await?;
+    let (mut rd, mut wd) = split(stream);
+    let (notify, wait) = oneshot::channel();
 
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).await?;
+    let j = tokio::spawn(async move {
+        // read to eof
+        //
+        // see https://www.mail-archive.com/openssl-users@openssl.org/msg84451.html
+        let mut read_task = Read1(&mut rd);
+        let mut notify = Some(notify);
 
-    Ok((stream, buf))
+        // read once, then write
+        //
+        // this is a regression test, see https://github.com/tokio-rs/tls/issues/54
+        future::poll_fn(|cx| {
+            let ret = Pin::new(&mut read_task).poll(cx)?;
+            assert_eq!(ret, Poll::Pending);
+
+            notify.take().unwrap().send(()).unwrap();
+
+            Poll::Ready(Ok(())) as Poll<io::Result<_>>
+        })
+        .await?;
+
+        match read_task.await {
+            Ok(()) => (),
+            Err(ref err) if err.kind() == io::ErrorKind::UnexpectedEof => (),
+            Err(err) => return Err(err),
+        }
+
+        Ok(rd) as io::Result<_>
+    });
+
+    wait.await.unwrap();
+
+    wd.write_all(data).await?;
+    wd.flush().await?;
+    wd.shutdown().await?;
+
+    let rd: tokio::io::ReadHalf<_> = j.await??;
+
+    Ok(rd.unsplit(wd))
+}
+
+struct DropKill(Child);
+
+impl Drop for DropKill {
+    fn drop(&mut self) {
+        self.0.kill().unwrap();
+    }
+}
+
+async fn wait_for_server(addr: &str) {
+    let tries = 10;
+    for i in 0..tries {
+        if let Ok(_) = TcpStream::connect(addr).await {
+            return;
+        }
+        sleep(Duration::from_millis(i * 100)).await;
+    }
+    panic!("failed to connect to {:?} after {} tries", addr, tries)
 }
 
 #[tokio::test]
 async fn test_0rtt() -> io::Result<()> {
-    test_0rtt_impl(false).await
-}
+    let server_port = 12354;
+    let mut handle = Command::new("openssl")
+        .arg("s_server")
+        .arg("-early_data")
+        .arg("-tls1_3")
+        .args(["-cert", "./tests/end.cert"])
+        .args(["-key", "./tests/end.rsa"])
+        .args(["-port", &server_port.to_string()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map(DropKill)?;
 
-#[tokio::test]
-async fn test_0rtt_vectored() -> io::Result<()> {
-    test_0rtt_impl(true).await
-}
+    // wait openssl server
+    wait_for_server(format!("127.0.0.1:{}", server_port).as_str()).await;
 
-async fn test_0rtt_impl(vectored: bool) -> io::Result<()> {
-    let (mut server, mut client) = utils::make_configs();
-    server.max_early_data_size = 8192;
-    let server = Arc::new(server);
+    let mut chain = BufReader::new(Cursor::new(include_str!("end.chain")));
+    let mut root_store = RootCertStore::empty();
+    for cert in rustls_pemfile::certs(&mut chain) {
+        root_store.add(cert.unwrap()).unwrap();
+    }
 
-    let listener = TcpListener::bind("127.0.0.1:0")?;
-    let server_port = listener.local_addr().unwrap().port();
-    thread::spawn(move || loop {
-        let (mut sock, _addr) = listener.accept().unwrap();
-
-        let server = Arc::clone(&server);
-        thread::spawn(move || {
-            let mut conn = ServerConnection::new(server).unwrap();
-            conn.complete_io(&mut sock).unwrap();
-
-            if let Some(mut early_data) = conn.early_data() {
-                let mut buf = Vec::new();
-                early_data.read_to_end(&mut buf).unwrap();
-                let mut stream = Stream::new(&mut conn, &mut sock);
-                stream.write_all(b"EARLY:").unwrap();
-                stream.write_all(&buf).unwrap();
-            }
-
-            let mut stream = Stream::new(&mut conn, &mut sock);
-            stream.write_all(b"LATE:").unwrap();
-            loop {
-                let mut buf = [0; 1024];
-                let n = stream.read(&mut buf).unwrap();
-                if n == 0 {
-                    conn.send_close_notify();
-                    conn.complete_io(&mut sock).unwrap();
-                    break;
-                }
-                stream.write_all(&buf[..n]).unwrap();
-            }
-        });
-    });
-
-    client.enable_early_data = true;
-    let client = Arc::new(client);
+    let mut config =
+        rustls::ClientConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+    config.enable_early_data = true;
+    let config = Arc::new(config);
     let addr = SocketAddr::from(([127, 0, 0, 1], server_port));
 
-    let (io, buf) = send(client.clone(), addr, b"hello", vectored).await?;
-    assert!(!io.get_ref().1.is_early_data_accepted());
-    assert_eq!("LATE:hello", String::from_utf8_lossy(&buf));
+    // workaround: write to openssl s_server standard input periodically, to
+    // get it unstuck on Windows
+    let stdin = handle.0.stdin.take().unwrap();
+    thread::spawn(move || {
+        let mut stdin = stdin;
+        loop {
+            thread::sleep(std::time::Duration::from_secs(5));
+            std::io::Write::write_all(&mut stdin, b"\n").unwrap();
+        }
+    });
 
-    let (io, buf) = send(client, addr, b"world!", vectored).await?;
+    let io = send(config.clone(), addr, b"hello").await?;
+    assert!(!io.get_ref().1.is_early_data_accepted());
+
+    let io = send(config, addr, b"world!").await?;
     assert!(io.get_ref().1.is_early_data_accepted());
-    assert_eq!("EARLY:world!LATE:", String::from_utf8_lossy(&buf));
+
+    let stdout = handle.0.stdout.as_mut().unwrap();
+    let mut lines = BufReader::new(stdout).lines();
+
+    let has_msg1 = lines.by_ref().any(|line| line.unwrap().contains("hello"));
+    let has_msg2 = lines.by_ref().any(|line| line.unwrap().contains("world!"));
+
+    assert!(has_msg1 && has_msg2);
 
     Ok(())
 }
-
-// Include `utils` module
-include!("utils.rs");

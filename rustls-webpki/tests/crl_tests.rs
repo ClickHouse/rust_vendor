@@ -122,29 +122,25 @@ fn parse_entry_negative_serial_crl() {
     #[cfg(feature = "alloc")]
     {
         let crl: CertRevocationList = borrowed_crl.to_owned().unwrap().into();
-        assert!(
-            crl.find_serial(REVOKED_SERIAL)
-                .expect("looking for REVOKED_SERIAL failed")
-                .is_none()
-        );
-        assert!(
-            crl.find_serial(REVOKED_SERIAL_NEGATIVE)
-                .expect("looking for REVOKED_SERIAL_NEGATIVE failed")
-                .is_some()
-        );
+        assert!(crl
+            .find_serial(REVOKED_SERIAL)
+            .expect("looking for REVOKED_SERIAL failed")
+            .is_none());
+        assert!(crl
+            .find_serial(REVOKED_SERIAL_NEGATIVE)
+            .expect("looking for REVOKED_SERIAL_NEGATIVE failed")
+            .is_some());
     }
 
     let crl: CertRevocationList = borrowed_crl.into();
-    assert!(
-        crl.find_serial(REVOKED_SERIAL)
-            .expect("looking for REVOKED_SERIAL failed")
-            .is_none()
-    );
-    assert!(
-        crl.find_serial(REVOKED_SERIAL_NEGATIVE)
-            .expect("looking for REVOKED_SERIAL_NEGATIVE failed")
-            .is_some()
-    );
+    assert!(crl
+        .find_serial(REVOKED_SERIAL)
+        .expect("looking for REVOKED_SERIAL failed")
+        .is_none());
+    assert!(crl
+        .find_serial(REVOKED_SERIAL_NEGATIVE)
+        .expect("looking for REVOKED_SERIAL_NEGATIVE failed")
+        .is_some());
 }
 
 #[test]
@@ -155,19 +151,17 @@ fn parse_entry_topbit_serial_crl() {
     #[cfg(feature = "alloc")]
     {
         let crl: CertRevocationList = borrowed_crl.to_owned().unwrap().into();
-        assert!(
-            crl.find_serial(REVOKED_SERIAL_WITH_TOP_BIT_SET)
-                .expect("failed to look for REVOKED_SERIAL_WITH_TOP_BIT_SET")
-                .is_some()
-        );
+        assert!(crl
+            .find_serial(REVOKED_SERIAL_WITH_TOP_BIT_SET)
+            .expect("failed to look for REVOKED_SERIAL_WITH_TOP_BIT_SET")
+            .is_some());
     }
 
     let crl: CertRevocationList = borrowed_crl.into();
-    assert!(
-        crl.find_serial(REVOKED_SERIAL_WITH_TOP_BIT_SET)
-            .expect("failed to look for REVOKED_SERIAL_WITH_TOP_BIT_SET")
-            .is_some()
-    );
+    assert!(crl
+        .find_serial(REVOKED_SERIAL_WITH_TOP_BIT_SET)
+        .expect("failed to look for REVOKED_SERIAL_WITH_TOP_BIT_SET")
+        .is_some());
 }
 
 #[test]
@@ -254,23 +248,21 @@ fn parse_entry_invalidity_date_crl() {
     #[cfg(feature = "alloc")]
     {
         let crl: CertRevocationList = borrowed_crl.to_owned().unwrap().into();
-        assert!(
-            crl.find_serial(REVOKED_SERIAL)
-                .unwrap()
-                .unwrap()
-                .invalidity_date
-                .is_some()
-        );
-    }
-
-    let crl: CertRevocationList = borrowed_crl.into();
-    assert!(
-        crl.find_serial(REVOKED_SERIAL)
+        assert!(crl
+            .find_serial(REVOKED_SERIAL)
             .unwrap()
             .unwrap()
             .invalidity_date
-            .is_some()
-    );
+            .is_some());
+    }
+
+    let crl: CertRevocationList = borrowed_crl.into();
+    assert!(crl
+        .find_serial(REVOKED_SERIAL)
+        .unwrap()
+        .unwrap()
+        .invalidity_date
+        .is_some());
 }
 
 #[test]
