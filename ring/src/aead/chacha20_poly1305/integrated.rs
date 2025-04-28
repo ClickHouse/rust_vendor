@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -118,17 +118,17 @@ pub(super) fn seal(
                 &data.out.tag
             };
         } else {
-            if matches!((required_cpu_features, optional_cpu_features),
-                        (Sse41 { .. }, Some((Avx2 { .. }, Bmi2 { .. })))) {
+            let _: Sse41 = required_cpu_features;
+            if matches!(optional_cpu_features, Some((Avx2 { .. }, Bmi2 { .. }))) {
                 declare_seal! { chacha20_poly1305_seal_avx2 }
                 tag = unsafe {
                     chacha20_poly1305_seal_avx2(output, input, len, ad, ad_len, &mut data);
                     &data.out.tag
                 };
             } else {
-                declare_seal! { chacha20_poly1305_seal_nohw }
+                declare_seal! { chacha20_poly1305_seal_sse41 }
                 tag = unsafe {
-                    chacha20_poly1305_seal_nohw(output, input, len, ad, ad_len, &mut data);
+                    chacha20_poly1305_seal_sse41(output, input, len, ad, ad_len, &mut data);
                     &data.out.tag
                 };
             }
@@ -187,17 +187,17 @@ pub(super) fn open(
                     &data.out.tag
                 };
             } else {
-                if matches!((required_cpu_features, optional_cpu_features),
-                            (Sse41 { .. }, Some((Avx2 { .. }, Bmi2 { .. })))) {
+                let _: Sse41 = required_cpu_features;
+                if matches!(optional_cpu_features, Some((Avx2 { .. }, Bmi2 { .. }))) {
                     declare_open! { chacha20_poly1305_open_avx2 }
                     tag = unsafe {
                         chacha20_poly1305_open_avx2(output, input, len, ad, ad_len, &mut data);
                         &data.out.tag
                     };
                 } else {
-                    declare_open! { chacha20_poly1305_open_nohw }
+                    declare_open! { chacha20_poly1305_open_sse41 }
                     tag = unsafe {
-                        chacha20_poly1305_open_nohw(output, input, len, ad, ad_len, &mut data);
+                        chacha20_poly1305_open_sse41(output, input, len, ad, ad_len, &mut data);
                         &data.out.tag
                     };
                 }

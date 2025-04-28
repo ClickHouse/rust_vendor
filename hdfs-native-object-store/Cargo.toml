@@ -12,8 +12,14 @@
 [package]
 edition = "2021"
 name = "hdfs-native-object-store"
-version = "0.12.1"
+version = "0.13.0"
 authors = ["Adam Binford <adamq43@gmail.com>"]
+build = false
+autolib = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "object_store implementation for Native HDFS client"
 homepage = "https://github.com/datafusion-contrib/hdfs-native-object-store"
 readme = "README.md"
@@ -24,6 +30,14 @@ keywords = [
 ]
 license = "Apache-2.0"
 repository = "https://github.com/datafusion-contrib/hdfs-native-object-store"
+
+[lib]
+name = "hdfs_native_object_store"
+path = "src/lib.rs"
+
+[[test]]
+name = "test_object_store"
+path = "tests/test_object_store.rs"
 
 [dependencies.async-trait]
 version = "0.1"
@@ -38,13 +52,13 @@ version = "0.4"
 version = "0.3"
 
 [dependencies.hdfs-native]
-version = "0.10"
+version = "0.11"
 
 [dependencies.object_store]
 version = ">= 0.10, < 0.12"
 
 [dependencies.thiserror]
-version = "1"
+version = "2"
 
 [dependencies.tokio]
 version = "1"
@@ -58,10 +72,10 @@ features = [
 ]
 
 [dev-dependencies.env_logger]
-version = "0.10"
+version = "0.11"
 
 [dev-dependencies.serial_test]
-version = "2"
+version = "3"
 
 [features]
 integration-test = ["hdfs-native/integration-test"]

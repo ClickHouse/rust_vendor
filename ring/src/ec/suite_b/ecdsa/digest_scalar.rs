@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -68,13 +68,14 @@ fn digest_scalar_(n: &Modulus<N>, digest: &[u8]) -> Scalar {
 #[cfg(test)]
 mod tests {
     use super::digest_bytes_scalar;
-    use crate::{cpu, digest, ec::suite_b::ops::*, limb, test};
+    use crate::testutil as test;
+    use crate::{cpu, digest, ec::suite_b::ops::*, limb};
 
     #[test]
     fn test() {
         let cpu = cpu::features();
         test::run(
-            test_file!("ecdsa_digest_scalar_tests.txt"),
+            test_vector_file!("ecdsa_digest_scalar_tests.txt"),
             |section, test_case| {
                 assert_eq!(section, "");
 

@@ -11,14 +11,17 @@
 
 [package]
 edition = "2021"
-rust-version = "1.63.0"
+rust-version = "1.66.0"
 name = "ring"
-version = "0.17.9"
-authors = ["Brian Smith <brian@briansmith.org>"]
+version = "0.17.14"
 build = "build.rs"
-links = "ring_core_0_17_9_"
+links = "ring_core_0_17_14_"
 include = [
     "LICENSE",
+    "LICENSE-other-bits",
+    "LICENSE-BoringSSL",
+    "src/polyfill/once_cell/LICENSE-APACHE",
+    "src/polyfill/once_cell/LICENSE-MIT",
     "Cargo.toml",
     "pregenerated/*",
     "benches/*.rs",
@@ -27,8 +30,6 @@ include = [
     "crypto/chacha/asm/chacha-armv8.pl",
     "crypto/chacha/asm/chacha-x86.pl",
     "crypto/chacha/asm/chacha-x86_64.pl",
-    "crypto/cipher_extra/test/aes_128_gcm_siv_tests.txt",
-    "crypto/cipher_extra/test/aes_256_gcm_siv_tests.txt",
     "crypto/constant_time_test.c",
     "crypto/cpu_intel.c",
     "crypto/crypto.c",
@@ -38,9 +39,17 @@ include = [
     "crypto/curve25519/curve25519_tables.h",
     "crypto/curve25519/internal.h",
     "crypto/fipsmodule/aes/aes_nohw.c",
+    "crypto/fipsmodule/aes/asm/aes-gcm-avx2-x86_64.pl",
     "crypto/fipsmodule/aes/asm/aesni-x86.pl",
+    "crypto/fipsmodule/aes/asm/aesni-gcm-x86_64.pl",
     "crypto/fipsmodule/aes/asm/aesni-x86_64.pl",
     "crypto/fipsmodule/aes/asm/aesv8-armx.pl",
+    "crypto/fipsmodule/aes/asm/aesv8-gcm-armv8.pl",
+    "crypto/fipsmodule/aes/asm/ghash-armv4.pl",
+    "crypto/fipsmodule/aes/asm/ghash-neon-armv8.pl",
+    "crypto/fipsmodule/aes/asm/ghash-x86.pl",
+    "crypto/fipsmodule/aes/asm/ghash-x86_64.pl",
+    "crypto/fipsmodule/aes/asm/ghashv8-armx.pl",
     "crypto/fipsmodule/aes/asm/bsaes-armv7.pl",
     "crypto/fipsmodule/aes/asm/bsaes-x86_64.pl",
     "crypto/fipsmodule/aes/asm/vsaes-armv7.pl",
@@ -72,13 +81,6 @@ include = [
     "crypto/fipsmodule/ec/p256_table.h",
     "crypto/fipsmodule/ec/util.h",
     "crypto/fipsmodule/ecdsa/ecdsa_verify_tests.txt",
-    "crypto/fipsmodule/modes/asm/aesni-gcm-x86_64.pl",
-    "crypto/fipsmodule/modes/asm/ghash-armv4.pl",
-    "crypto/fipsmodule/modes/asm/ghash-neon-armv8.pl",
-    "crypto/fipsmodule/modes/asm/ghash-x86.pl",
-    "crypto/fipsmodule/modes/asm/ghash-x86_64.pl",
-    "crypto/fipsmodule/modes/asm/ghashv8-armx.pl",
-    "crypto/fipsmodule/modes/asm/aesv8-gcm-armv8.pl",
     "crypto/fipsmodule/sha/asm/sha256-armv4.pl",
     "crypto/fipsmodule/sha/asm/sha512-armv4.pl",
     "crypto/fipsmodule/sha/asm/sha512-armv8.pl",
@@ -96,11 +98,10 @@ include = [
     "crypto/poly1305/poly1305.c",
     "crypto/poly1305/poly1305_arm.c",
     "crypto/poly1305/poly1305_arm_asm.S",
-    "crypto/cipher_extra/asm/chacha20_poly1305_armv8.pl",
-    "crypto/cipher_extra/asm/chacha20_poly1305_x86_64.pl",
+    "crypto/cipher/asm/chacha20_poly1305_armv8.pl",
+    "crypto/cipher/asm/chacha20_poly1305_x86_64.pl",
     "examples/**/*.rs",
     "include/ring-core/aes.h",
-    "include/ring-core/arm_arch.h",
     "include/ring-core/asm_base.h",
     "include/ring-core/base.h",
     "include/ring-core/check.h",
@@ -138,11 +139,12 @@ include = [
     "third_party/fiat/p256_64_msvc.h",
     "third_party/fiat/LICENSE",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
-description = "Safe, fast, small crypto using Rust."
+description = "An experiment."
 readme = "README.md"
 keywords = [
     "crypto",
@@ -155,27 +157,27 @@ categories = [
     "cryptography",
     "no-std",
 ]
-license-file = "LICENSE"
+license = "Apache-2.0 AND ISC"
 repository = "https://github.com/briansmith/ring"
 
 [package.metadata.docs.rs]
 all-features = true
 
-[profile.bench]
-opt-level = 3
-lto = true
-codegen-units = 1
-debug = 0
-debug-assertions = false
-rpath = false
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-debug = 0
-debug-assertions = false
-rpath = false
+[features]
+alloc = []
+default = [
+    "alloc",
+    "dev_urandom_fallback",
+]
+dev_urandom_fallback = []
+less-safe-getrandom-custom-or-rdrand = []
+less-safe-getrandom-espidf = []
+slow_tests = []
+std = ["alloc"]
+test_logging = []
+unstable-testing-arm-no-hw = []
+unstable-testing-arm-no-neon = []
+wasm32_unknown_unknown_js = ["getrandom/js"]
 
 [lib]
 name = "ring"
@@ -248,24 +250,8 @@ version = "0.2.10"
 version = "0.9"
 
 [build-dependencies.cc]
-version = "1.0.83"
+version = "1.2.8"
 default-features = false
-
-[features]
-alloc = []
-default = [
-    "alloc",
-    "dev_urandom_fallback",
-]
-dev_urandom_fallback = []
-less-safe-getrandom-custom-or-rdrand = []
-less-safe-getrandom-espidf = []
-slow_tests = []
-std = ["alloc"]
-test_logging = []
-unstable-testing-arm-no-hw = []
-unstable-testing-arm-no-neon = []
-wasm32_unknown_unknown_js = ["getrandom/js"]
 
 [target.'cfg(all(all(target_arch = "aarch64", target_endian = "little"), target_os = "windows"))'.dependencies.windows-sys]
 version = "0.52"
@@ -287,10 +273,22 @@ version = "0.3.37"
 features = ["std"]
 default-features = false
 
-[target.'cfg(all(target_vendor = "apple", target_os = "visionos"))'.build-dependencies.cc]
-version = "1.0.97"
-default-features = false
-
 [target.'cfg(any(unix, windows, target_os = "wasi"))'.dev-dependencies.libc]
 version = "0.2.148"
 default-features = false
+
+[profile.bench]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = 0
+debug-assertions = false
+rpath = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = 0
+debug-assertions = false
+rpath = false

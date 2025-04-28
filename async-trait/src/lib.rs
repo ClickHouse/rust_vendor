@@ -214,10 +214,11 @@
 //! }
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/async-trait/0.1.86")]
+#![doc(html_root_url = "https://docs.rs/async-trait/0.1.88")]
 #![allow(
     clippy::default_trait_access,
     clippy::doc_markdown,
+    clippy::elidable_lifetime_names,
     clippy::explicit_auto_deref,
     clippy::if_not_else,
     clippy::items_after_statements,

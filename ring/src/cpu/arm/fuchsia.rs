@@ -4,15 +4,15 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
 // CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
-use super::{Aes, Neon, PMull, Sha256, CAPS_STATIC};
+use super::{Aes, Neon, PMull, Sha256, Sha512, CAPS_STATIC};
 
 pub const FORCE_DYNAMIC_DETECTION: u32 = 0;
 
@@ -26,10 +26,10 @@ pub fn detect_features() -> u32 {
 
     const ZX_OK: i32 = 0;
     const ZX_FEATURE_KIND_CPU: u32 = 0;
-    const ZX_ARM64_FEATURE_ISA_ASIMD: u32 = 1 << 2;
     const ZX_ARM64_FEATURE_ISA_AES: u32 = 1 << 3;
     const ZX_ARM64_FEATURE_ISA_PMULL: u32 = 1 << 4;
-    const ZX_ARM64_FEATURE_ISA_SHA2: u32 = 1 << 6;
+    const ZX_ARM64_FEATURE_ISA_SHA256: u32 = 1 << 6;
+    const ZX_ARM64_FEATURE_ISA_SHA512: u32 = 1 << 18;
 
     let mut caps = 0;
     let rc = unsafe { zx_system_get_features(ZX_FEATURE_KIND_CPU, &mut caps) };
@@ -46,8 +46,11 @@ pub fn detect_features() -> u32 {
         if caps & ZX_ARM64_FEATURE_ISA_PMULL == ZX_ARM64_FEATURE_ISA_PMULL {
             features |= PMull::mask();
         }
-        if caps & ZX_ARM64_FEATURE_ISA_SHA2 == ZX_ARM64_FEATURE_ISA_SHA2 {
+        if caps & ZX_ARM64_FEATURE_ISA_SHA256 == ZX_ARM64_FEATURE_ISA_SHA256 {
             features |= Sha256::mask();
+        }
+        if caps & ZX_ARM64_FEATURE_ISA_SHA512 == ZX_ARM64_FEATURE_ISA_SHA512 {
+            features |= Sha512::mask();
         }
     }
 

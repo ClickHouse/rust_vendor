@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.63.0"
 name = "uuid"
-version = "1.13.2"
+version = "1.16.0"
 authors = [
     "Ashley Mannix<ashleymannix@live.com.au>",
     "Dylan DPC<dylan.dpc@gmail.com>",
@@ -158,7 +158,7 @@ optional = true
 default-features = false
 
 [dependencies.bytemuck]
-version = "1.14.0"
+version = "1.16.0"
 features = ["derive"]
 optional = true
 
@@ -182,7 +182,7 @@ version = "2"
 optional = true
 
 [dependencies.uuid-macro-internal]
-version = "1.13.2"
+version = "1.16.0"
 optional = true
 
 [dependencies.zerocopy]
@@ -209,7 +209,7 @@ version = "1.0.56"
 version = "1.0.52"
 
 [target.'cfg(all(target_arch = "wasm32", target_vendor = "unknown", target_os = "unknown"))'.dependencies.uuid-rng-internal-lib]
-version = "1.13.2"
+version = "1.16.0"
 optional = true
 package = "uuid-rng-internal"
 

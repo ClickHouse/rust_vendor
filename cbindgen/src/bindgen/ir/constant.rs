@@ -184,7 +184,7 @@ impl Literal {
         }
     }
 
-    fn can_be_constexpr(&self) -> bool {
+    pub(crate) fn can_be_constexpr(&self) -> bool {
         !self.has_pointer_casts()
     }
 
@@ -645,7 +645,7 @@ impl Constant {
             return;
         }
 
-        let associated_to_transparent = associated_to_struct.map_or(false, |s| s.is_transparent);
+        let associated_to_transparent = associated_to_struct.is_some_and(|s| s.is_transparent);
 
         let in_body = associated_to_struct.is_some()
             && config.language == Language::Cxx

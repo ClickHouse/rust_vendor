@@ -14,17 +14,15 @@ use std::{
 };
 
 use crate::runtime::TokioRuntime;
+use crate::{Duration, Instant};
 use bytes::Bytes;
-use proto::{crypto::rustls::QuicClientConfig, RandomConnectionIdGenerator};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use proto::{RandomConnectionIdGenerator, crypto::rustls::QuicClientConfig};
+use rand::{RngCore, SeedableRng, rngs::StdRng};
 use rustls::{
-    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
     RootCertStore,
+    pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
 };
-use tokio::{
-    runtime::{Builder, Runtime},
-    time::{Duration, Instant},
-};
+use tokio::runtime::{Builder, Runtime};
 use tracing::{error_span, info};
 use tracing_futures::Instrument as _;
 use tracing_subscriber::EnvFilter;
@@ -160,7 +158,7 @@ fn read_after_close() {
             .unwrap()
             .await
             .expect("connect");
-        tokio::time::sleep_until(Instant::now() + Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
         let mut stream = new_conn.accept_uni().await.expect("incoming streams");
         let msg = stream.read_to_end(usize::MAX).await.expect("read_to_end");
         assert_eq!(msg, MSG);
@@ -387,6 +385,10 @@ async fn zero_rtt() {
 }
 
 #[test]
+#[cfg_attr(
+    any(target_os = "solaris", target_os = "illumos"),
+    ignore = "Fails on Solaris and Illumos"
+)]
 fn echo_v6() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
@@ -399,6 +401,7 @@ fn echo_v6() {
 }
 
 #[test]
+#[cfg_attr(target_os = "solaris", ignore = "Sometimes hangs in poll() on Solaris")]
 fn echo_v4() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -411,6 +414,7 @@ fn echo_v4() {
 }
 
 #[test]
+#[cfg_attr(target_os = "solaris", ignore = "Hangs in poll() on Solaris")]
 fn echo_dualstack() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
@@ -423,6 +427,8 @@ fn echo_dualstack() {
 }
 
 #[test]
+#[ignore]
+#[cfg_attr(target_os = "solaris", ignore = "Hangs in poll() on Solaris")]
 fn stress_receive_window() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
@@ -435,6 +441,8 @@ fn stress_receive_window() {
 }
 
 #[test]
+#[ignore]
+#[cfg_attr(target_os = "solaris", ignore = "Hangs in poll() on Solaris")]
 fn stress_stream_receive_window() {
     // Note that there is no point in running this with too many streams,
     // since the window is only active within a stream.
@@ -449,6 +457,8 @@ fn stress_stream_receive_window() {
 }
 
 #[test]
+#[ignore]
+#[cfg_attr(target_os = "solaris", ignore = "Hangs in poll() on Solaris")]
 fn stress_both_windows() {
     run_echo(EchoArgs {
         client_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),

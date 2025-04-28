@@ -13,7 +13,7 @@
 edition = "2018"
 rust-version = "1.40"
 name = "whoami"
-version = "1.5.2"
+version = "1.6.0"
 build = false
 include = [
     "/LICENSE_APACHE",
@@ -22,6 +22,7 @@ include = [
     "/README.md",
     "/src/*",
 ]
+autolib = false
 autobins = false
 autoexamples = false
 autotests = false
@@ -47,13 +48,13 @@ categories = [
 license = "Apache-2.0 OR BSL-1.0 OR MIT"
 repository = "https://github.com/ardaku/whoami"
 
-[lib]
-name = "whoami"
-path = "src/lib.rs"
-
 [features]
 default = ["web"]
 web = ["web-sys"]
+
+[lib]
+name = "whoami"
+path = "src/lib.rs"
 
 [target.'cfg(all(target_arch = "wasm32", not(target_os = "wasi"), not(daku)))'.dependencies.web-sys]
 version = "0.3"

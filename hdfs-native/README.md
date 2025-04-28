@@ -1,7 +1,5 @@
 # Native Rust HDFS client
-This is a proof-of-concept HDFS client written natively in Rust. All other clients I have found in any other language are simply wrappers around libhdfs and require all the same Java dependencies, so I wanted to see if I could write one from scratch given that HDFS isn't really changing very often anymore. Several basic features are working, however it is not nearly as robust and the real HDFS client.
-
-What this is not trying to do is implement all HDFS client/FileSystem interfaces, just things involving reading and writing data.
+This is an experimental HDFS client written natively in Rust. Several basic features are working, however it is not nearly as robust and the real HDFS client.
 
 ## Supported HDFS features
 Here is a list of currently supported and unsupported but possible future features.
@@ -12,10 +10,15 @@ Here is a list of currently supported and unsupported but possible future featur
 - [x] Writing
 - [x] Rename
 - [x] Delete
+- [x] Basic Permissions and ownership
+- [x] ACLs
+- [x] Content summary
+- [x] Set replication
+- [x] Set timestamps
 
 ### HDFS Features
 - [x] Name Services
-- [ ] Observer reads (state ID tracking is supported, but needs improvements on tracking Observer/Active NameNode)
+- [x] Observer reads
 - [x] ViewFS
 - [x] Router based federation
 - [x] Erasure coded reads and writes
@@ -46,6 +49,11 @@ yum install krb5-libs
 ```bash
 brew install krb5
 ```
+
+#### Windows
+Download and install the Microsoft Kerberos package from https://web.mit.edu/kerberos/dist/
+
+Copy the `<INSTALL FOLDER>\MIT\Kerberos\bin\gssapi64.dll` file to a folder in %PATH% and change the name to `gssapi_krb5.dll`
 
 ## Supported HDFS Settings
 The client will attempt to read Hadoop configs `core-site.xml` and `hdfs-site.xml` in the directories `$HADOOP_CONF_DIR` or if that doesn't exist, `$HADOOP_HOME/etc/hadoop`. Currently the supported configs that are used are:

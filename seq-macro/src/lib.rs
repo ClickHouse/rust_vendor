@@ -73,11 +73,12 @@
 //! });
 //! ```
 
-#![doc(html_root_url = "https://docs.rs/seq-macro/0.3.5")]
+#![doc(html_root_url = "https://docs.rs/seq-macro/0.3.6")]
 #![allow(
     clippy::cast_lossless,
     clippy::cast_possible_truncation,
     clippy::derive_partial_eq_without_eq,
+    clippy::into_iter_without_iter,
     clippy::let_underscore_untyped,
     clippy::needless_doctest_main,
     clippy::single_match_else,

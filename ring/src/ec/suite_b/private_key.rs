@@ -4,9 +4,9 @@
 // purpose with or without fee is hereby granted, provided that the above
 // copyright notice and this permission notice appear in all copies.
 //
-// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
+// THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
 // WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY
+// MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
 // SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
 // WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
 // OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
@@ -102,10 +102,10 @@ pub(super) fn check_scalar_big_endian_bytes(
 }
 
 // Parses a fixed-length (zero-padded) big-endian-encoded scalar in the range
-// [1, n). This is constant-time with respect to the actual value *only if* the
-// value is actually in range. In other words, this won't leak anything about a
-// valid value, but it might leak small amounts of information about an invalid
-// value (which constraint it failed).
+// [1, n). This is intended to be constant-time with respect to the actual
+// value *only if* the value is actually in range. In other words, this won't
+// leak anything about a valid value, but it might leak small amounts of
+// information about an invalid value (which constraint it failed).
 pub(super) fn scalar_from_big_endian_bytes(
     n: &Modulus<N>,
     bytes: &[u8],

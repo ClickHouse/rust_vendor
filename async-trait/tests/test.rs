@@ -4,6 +4,7 @@
 )]
 #![deny(rust_2021_compatibility, unused_qualifications)]
 #![allow(
+    clippy::elidable_lifetime_names,
     clippy::incompatible_msrv, // https://github.com/rust-lang/rust-clippy/issues/12257
     clippy::let_underscore_untyped,
     clippy::let_unit_value,
@@ -1684,6 +1685,7 @@ pub mod issue281 {
     }
 }
 
+// https://github.com/dtolnay/async-trait/issues/283
 pub mod issue283 {
     use async_trait::async_trait;
 
@@ -1700,6 +1702,27 @@ pub mod issue283 {
     impl<T: Bound> Trait for T {
         async fn a() {
             Self::b();
+        }
+    }
+}
+
+// https://github.com/dtolnay/async-trait/issues/288
+pub mod issue288 {
+    use async_trait::async_trait;
+
+    #[async_trait]
+    pub trait Trait {
+        async fn f<#[cfg(any())] T: Send>(#[cfg(any())] t: T);
+        async fn g<#[cfg(all())] T: Send>(#[cfg(all())] t: T);
+    }
+
+    pub struct Struct;
+
+    #[async_trait]
+    impl Trait for Struct {
+        async fn f<#[cfg(any())] T: Send>(#[cfg(any())] t: T) {}
+        async fn g<#[cfg(all())] T: Send>(#[cfg(all())] t: T) {
+            let _ = t;
         }
     }
 }
