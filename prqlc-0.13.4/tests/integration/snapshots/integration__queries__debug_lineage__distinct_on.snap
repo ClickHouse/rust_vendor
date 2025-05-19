@@ -1,0 +1,311 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# mssql:test\nfrom tracks\nselect {genre_id, media_type_id, album_id}\ngroup {genre_id, media_type_id} (sort {-album_id} | take 1)\nsort {-genre_id, media_type_id}\n"
+input_file: prqlc/prqlc/tests/integration/queries/distinct_on.prql
+---
+frames:
+- - 1:25-67
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 123
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - media_type_id
+      target_id: 124
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - album_id
+      target_id: 125
+      target_name: null
+    inputs:
+    - id: 121
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:120-126
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 128
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - media_type_id
+      target_id: 129
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - album_id
+      target_id: 125
+      target_name: null
+    inputs:
+    - id: 121
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:128-159
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 128
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - media_type_id
+      target_id: 129
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - album_id
+      target_id: 125
+      target_name: null
+    inputs:
+    - id: 121
+      name: tracks
+      table:
+      - default_db
+      - tracks
+nodes:
+- id: 121
+  kind: Ident
+  span: 1:13-24
+  ident: !Ident
+  - default_db
+  - tracks
+  parent: 127
+- id: 123
+  kind: Ident
+  span: 1:33-41
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 121
+  parent: 126
+- id: 124
+  kind: Ident
+  span: 1:43-56
+  ident: !Ident
+  - this
+  - tracks
+  - media_type_id
+  targets:
+  - 121
+  parent: 126
+- id: 125
+  kind: Ident
+  span: 1:58-66
+  ident: !Ident
+  - this
+  - tracks
+  - album_id
+  targets:
+  - 121
+  parent: 126
+- id: 126
+  kind: Tuple
+  span: 1:32-67
+  children:
+  - 123
+  - 124
+  - 125
+  parent: 127
+- id: 127
+  kind: 'TransformCall: Select'
+  span: 1:25-67
+  children:
+  - 121
+  - 126
+  parent: 159
+- id: 128
+  kind: Ident
+  span: 1:75-83
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 123
+  parent: 130
+- id: 129
+  kind: Ident
+  span: 1:85-98
+  ident: !Ident
+  - this
+  - tracks
+  - media_type_id
+  targets:
+  - 124
+  parent: 130
+- id: 130
+  kind: Tuple
+  span: 1:74-99
+  children:
+  - 128
+  - 129
+- id: 155
+  kind: Ident
+  span: 1:108-116
+  ident: !Ident
+  - this
+  - tracks
+  - album_id
+  targets:
+  - 125
+- id: 159
+  kind: 'TransformCall: Take'
+  span: 1:120-126
+  children:
+  - 127
+  - 160
+  parent: 168
+- id: 160
+  kind: Literal
+  parent: 159
+- id: 165
+  kind: Ident
+  span: 1:135-143
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 128
+  parent: 168
+- id: 166
+  kind: Ident
+  span: 1:145-158
+  ident: !Ident
+  - this
+  - tracks
+  - media_type_id
+  targets:
+  - 129
+  parent: 168
+- id: 168
+  kind: 'TransformCall: Sort'
+  span: 1:128-159
+  children:
+  - 159
+  - 165
+  - 166
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:13-17
+              args:
+              - Ident:
+                - tracks
+                span: 1:18-24
+            span: 1:13-24
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:25-31
+              args:
+              - Tuple:
+                - Ident:
+                  - genre_id
+                  span: 1:33-41
+                - Ident:
+                  - media_type_id
+                  span: 1:43-56
+                - Ident:
+                  - album_id
+                  span: 1:58-66
+                span: 1:32-67
+            span: 1:25-67
+          - FuncCall:
+              name:
+                Ident:
+                - group
+                span: 1:68-73
+              args:
+              - Tuple:
+                - Ident:
+                  - genre_id
+                  span: 1:75-83
+                - Ident:
+                  - media_type_id
+                  span: 1:85-98
+                span: 1:74-99
+              - Pipeline:
+                  exprs:
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - sort
+                        span: 1:101-105
+                      args:
+                      - Tuple:
+                        - Unary:
+                            op: Neg
+                            expr:
+                              Ident:
+                              - album_id
+                              span: 1:108-116
+                          span: 1:107-116
+                        span: 1:106-117
+                    span: 1:101-117
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - take
+                        span: 1:120-124
+                      args:
+                      - Literal:
+                          Integer: 1
+                        span: 1:125-126
+                    span: 1:120-126
+                span: 1:101-126
+            span: 1:68-127
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:128-132
+              args:
+              - Tuple:
+                - Unary:
+                    op: Neg
+                    expr:
+                      Ident:
+                      - genre_id
+                      span: 1:135-143
+                  span: 1:134-143
+                - Ident:
+                  - media_type_id
+                  span: 1:145-158
+                span: 1:133-159
+            span: 1:128-159
+        span: 1:13-159
+    span: 1:0-159

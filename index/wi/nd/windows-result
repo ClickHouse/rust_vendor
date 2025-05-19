@@ -1,1 +1,0 @@
-{"name":"windows-result","vers":"0.3.2","deps":[{"name":"windows-link","req":"^0.1.1","features":[],"optional":false,"default_features":false,"target":null,"kind":null,"package":null}],"cksum":"c64fd11a4fd95df68efcfee5f44a294fe71b8bc6a91993e2791938abcc712252","features":{"default":["std"],"std":[]},"yanked":false}

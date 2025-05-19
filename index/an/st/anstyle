@@ -1,1 +1,0 @@
-{"name":"anstyle","vers":"1.0.10","deps":[{"name":"lexopt","req":"^0.3.0","features":[],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"55cc3b69f167a1ef2e161439aa98aed94e6028e5f9a59be9a6ffb47aef1651f9","features":{"default":["std"],"std":[]},"yanked":false}

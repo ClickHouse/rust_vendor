@@ -1,0 +1,108 @@
+---
+source: prqlc/prqlc/src/semantic/resolver/transforms.rs
+expression: expr
+---
+TransformCall:
+  input:
+    Ident:
+      - default_db
+      - c_invoice
+    span: "1:9-23"
+    ty:
+      kind:
+        Array:
+          kind:
+            Tuple:
+              - Wildcard: ~
+          span: "0:1740-1744"
+          name: ~
+      span: "0:1739-1745"
+      name: relation
+    lineage:
+      columns:
+        - All:
+            input_id: 115
+            except: []
+      inputs:
+        - id: 115
+          name: c_invoice
+          table:
+            - default_db
+            - c_invoice
+  kind:
+    Aggregate:
+      assigns:
+        Tuple:
+          - RqOperator:
+              name: std.average
+              args:
+                - Ident:
+                    - this
+                    - c_invoice
+                    - amount
+                  span: "1:81-87"
+                  ty:
+                    kind:
+                      Array: ~
+                    span: "0:1699-1701"
+                    name: array
+            span: "1:73-87"
+        span: "1:73-87"
+        ty:
+          kind:
+            Tuple:
+              - Single:
+                  - ~
+                  - ~
+          span: ~
+          name: ~
+  partition:
+    Tuple:
+      - Ident:
+          - this
+          - c_invoice
+          - issued_at
+        span: "1:38-47"
+    span: "1:38-47"
+    ty:
+      kind:
+        Tuple:
+          - Single:
+              - issued_at
+              - ~
+      span: ~
+      name: ~
+span: "1:62-88"
+ty:
+  kind:
+    Array:
+      kind:
+        Tuple:
+          - Single:
+              - issued_at
+              - ~
+          - Single:
+              - ~
+              - ~
+      span: ~
+      name: ~
+  span: ~
+  name: ~
+lineage:
+  columns:
+    - Single:
+        name:
+          - c_invoice
+          - issued_at
+        target_id: 117
+        target_name: ~
+    - Single:
+        name: ~
+        target_id: 133
+        target_name: ~
+  inputs:
+    - id: 115
+      name: c_invoice
+      table:
+        - default_db
+        - c_invoice

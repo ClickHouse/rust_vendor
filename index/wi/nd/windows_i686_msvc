@@ -1,3 +1,0 @@
-{"name":"windows_i686_msvc","vers":"0.48.5","deps":[],"cksum":"8f55c233f70c4b27f66c523580f78f1004e8b5a8b659e05a4eb49d4166cca406","features":{},"yanked":false}
-{"name":"windows_i686_msvc","vers":"0.52.6","deps":[],"cksum":"240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66","features":{},"yanked":false}
-{"name":"windows_i686_msvc","vers":"0.53.0","deps":[],"cksum":"581fee95406bb13382d2f65cd4a908ca7b1e4c2f1917f143ba16efe98a589b5d","features":{},"yanked":false}

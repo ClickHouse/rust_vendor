@@ -1,0 +1,378 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# clickhouse:skip (DB::Exception: Syntax error)\n# glaredb:skip (DataFusion does not support recursive CTEs https://github.com/apache/arrow-datafusion/issues/462)\nfrom [{n = 1}]\nselect n = n - 2\nloop (filter n < 4 | select n = n + 1)\nselect n = n * 2\nsort n\n"
+input_file: prqlc/prqlc/tests/integration/queries/loop_01.prql
+---
+frames:
+- - 1:177-193
+  - columns:
+    - !Single
+      name:
+      - n
+      target_id: 128
+      target_name: null
+    inputs:
+    - id: 124
+      name: _literal_124
+      table:
+      - default_db
+      - _literal_124
+- - 1:200-212
+  - columns:
+    - !Single
+      name:
+      - n
+      target_id: 128
+      target_name: null
+    inputs:
+    - id: 124
+      name: _literal_124
+      table:
+      - default_db
+      - _literal_124
+- - 1:215-231
+  - columns:
+    - !Single
+      name:
+      - n
+      target_id: 151
+      target_name: null
+    inputs:
+    - id: 124
+      name: _literal_124
+      table:
+      - default_db
+      - _literal_124
+- - 1:194-232
+  - columns:
+    - !Single
+      name:
+      - n
+      target_id: 128
+      target_name: null
+    inputs:
+    - id: 124
+      name: _literal_124
+      table:
+      - default_db
+      - _literal_124
+- - 1:233-249
+  - columns:
+    - !Single
+      name:
+      - n
+      target_id: 159
+      target_name: null
+    inputs:
+    - id: 124
+      name: _literal_124
+      table:
+      - default_db
+      - _literal_124
+- - 1:250-256
+  - columns:
+    - !Single
+      name:
+      - n
+      target_id: 159
+      target_name: null
+    inputs:
+    - id: 124
+      name: _literal_124
+      table:
+      - default_db
+      - _literal_124
+nodes:
+- id: 124
+  kind: Array
+  span: 1:162-176
+  children:
+  - 125
+  parent: 133
+- id: 125
+  kind: Tuple
+  span: 1:168-175
+  children:
+  - 126
+  parent: 124
+- id: 126
+  kind: Literal
+  span: 1:173-174
+  alias: n
+  parent: 125
+- id: 128
+  kind: RqOperator
+  span: 1:188-193
+  alias: n
+  targets:
+  - 130
+  - 131
+  parent: 132
+- id: 130
+  kind: Ident
+  span: 1:188-189
+  ident: !Ident
+  - this
+  - _literal_124
+  - n
+  targets:
+  - 124
+- id: 131
+  kind: Literal
+  span: 1:192-193
+- id: 132
+  kind: Tuple
+  span: 1:188-193
+  children:
+  - 128
+  parent: 133
+- id: 133
+  kind: 'TransformCall: Select'
+  span: 1:177-193
+  children:
+  - 124
+  - 132
+  parent: 157
+- id: 142
+  kind: Ident
+  ident: !Ident
+  - _param
+  - _tbl
+  targets:
+  - 139
+  parent: 150
+- id: 146
+  kind: RqOperator
+  span: 1:207-212
+  targets:
+  - 148
+  - 149
+  parent: 150
+- id: 148
+  kind: Ident
+  span: 1:207-208
+  ident: !Ident
+  - this
+  - n
+  targets:
+  - 128
+- id: 149
+  kind: Literal
+  span: 1:211-212
+- id: 150
+  kind: 'TransformCall: Filter'
+  span: 1:200-212
+  children:
+  - 142
+  - 146
+  parent: 156
+- id: 151
+  kind: RqOperator
+  span: 1:226-231
+  alias: n
+  targets:
+  - 153
+  - 154
+  parent: 155
+- id: 153
+  kind: Ident
+  span: 1:226-227
+  ident: !Ident
+  - this
+  - n
+  targets:
+  - 128
+- id: 154
+  kind: Literal
+  span: 1:230-231
+- id: 155
+  kind: Tuple
+  span: 1:226-231
+  children:
+  - 151
+  parent: 156
+- id: 156
+  kind: 'TransformCall: Select'
+  span: 1:215-231
+  children:
+  - 150
+  - 155
+- id: 157
+  kind: 'TransformCall: Loop'
+  span: 1:194-232
+  children:
+  - 133
+  - 158
+  parent: 164
+- id: 158
+  kind: Func
+  span: 1:215-231
+  parent: 157
+- id: 159
+  kind: RqOperator
+  span: 1:244-249
+  alias: n
+  targets:
+  - 161
+  - 162
+  parent: 163
+- id: 161
+  kind: Ident
+  span: 1:244-245
+  ident: !Ident
+  - this
+  - n
+  targets:
+  - 128
+- id: 162
+  kind: Literal
+  span: 1:248-249
+- id: 163
+  kind: Tuple
+  span: 1:244-249
+  children:
+  - 159
+  parent: 164
+- id: 164
+  kind: 'TransformCall: Select'
+  span: 1:233-249
+  children:
+  - 157
+  - 163
+  parent: 167
+- id: 165
+  kind: Ident
+  span: 1:255-256
+  ident: !Ident
+  - this
+  - n
+  targets:
+  - 159
+  parent: 167
+- id: 167
+  kind: 'TransformCall: Sort'
+  span: 1:250-256
+  children:
+  - 164
+  - 165
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:162-166
+              args:
+              - Array:
+                - Tuple:
+                  - Literal:
+                      Integer: 1
+                    span: 1:173-174
+                    alias: n
+                  span: 1:168-175
+                span: 1:167-176
+            span: 1:162-176
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:177-183
+              args:
+              - Binary:
+                  left:
+                    Ident:
+                    - n
+                    span: 1:188-189
+                  op: Sub
+                  right:
+                    Literal:
+                      Integer: 2
+                    span: 1:192-193
+                span: 1:188-193
+                alias: n
+            span: 1:177-193
+          - FuncCall:
+              name:
+                Ident:
+                - loop
+                span: 1:194-198
+              args:
+              - Pipeline:
+                  exprs:
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - filter
+                        span: 1:200-206
+                      args:
+                      - Binary:
+                          left:
+                            Ident:
+                            - n
+                            span: 1:207-208
+                          op: Lt
+                          right:
+                            Literal:
+                              Integer: 4
+                            span: 1:211-212
+                        span: 1:207-212
+                    span: 1:200-212
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - select
+                        span: 1:215-221
+                      args:
+                      - Binary:
+                          left:
+                            Ident:
+                            - n
+                            span: 1:226-227
+                          op: Add
+                          right:
+                            Literal:
+                              Integer: 1
+                            span: 1:230-231
+                        span: 1:226-231
+                        alias: n
+                    span: 1:215-231
+                span: 1:200-231
+            span: 1:194-232
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:233-239
+              args:
+              - Binary:
+                  left:
+                    Ident:
+                    - n
+                    span: 1:244-245
+                  op: Mul
+                  right:
+                    Literal:
+                      Integer: 2
+                    span: 1:248-249
+                span: 1:244-249
+                alias: n
+            span: 1:233-249
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:250-254
+              args:
+              - Ident:
+                - n
+                span: 1:255-256
+            span: 1:250-256
+        span: 1:162-256
+    span: 1:0-256

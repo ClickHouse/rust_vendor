@@ -1,0 +1,81 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# sqlite:skip\n# postgres:skip\n# mysql:skip\nfrom (read_csv \"data_file_root/media_types.csv\")\nsort media_type_id\n"
+input_file: prqlc/prqlc/tests/integration/queries/read_csv.prql
+---
+frames:
+- - 1:92-110
+  - columns:
+    - !All
+      input_id: 115
+      except: []
+    inputs:
+    - id: 115
+      name: _literal_115
+      table:
+      - default_db
+      - _literal_115
+nodes:
+- id: 115
+  kind: RqOperator
+  span: 1:43-91
+  targets:
+  - 117
+  parent: 121
+- id: 117
+  kind: Literal
+  span: 1:58-90
+- id: 119
+  kind: Ident
+  span: 1:97-110
+  ident: !Ident
+  - this
+  - _literal_115
+  - media_type_id
+  targets:
+  - 115
+  parent: 121
+- id: 121
+  kind: 'TransformCall: Sort'
+  span: 1:92-110
+  children:
+  - 115
+  - 119
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:43-47
+              args:
+              - FuncCall:
+                  name:
+                    Ident:
+                    - read_csv
+                    span: 1:49-57
+                  args:
+                  - Literal:
+                      String: data_file_root/media_types.csv
+                    span: 1:58-90
+                span: 1:49-90
+            span: 1:43-91
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:92-96
+              args:
+              - Ident:
+                - media_type_id
+                span: 1:97-110
+            span: 1:92-110
+        span: 1:43-110
+    span: 1:0-110

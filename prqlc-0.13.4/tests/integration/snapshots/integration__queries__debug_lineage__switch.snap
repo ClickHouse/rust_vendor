@@ -1,0 +1,246 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# glaredb:skip (May be a bag of String type conversion for Postgres Client)\n# mssql:test\nfrom tracks\nsort milliseconds\nselect display = case [\n    composer != null => composer,\n    genre_id < 17 => 'no composer',\n    true => f'unknown composer'\n]\ntake 10\n"
+input_file: prqlc/prqlc/tests/integration/queries/switch.prql
+---
+frames:
+- - 1:101-118
+  - columns:
+    - !All
+      input_id: 121
+      except: []
+    inputs:
+    - id: 121
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:119-246
+  - columns:
+    - !Single
+      name:
+      - display
+      target_id: 126
+      target_name: null
+    inputs:
+    - id: 121
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:247-254
+  - columns:
+    - !Single
+      name:
+      - display
+      target_id: 126
+      target_name: null
+    inputs:
+    - id: 121
+      name: tracks
+      table:
+      - default_db
+      - tracks
+nodes:
+- id: 121
+  kind: Ident
+  span: 1:89-100
+  ident: !Ident
+  - default_db
+  - tracks
+  parent: 125
+- id: 123
+  kind: Ident
+  span: 1:106-118
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 121
+  parent: 125
+- id: 125
+  kind: 'TransformCall: Sort'
+  span: 1:101-118
+  children:
+  - 121
+  - 123
+  parent: 140
+- id: 126
+  kind: Case
+  span: 1:136-246
+  alias: display
+  targets:
+  - 127
+  - 131
+  - 132
+  - 136
+  - 137
+  - 138
+  parent: 139
+- id: 127
+  kind: RqOperator
+  span: 1:147-163
+  targets:
+  - 129
+  - 130
+- id: 129
+  kind: Ident
+  span: 1:147-155
+  ident: !Ident
+  - this
+  - tracks
+  - composer
+  targets:
+  - 121
+- id: 130
+  kind: Literal
+  span: 1:159-163
+- id: 131
+  kind: Ident
+  span: 1:167-175
+  ident: !Ident
+  - this
+  - tracks
+  - composer
+  targets:
+  - 121
+- id: 132
+  kind: RqOperator
+  span: 1:181-194
+  targets:
+  - 134
+  - 135
+- id: 134
+  kind: Ident
+  span: 1:181-189
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 121
+- id: 135
+  kind: Literal
+  span: 1:192-194
+- id: 136
+  kind: Literal
+  span: 1:198-211
+- id: 137
+  kind: Literal
+  span: 1:217-221
+- id: 138
+  kind: FString
+  span: 1:225-244
+- id: 139
+  kind: Tuple
+  span: 1:136-246
+  children:
+  - 126
+  parent: 140
+- id: 140
+  kind: 'TransformCall: Select'
+  span: 1:119-246
+  children:
+  - 125
+  - 139
+  parent: 142
+- id: 142
+  kind: 'TransformCall: Take'
+  span: 1:247-254
+  children:
+  - 140
+  - 143
+- id: 143
+  kind: Literal
+  parent: 142
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:89-93
+              args:
+              - Ident:
+                - tracks
+                span: 1:94-100
+            span: 1:89-100
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:101-105
+              args:
+              - Ident:
+                - milliseconds
+                span: 1:106-118
+            span: 1:101-118
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:119-125
+              args:
+              - Case:
+                - condition:
+                    Binary:
+                      left:
+                        Ident:
+                        - composer
+                        span: 1:147-155
+                      op: Ne
+                      right:
+                        Literal: 'Null'
+                        span: 1:159-163
+                    span: 1:147-163
+                  value:
+                    Ident:
+                    - composer
+                    span: 1:167-175
+                - condition:
+                    Binary:
+                      left:
+                        Ident:
+                        - genre_id
+                        span: 1:181-189
+                      op: Lt
+                      right:
+                        Literal:
+                          Integer: 17
+                        span: 1:192-194
+                    span: 1:181-194
+                  value:
+                    Literal:
+                      String: no composer
+                    span: 1:198-211
+                - condition:
+                    Literal:
+                      Boolean: true
+                    span: 1:217-221
+                  value:
+                    FString:
+                    - !String unknown composer
+                    span: 1:225-244
+                span: 1:136-246
+                alias: display
+            span: 1:119-246
+          - FuncCall:
+              name:
+                Ident:
+                - take
+                span: 1:247-251
+              args:
+              - Literal:
+                  Integer: 10
+                span: 1:252-254
+            span: 1:247-254
+        span: 1:89-254
+    span: 1:0-254

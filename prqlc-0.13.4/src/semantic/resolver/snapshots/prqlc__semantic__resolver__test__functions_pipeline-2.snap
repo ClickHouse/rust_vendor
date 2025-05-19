@@ -1,0 +1,43 @@
+---
+source: prqlc/prqlc/src/semantic/resolver/mod.rs
+expression: "resolve_derive(r#\"\n            let plus_one = x -> x + 1\n            let plus = x y -> x + y\n\n            from a\n            derive {b = (sum foo | plus_one | plus 2)}\n            \"#).unwrap()"
+---
+- RqOperator:
+    name: std.add
+    args:
+      - Literal:
+          Integer: 2
+        span: "1:146-147"
+        ty:
+          kind:
+            Primitive: Int
+          span: ~
+          name: ~
+      - RqOperator:
+          name: std.add
+          args:
+            - RqOperator:
+                name: std.sum
+                args:
+                  - Ident:
+                      - this
+                      - a
+                      - foo
+                    span: "1:124-127"
+                    ty:
+                      kind:
+                        Array: ~
+                      span: "0:1699-1701"
+                      name: array
+              span: "1:120-127"
+            - Literal:
+                Integer: 1
+              span: "1:37-38"
+              ty:
+                kind:
+                  Primitive: Int
+                span: ~
+                name: ~
+        span: "1:130-138"
+  span: "1:141-147"
+  alias: b

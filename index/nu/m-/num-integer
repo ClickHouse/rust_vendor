@@ -1,1 +1,0 @@
-{"name":"num-integer","vers":"0.1.46","deps":[{"name":"num-traits","req":"^0.2.11","features":["i128"],"optional":false,"default_features":false,"target":null,"kind":null,"package":null}],"cksum":"7969661fd2958a5cb096e56c8e1ad0444ac2bbcd0061bd28660485a44879858f","features":{"default":["std"],"i128":[],"std":["num-traits/std"]},"yanked":false}
