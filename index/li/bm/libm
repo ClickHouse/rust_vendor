@@ -1,1 +1,0 @@
-{"name":"libm","vers":"0.2.11","deps":[{"name":"no-panic","req":"^0.1.30","features":[],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"8355be11b20d696c8f18f6cc018c4e372165b1fa8126cef092399c9951984ffa","features":{"default":[],"force-soft-floats":[],"unstable":[]},"yanked":false}

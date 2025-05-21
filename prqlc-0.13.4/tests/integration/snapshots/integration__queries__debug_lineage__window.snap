@@ -1,0 +1,530 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# clickhouse:skip problems with DISTINCT ON\n# glaredb:skip — TODO: started raising an error on 2024-05-20, from https://github.com/PRQL/prql/actions/runs/9154902656/job/25198160283:\n    # ERROR: This feature is not implemented: Unsupported ast node in sqltorel:\n    # Substring { expr: Identifier(Ident { value: \"title\", quote_style: None }),\n    # substring_from: Some(Value(Number(\"2\", false))), substring_for:\n    # Some(Value(Number(\"5\", false))), special: true }\nfrom tracks\ngroup genre_id (\n  sort milliseconds\n  derive {\n    num = row_number this,\n    total = count this,\n    last_val = last track_id,\n  }\n  take 10\n)\nsort {genre_id, milliseconds}\nselect {track_id, genre_id, num, total, last_val}\nfilter genre_id >= 22\n"
+input_file: prqlc/prqlc/tests/integration/queries/window.prql
+---
+frames:
+- - 1:519-612
+  - columns:
+    - !All
+      input_id: 124
+      except:
+      - genre_id
+    - !Single
+      name:
+      - num
+      target_id: 162
+      target_name: null
+    - !Single
+      name:
+      - total
+      target_id: 170
+      target_name: null
+    - !Single
+      name:
+      - last_val
+      target_id: 172
+      target_name: null
+    inputs:
+    - id: 124
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:615-622
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 126
+      target_name: null
+    - !All
+      input_id: 124
+      except:
+      - genre_id
+    - !Single
+      name:
+      - num
+      target_id: 162
+      target_name: null
+    - !Single
+      name:
+      - total
+      target_id: 170
+      target_name: null
+    - !Single
+      name:
+      - last_val
+      target_id: 172
+      target_name: null
+    inputs:
+    - id: 124
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:625-654
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 126
+      target_name: null
+    - !All
+      input_id: 124
+      except:
+      - genre_id
+    - !Single
+      name:
+      - num
+      target_id: 162
+      target_name: null
+    - !Single
+      name:
+      - total
+      target_id: 170
+      target_name: null
+    - !Single
+      name:
+      - last_val
+      target_id: 172
+      target_name: null
+    inputs:
+    - id: 124
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:655-704
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - track_id
+      target_id: 186
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 187
+      target_name: null
+    - !Single
+      name:
+      - num
+      target_id: 188
+      target_name: null
+    - !Single
+      name:
+      - total
+      target_id: 189
+      target_name: null
+    - !Single
+      name:
+      - last_val
+      target_id: 190
+      target_name: null
+    inputs:
+    - id: 124
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:705-726
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - track_id
+      target_id: 186
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 187
+      target_name: null
+    - !Single
+      name:
+      - num
+      target_id: 188
+      target_name: null
+    - !Single
+      name:
+      - total
+      target_id: 189
+      target_name: null
+    - !Single
+      name:
+      - last_val
+      target_id: 190
+      target_name: null
+    inputs:
+    - id: 124
+      name: tracks
+      table:
+      - default_db
+      - tracks
+nodes:
+- id: 124
+  kind: Ident
+  span: 1:468-479
+  ident: !Ident
+  - default_db
+  - tracks
+  parent: 176
+- id: 126
+  kind: Ident
+  span: 1:486-494
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 124
+  parent: 135
+- id: 135
+  kind: Tuple
+  span: 1:486-494
+  children:
+  - 126
+- id: 154
+  kind: Ident
+  span: 1:504-516
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 124
+- id: 162
+  kind: RqOperator
+  span: 1:538-553
+  alias: num
+  targets:
+  - 163
+  parent: 175
+- id: 163
+  kind: Literal
+- id: 170
+  kind: RqOperator
+  span: 1:567-577
+  alias: total
+  targets:
+  - 171
+  parent: 175
+- id: 171
+  kind: Literal
+- id: 172
+  kind: RqOperator
+  span: 1:594-607
+  alias: last_val
+  targets:
+  - 174
+  parent: 175
+- id: 174
+  kind: Ident
+  span: 1:599-607
+  ident: !Ident
+  - this
+  - tracks
+  - track_id
+  targets:
+  - 124
+- id: 175
+  kind: Tuple
+  span: 1:526-612
+  children:
+  - 162
+  - 170
+  - 172
+  parent: 176
+- id: 176
+  kind: 'TransformCall: Derive'
+  span: 1:519-612
+  children:
+  - 124
+  - 175
+  parent: 178
+- id: 178
+  kind: 'TransformCall: Take'
+  span: 1:615-622
+  children:
+  - 176
+  - 179
+  parent: 185
+- id: 179
+  kind: Literal
+  parent: 178
+- id: 182
+  kind: Ident
+  span: 1:631-639
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 126
+  parent: 185
+- id: 183
+  kind: Ident
+  span: 1:641-653
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 124
+  parent: 185
+- id: 185
+  kind: 'TransformCall: Sort'
+  span: 1:625-654
+  children:
+  - 178
+  - 182
+  - 183
+  parent: 192
+- id: 186
+  kind: Ident
+  span: 1:663-671
+  ident: !Ident
+  - this
+  - tracks
+  - track_id
+  targets:
+  - 124
+  parent: 191
+- id: 187
+  kind: Ident
+  span: 1:673-681
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 126
+  parent: 191
+- id: 188
+  kind: Ident
+  span: 1:683-686
+  ident: !Ident
+  - this
+  - num
+  targets:
+  - 162
+  parent: 191
+- id: 189
+  kind: Ident
+  span: 1:688-693
+  ident: !Ident
+  - this
+  - total
+  targets:
+  - 170
+  parent: 191
+- id: 190
+  kind: Ident
+  span: 1:695-703
+  ident: !Ident
+  - this
+  - last_val
+  targets:
+  - 172
+  parent: 191
+- id: 191
+  kind: Tuple
+  span: 1:662-704
+  children:
+  - 186
+  - 187
+  - 188
+  - 189
+  - 190
+  parent: 192
+- id: 192
+  kind: 'TransformCall: Select'
+  span: 1:655-704
+  children:
+  - 185
+  - 191
+  parent: 197
+- id: 193
+  kind: RqOperator
+  span: 1:712-726
+  targets:
+  - 195
+  - 196
+  parent: 197
+- id: 195
+  kind: Ident
+  span: 1:712-720
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 187
+- id: 196
+  kind: Literal
+  span: 1:724-726
+- id: 197
+  kind: 'TransformCall: Filter'
+  span: 1:705-726
+  children:
+  - 192
+  - 193
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:468-472
+              args:
+              - Ident:
+                - tracks
+                span: 1:473-479
+            span: 1:468-479
+          - FuncCall:
+              name:
+                Ident:
+                - group
+                span: 1:480-485
+              args:
+              - Ident:
+                - genre_id
+                span: 1:486-494
+              - Pipeline:
+                  exprs:
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - sort
+                        span: 1:499-503
+                      args:
+                      - Ident:
+                        - milliseconds
+                        span: 1:504-516
+                    span: 1:499-516
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - derive
+                        span: 1:519-525
+                      args:
+                      - Tuple:
+                        - FuncCall:
+                            name:
+                              Ident:
+                              - row_number
+                              span: 1:538-548
+                            args:
+                            - Ident:
+                              - this
+                              span: 1:549-553
+                          span: 1:538-553
+                          alias: num
+                        - FuncCall:
+                            name:
+                              Ident:
+                              - count
+                              span: 1:567-572
+                            args:
+                            - Ident:
+                              - this
+                              span: 1:573-577
+                          span: 1:567-577
+                          alias: total
+                        - FuncCall:
+                            name:
+                              Ident:
+                              - last
+                              span: 1:594-598
+                            args:
+                            - Ident:
+                              - track_id
+                              span: 1:599-607
+                          span: 1:594-607
+                          alias: last_val
+                        span: 1:526-612
+                    span: 1:519-612
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - take
+                        span: 1:615-619
+                      args:
+                      - Literal:
+                          Integer: 10
+                        span: 1:620-622
+                    span: 1:615-622
+                span: 1:499-622
+            span: 1:480-624
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:625-629
+              args:
+              - Tuple:
+                - Ident:
+                  - genre_id
+                  span: 1:631-639
+                - Ident:
+                  - milliseconds
+                  span: 1:641-653
+                span: 1:630-654
+            span: 1:625-654
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:655-661
+              args:
+              - Tuple:
+                - Ident:
+                  - track_id
+                  span: 1:663-671
+                - Ident:
+                  - genre_id
+                  span: 1:673-681
+                - Ident:
+                  - num
+                  span: 1:683-686
+                - Ident:
+                  - total
+                  span: 1:688-693
+                - Ident:
+                  - last_val
+                  span: 1:695-703
+                span: 1:662-704
+            span: 1:655-704
+          - FuncCall:
+              name:
+                Ident:
+                - filter
+                span: 1:705-711
+              args:
+              - Binary:
+                  left:
+                    Ident:
+                    - genre_id
+                    span: 1:712-720
+                  op: Gte
+                  right:
+                    Literal:
+                      Integer: 22
+                    span: 1:724-726
+                span: 1:712-726
+            span: 1:705-726
+        span: 1:468-726
+    span: 1:0-726

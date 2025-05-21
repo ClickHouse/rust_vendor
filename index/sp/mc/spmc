@@ -1,1 +1,0 @@
-{"name":"spmc","vers":"0.3.0","deps":[{"name":"loom","req":"^0.2.2","features":[],"optional":false,"default_features":true,"target":null,"kind":"dev","package":null}],"cksum":"02a8428da277a8e3a15271d79943e80ccc2ef254e78813a166a08d65e4c3ece5","features":{},"yanked":false}

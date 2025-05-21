@@ -1,1 +1,0 @@
-{"name":"simdutf8","vers":"0.1.5","deps":[],"cksum":"e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e","features":{"aarch64_neon":[],"aarch64_neon_prefetch":[],"default":["std"],"hints":[],"public_imp":[],"std":[]},"yanked":false}
