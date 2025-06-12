@@ -1,0 +1,65 @@
+error: expected serde default attribute to be a string: `default = "..."`
+ --> tests/ui/invalid_attrs.rs:5:15
+  |
+5 |     default = 0,
+  |               ^
+
+error: duplicate serde attribute `deny_unknown_fields`
+ --> tests/ui/invalid_attrs.rs:8:5
+  |
+8 |     deny_unknown_fields,
+  |     ^^^^^^^^^^^^^^^^^^^
+
+error: unknown serde container attribute `with`
+  --> tests/ui/invalid_attrs.rs:12:5
+   |
+12 |     with = "String",
+   |     ^^^^
+
+error: expected serde default attribute to be a string: `default = "..."`
+  --> tests/ui/invalid_attrs.rs:22:15
+   |
+22 |     default = 0,
+   |               ^
+
+error: duplicate serde attribute `deny_unknown_fields`
+  --> tests/ui/invalid_attrs.rs:25:5
+   |
+25 |     deny_unknown_fields,
+   |     ^^^^^^^^^^^^^^^^^^^
+
+error: unknown schemars attribute `serialize_with`
+  --> tests/ui/invalid_attrs.rs:33:16
+   |
+33 |     #[schemars(serialize_with = "u64")]
+   |                ^^^^^^^^^^^^^^
+
+error: unexpected value of schemars inline attribute item
+  --> tests/ui/invalid_attrs.rs:26:12
+   |
+26 |     inline = 1,
+   |            ^^^
+
+error: duplicate schemars attribute item `inline`
+  --> tests/ui/invalid_attrs.rs:28:5
+   |
+28 |     inline,
+   |     ^^^^^^
+
+error: unknown schemars attribute `foo`
+  --> tests/ui/invalid_attrs.rs:23:5
+   |
+23 |     foo,
+   |     ^^^
+
+error: unknown schemars attribute `with`
+  --> tests/ui/invalid_attrs.rs:29:5
+   |
+29 |     with = "String",
+   |     ^^^^
+
+error: unknown schemars attribute `serialize_with`
+  --> tests/ui/invalid_attrs.rs:30:5
+   |
+30 |     serialize_with = "String"
+   |     ^^^^^^^^^^^^^^
