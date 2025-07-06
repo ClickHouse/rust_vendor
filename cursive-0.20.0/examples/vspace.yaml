@@ -1,4 +1,0 @@
-DummyView:
-  with:
-    # We can use $. to use the body itself of the config, rather than a field.
-    - fixed_height: $.

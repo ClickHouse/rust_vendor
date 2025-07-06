@@ -15,6 +15,10 @@ name = "cursive-macros"
 version = "0.1.0"
 authors = ["Alexandre Bury <alexandre.bury@gmail.com>"]
 build = false
+include = [
+    "src/**/*",
+    "/LICENSE",
+]
 autolib = false
 autobins = false
 autoexamples = false
