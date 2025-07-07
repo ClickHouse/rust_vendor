@@ -1,0 +1,34 @@
+[package]
+name = "chumsky"
+version = "0.9.3"
+description = "A parser library for humans with powerful error recovery"
+authors = ["Joshua Barretto <joshua.s.barretto@gmail.com>"]
+repository = "https://github.com/zesterer/chumsky"
+license = "MIT"
+keywords = ["parser", "combinator", "token", "language", "syntax"]
+categories = ["parsing", "text-processing"]
+edition = "2018"
+exclude = ["/misc/*", "/benches/*"]
+
+[features]
+default = ["ahash", "std", "spill-stack"]
+# Use `ahash` instead of the standard hasher for maintaining sets of expected inputs
+# (Also used if `std` is disabled)
+ahash = []
+# Integrate with the standard library
+std = []
+# Enable nightly-only features like better compiler diagnostics
+nightly = []
+# Allows deeper recursion by dynamically spilling stack state on to the heap
+spill-stack = ["stacker", "std"]
+
+[dependencies]
+# Used if `std` is disabled.
+# Provides `ahash` for the corresponding feature as it uses it by default.
+# Due to https://github.com/rust-lang/cargo/issues/1839, this can't be optional
+hashbrown = "0.14.2"
+stacker = { version = "0.1", optional = true }
+
+[dev-dependencies]
+ariadne = "0.3.0"
+pom = "3.0"

@@ -1,0 +1,80 @@
+name: Test
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  test-nix:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.65.0
+          override: true
+          components: rustfmt
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Check Rust formatting
+        run: cargo fmt -- --check
+      - name: build
+        run: cargo build --release
+      - name: unit tests
+        run: cargo test -- --nocapture
+      - name: (MacOS) install LLVM
+        uses: KyleMayes/install-llvm-action@v2
+        if: "${{ matrix.platform == 'macos-latest' }}"
+        with:
+          version: "17"
+      - name: (MacOS) set LLVM as CC
+        if: "${{ matrix.platform == 'macos-latest' }}"
+        run: echo "CC=$(pwd)/llvm/bin/clang-17" >> $GITHUB_ENV
+      - name: build (wasm32)
+        run: cargo build --target wasm32-unknown-unknown
+      - name: check (wasm32)
+        run: cargo check --target wasm32-unknown-unknown
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.65.0
+          target: i686-pc-windows-msvc
+          override: true
+          components: rustfmt
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: true
+      - name: Check Rust formatting
+        run: cargo fmt -- --check
+      - name: build 64-bit
+        run: cargo build --release
+      - name: build 32-bit
+        run: cargo build --release --target i686-pc-windows-msvc
+      - name: build 64-bit static
+        env:
+          CRT_STATIC: "true"
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release
+      - name: build 32-bit static
+        env:
+          CRT_STATIC: "true"
+          RUSTFLAGS: "-C target-feature=+crt-static"
+        run: cargo build --release --target i686-pc-windows-msvc
+      - name: unit tests
+        run: cargo test -- --nocapture

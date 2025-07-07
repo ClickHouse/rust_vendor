@@ -39,6 +39,13 @@ categories = [
 license = "MIT"
 repository = "https://github.com/gyscos/cursive"
 
+[features]
+builder = [
+    "find-crate",
+    "syn",
+    "quote",
+]
+
 [lib]
 name = "cursive_macros"
 path = "src/lib.rs"
@@ -62,10 +69,3 @@ features = [
     "extra-traits",
 ]
 optional = true
-
-[features]
-builder = [
-    "find-crate",
-    "syn",
-    "quote",
-]

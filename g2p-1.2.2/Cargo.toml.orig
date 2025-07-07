@@ -1,0 +1,30 @@
+[package]
+name = "g2p"
+version = "1.2.2"
+authors = ["WanzenBug <moritz@wanzenbug.xyz>"]
+edition = "2018"
+readme = "../README.md"
+license = "MIT/Apache-2.0"
+repository = "https://github.com/WanzenBug/g2p"
+documentation = "https://docs.rs/g2p"
+description = """
+A crate to create types that implement fast finite field arithmetic.
+"""
+categories = [ "no-std", "cryptography", "algorithms" ]
+keywords = [ "finite-field", "galois", "macro", "newtype"]
+rust-version = "1.61"
+
+[dev-dependencies]
+static_assertions = "1.1"
+galois_2p8 = "0.1.2"
+reed-solomon-erasure = "6.0"
+criterion = "0.4"
+rand = "0.8"
+
+[dependencies]
+g2gen = { path = "../g2gen", version = "1.2" }
+g2poly = { path = "../g2poly", version = "1.2" }
+
+[[bench]]
+name = "g2_8_bench"
+harness = false

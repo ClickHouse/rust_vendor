@@ -37,6 +37,25 @@ categories = ["database"]
 license = "MIT"
 repository = "https://github.com/suharev7/clickhouse-rs"
 
+[features]
+_tls = []
+async_std = ["async-std"]
+default = ["tokio_io"]
+tls = ["tls-native-tls"]
+tls-native-tls = [
+    "tokio-native-tls",
+    "native-tls",
+    "_tls",
+]
+tls-rustls = [
+    "tokio-rustls",
+    "rustls",
+    "rustls-pemfile",
+    "webpki-roots",
+    "_tls",
+]
+tokio_io = ["tokio"]
+
 [lib]
 name = "clickhouse_rs"
 path = "src/lib.rs"
@@ -132,22 +151,3 @@ default-features = false
 [dev-dependencies.uuid]
 version = "^1.4"
 features = ["v4"]
-
-[features]
-_tls = []
-async_std = ["async-std"]
-default = ["tokio_io"]
-tls = ["tls-native-tls"]
-tls-native-tls = [
-    "tokio-native-tls",
-    "native-tls",
-    "_tls",
-]
-tls-rustls = [
-    "tokio-rustls",
-    "rustls",
-    "rustls-pemfile",
-    "webpki-roots",
-    "_tls",
-]
-tokio_io = ["tokio"]

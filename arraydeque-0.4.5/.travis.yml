@@ -1,0 +1,23 @@
+language: rust
+
+sudo: required
+
+matrix:
+  include:
+    - rust: 1.20.0
+    - rust: stable
+    - rust: beta
+    - rust: nightly
+
+branches:
+  only:
+    - master
+
+script:
+  - |
+      cargo test --verbose &&
+      cargo test --verbose --features use_generic_array &&
+      cargo build --verbose &&
+      cargo build --verbose --features use_generic_array &&
+      cargo build --verbose --no-default-features &&
+      cargo build --verbose --no-default-features --features use_generic_array
