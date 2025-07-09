@@ -1,0 +1,23 @@
+[package]
+name = "size"
+version = "0.5.0"
+authors = ["Mahmoud Al-Qudsi <mqudsi@neosmart.net>", "NeoSmart Technologies"]
+description = "A crate for expressing, formatting, and interacting with file sizes"
+homepage = "https://github.com/neosmart/prettysize-rs"
+repository = "https://github.com/neosmart/prettysize-rs"
+readme = "README.md"
+keywords = ["prettysize", "size", "file", "formatting"]
+categories = ["value-formatting", "rust-patterns", "no-std"]
+license = "MIT"
+edition = "2018"
+
+[dependencies]
+serde = { version = "1.0", default-features = false, optional = true, features = [ "derive"] }
+
+[features]
+default = [ "std" ]
+serde = [ "std", "dep:serde" ]
+std = []
+
+[dev-dependencies]
+serde_json = "1.0.116"

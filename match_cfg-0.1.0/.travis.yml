@@ -1,0 +1,20 @@
+language: rust
+matrix:
+  include:
+    - rust: 1.13.0
+    - rust: stable
+    - rust: beta
+    - rust: nightly
+script:
+  - cargo build --verbose
+  - cargo test --verbose
+  # Tests with no_core
+  - |
+    if [ "${TRAVIS_RUST_VERSION}" == "nightly" ]; then
+      cargo build --verbose --no-default-features
+    fi
+  - cargo doc
+
+notifications:
+  email:
+    on_success: never

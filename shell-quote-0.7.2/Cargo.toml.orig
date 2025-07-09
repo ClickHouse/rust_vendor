@@ -1,0 +1,43 @@
+[package]
+authors = ["Gavin Panella <gavin@allenap.me>"]
+categories = ["encoding", "filesystem"]
+description = "A Rust library for shell-quoting strings, e.g. for interpolating into a Bash script."
+edition = "2021"
+homepage = "https://github.com/allenap/shell-quote"
+keywords = ["bash", "dash", "fish", "zsh", "escape"]
+license = "Apache-2.0"
+name = "shell-quote"
+readme = "README.md"
+repository = "https://github.com/allenap/shell-quote"
+version = "0.7.2"
+include = ["LICENSE", "README.md", "src/**/*.rs"]
+
+[features]
+default = ["bstr", "bash", "sh", "fish"]
+bash = []
+fish = []
+sh = []
+
+[dependencies]
+bstr = { version = "1", optional = true }
+
+[dev-dependencies]
+criterion = { version = "^0.5.1", features = ["html_reports"] }
+lenient_semver = "0.4.2"
+semver = "1.0.23"
+test-case = "3.3.1"
+
+[[bench]]
+name = "bash"
+harness = false
+required-features = ["bash"]
+
+[[bench]]
+name = "sh"
+harness = false
+required-features = ["sh"]
+
+[[bench]]
+name = "fish"
+harness = false
+required-features = ["fish"]

@@ -1,0 +1,13 @@
+[package]
+name = "z85"
+version = "3.0.6"
+authors = ["Mehmet Kose"]
+repository = "https://github.com/decafbad/z85"
+edition = "2018"
+license = "MIT/Apache-2.0"
+description = "Rust implementation of ZeroMQ's Z85 encoding mechanism with padding."
+categories = ["encoding"]
+keywords = ["z85", "decode", "encode"]
+
+[dev-dependencies]
+proptest = "1"

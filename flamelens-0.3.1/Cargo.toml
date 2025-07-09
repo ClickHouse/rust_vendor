@@ -37,12 +37,11 @@ keywords = [
 license = "MIT"
 repository = "https://github.com/YS-L/flamelens"
 
-[profile.dist]
-lto = "thin"
-inherits = "release"
-
-[profile.release]
-strip = "debuginfo"
+[features]
+python = [
+    "dep:py-spy",
+    "dep:remoteprocess",
+]
 
 [lib]
 name = "flamelens"
@@ -83,8 +82,9 @@ optional = true
 version = "1.0.210"
 features = ["derive"]
 
-[features]
-python = [
-    "dep:py-spy",
-    "dep:remoteprocess",
-]
+[profile.dist]
+lto = "thin"
+inherits = "release"
+
+[profile.release]
+strip = "debuginfo"

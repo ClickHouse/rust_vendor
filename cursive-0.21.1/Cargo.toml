@@ -52,6 +52,25 @@ features = [
     "pancurses-backend",
 ]
 
+[features]
+ansi = ["cursive_core/ansi"]
+blt-backend = ["dep:bear-lib-terminal"]
+builder = ["cursive_core/builder"]
+crossterm-backend = ["dep:crossterm"]
+default = ["crossterm-backend"]
+doc-cfg = ["cursive_core/doc-cfg"]
+markdown = ["cursive_core/markdown"]
+ncurses-backend = [
+    "dep:ncurses",
+    "dep:maplit",
+]
+pancurses-backend = [
+    "dep:pancurses",
+    "dep:maplit",
+]
+termion-backend = ["dep:termion"]
+toml = ["cursive_core/toml"]
+
 [lib]
 name = "cursive"
 path = "src/lib.rs"
@@ -101,25 +120,6 @@ pretty-bytes = "0.2"
 rand = "0.8"
 serde_json = "1.0.85"
 serde_yaml = "0.9.13"
-
-[features]
-ansi = ["cursive_core/ansi"]
-blt-backend = ["dep:bear-lib-terminal"]
-builder = ["cursive_core/builder"]
-crossterm-backend = ["dep:crossterm"]
-default = ["crossterm-backend"]
-doc-cfg = ["cursive_core/doc-cfg"]
-markdown = ["cursive_core/markdown"]
-ncurses-backend = [
-    "dep:ncurses",
-    "dep:maplit",
-]
-pancurses-backend = [
-    "dep:pancurses",
-    "dep:maplit",
-]
-termion-backend = ["dep:termion"]
-toml = ["cursive_core/toml"]
 
 [target."cfg(unix)".dependencies]
 signal-hook = "0.3"

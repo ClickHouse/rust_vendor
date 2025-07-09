@@ -44,6 +44,16 @@ repository = "https://github.com/gyscos/cursive"
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+ansi = ["dep:ansi-parser"]
+builder = [
+    "dep:inventory",
+    "cursive-macros/builder",
+]
+default = []
+doc-cfg = []
+markdown = ["dep:pulldown-cmark"]
+
 [lib]
 name = "cursive_core"
 path = "src/lib.rs"
@@ -99,13 +109,3 @@ optional = true
 
 [dev-dependencies]
 serde_yaml = "0.9.11"
-
-[features]
-ansi = ["dep:ansi-parser"]
-builder = [
-    "dep:inventory",
-    "cursive-macros/builder",
-]
-default = []
-doc-cfg = []
-markdown = ["dep:pulldown-cmark"]
