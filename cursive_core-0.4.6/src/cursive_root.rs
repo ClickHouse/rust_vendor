@@ -127,7 +127,7 @@ impl Cursive {
         let size = buffer.read().size();
 
         if self.needs_clear {
-            // buffer.write().clear();
+            buffer.write().clear();
             self.needs_clear = false;
         }
 
@@ -136,7 +136,6 @@ impl Cursive {
         let offset = usize::from(!self.menubar.autohide);
 
         let printer = Printer::new(size, &self.theme, buffer);
-        printer.clear();
 
         // The printer for the stackview
         let sv_printer = printer.offset((0, offset)).focused(!selected);
