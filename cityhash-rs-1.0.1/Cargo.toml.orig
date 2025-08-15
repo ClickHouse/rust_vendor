@@ -1,0 +1,12 @@
+[package]
+name = "cityhash-rs"
+version = "1.0.1"
+authors = ["Protryon <max.bruce12@gmail.com>"]
+edition = "2018"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Protryon/cityhash-rs"
+description = "Rust no_std implementation of Google Cityhash v1.0.2, v1.0.3, and v1.1.0"
+keywords = [ "hash", "cityhash", "google" ]
+categories = [ "algorithms" ]
+
+[dependencies]
