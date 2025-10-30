@@ -1,0 +1,43 @@
+name: ci
+
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+    - name: Clone repository
+      uses: actions/checkout@v2
+
+    - name: Install clippy and rustfmt
+      run: |
+        rustup component add clippy
+        rustup component add rustfmt
+
+    - name: Build (debug)
+      run: cargo build --verbose
+
+    - name: Build (release)
+      run: cargo build --verbose --release
+
+    - name: Run tests (debug)
+      run: cargo test --verbose
+
+    - name: Run tests (release)
+      run: cargo test --verbose --release
+
+    - name: Check formatting
+      run: cargo fmt -- --check
+
+    - name: Run clippy
+      run: cargo clippy -- -D warnings
