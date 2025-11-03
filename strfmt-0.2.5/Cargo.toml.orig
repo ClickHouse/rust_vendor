@@ -1,0 +1,11 @@
+[package]
+name = "strfmt"
+version = "0.2.5"
+description = "strfmt: rust library for formatting dynamic strings"
+repository = "https://github.com/vitiral/strfmt"
+readme = "README.md"
+keywords = ["format", "string", "str", "dynamic", "static"]
+authors = ["Garrett Berg <vitiral@gmail.com>"]
+license = "MIT"
+
+[dependencies]

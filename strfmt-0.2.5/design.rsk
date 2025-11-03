@@ -1,0 +1,63 @@
+
+[REQ-purpose]
+refs = ["{repo}/README.md"]
+
+[REQ-syntax]
+text = '''
+The format string will follow python's exactly.
+
+This is to get away from the `#` and extra `0` formats that are there for
+almost no reason.
+'''
+
+[REQ-syntax-ineractions]
+text = '''
+- alignment is ignored without a width
+- precision is ignored if a width is given
+- precsion only pads if align == Left
+'''
+
+[REQ-crate]
+text = '''
+This library **shall** be accessible on crates.io, rust's library
+repository
+'''
+
+[REQ-performance]
+text = '''
+This library **shall** run as fast as possible and with as little
+memory as possible
+'''
+
+[REQ-trait]
+text = '''
+This library **shall** export `Format` traits so that all supported
+types can use the `format` method.
+'''
+
+[SPC-strfmt]
+partof = "REQ-purpose"
+text = '''
+there **shall** be a public function that accepts a string to
+format and a `HashMap<String, String>` to use as values.
+
+It will format the values according to the standard in rust's
+std::fmt module.
+'''
+
+[SPC-fmt]
+loc = "LOC-fmt"
+text = '''
+The `Fmt` struct **shall** contain information of how to format
+a string and have a method that accepts the map to format
+
+The `Fmt` struct **will** be the primary workhorse of actually
+formatting the string
+```
+
+[SPC-errors]
+loc = "LOC-error: {lib}"
+text = '''
+any errors on formatting a string **shall** result in a returned
+error object
+'''
