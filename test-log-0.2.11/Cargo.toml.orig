@@ -1,0 +1,48 @@
+[package]
+name = "test-log"
+version = "0.2.11"
+authors = ["Daniel Mueller <deso@posteo.net>"]
+edition = "2018"
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/d-e-s-o/test-log"
+repository = "https://github.com/d-e-s-o/test-log.git"
+readme = "README.md"
+categories = [
+  "development-tools::testing",
+  "development-tools",
+  "config",
+  "api-bindings",
+]
+keywords = [
+  "env_logger",
+  "log",
+  "logging",
+  "testing",
+  "tracing",
+]
+description = """
+A replacement of the #[test] attribute that initializes logging and/or
+tracing infrastructure before running tests.
+"""
+include = ["src/lib.rs", "LICENSE-*", "README.md", "CHANGELOG.md"]
+
+[lib]
+proc-macro = true
+
+[features]
+default = ["log"]
+trace = []
+log = []
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = {version = "1.0"}
+syn = {version = "1.0", features = ["extra-traits", "full"]}
+
+[dev-dependencies]
+env_logger = {version = "0.9", default-features = false}
+logging = {version = "0.4", package = "log"}
+tokio = {version = "1.0", default-features = false, features = ["rt-multi-thread", "macros"]}
+tracing = {version = "0.1"}
+tracing-futures = {version = "0.2", default-features = false, features = ["std-future"]}
+tracing-subscriber = {version = "0.3", default-features = false, features = ["env-filter", "fmt"]}
