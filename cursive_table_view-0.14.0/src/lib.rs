@@ -132,6 +132,11 @@ pub struct TableView<T, H> {
     // can be created easily?
     on_submit: Option<IndexCallback>,
     on_select: Option<IndexCallback>,
+
+    // Column resize state
+    resizing_column: Option<usize>,
+    resize_start_x: usize,
+    resize_start_width: usize,
 }
 
 cursive::impl_scroller!(TableView < T, H > ::scroll_core);
@@ -200,6 +205,10 @@ where
             on_sort: None,
             on_submit: None,
             on_select: None,
+
+            resizing_column: None,
+            resize_start_x: 0,
+            resize_start_width: 0,
         }
     }
 
@@ -829,6 +838,20 @@ where
         None
     }
 
+    /// Returns the column index and edge position if mouse is near a column boundary (resize handle)
+    fn column_boundary_at(&self, x: usize) -> Option<(usize, usize)> {
+        let mut offset = 0;
+        for (i, col) in self.columns.iter().enumerate() {
+            let right_edge = offset + col.width + 1;
+            // Check if within 2 characters of the right edge
+            if x >= right_edge.saturating_sub(1) && x <= right_edge + 1 && i + 1 < self.columns.len() {
+                return Some((i, offset));
+            }
+            offset = right_edge + 2;
+        }
+        None
+    }
+
     fn draw_content(&self, printer: &Printer) {
         for i in 0..self.rows_to_items.len() {
             let printer = printer.offset((0, i));
@@ -1057,24 +1080,62 @@ where
         }
 
         match event {
+            // Handle column resize start
             Event::Mouse {
                 position,
                 offset,
                 event: MouseEvent::Press(MouseButton::Left),
-            } if position.checked_sub(offset).map_or(false, |p| p.y == 0) => {
+            } if position.checked_sub(offset).map_or(false, |p| p.y == 0 || p.y == 1) => {
                 if let Some(position) = position.checked_sub(offset) {
-                    if let Some(col) = self.column_for_x(position.x) {
-                        if self.column_select && self.columns[col].selected {
-                            return self.column_select();
-                        } else {
-                            let active = self.active_column();
-                            self.columns[active].selected = false;
-                            self.columns[col].selected = true;
-                            self.column_select = true;
+                    // Check if clicking on a column boundary to start resize
+                    if let Some((col_idx, _)) = self.column_boundary_at(position.x) {
+                        self.resizing_column = Some(col_idx);
+                        self.resize_start_x = position.x;
+                        self.resize_start_width = self.columns[col_idx].width;
+                        return EventResult::Consumed(None);
+                    }
+                    // Otherwise handle column selection
+                    if position.y == 0 {
+                        if let Some(col) = self.column_for_x(position.x) {
+                            if self.column_select && self.columns[col].selected {
+                                return self.column_select();
+                            } else {
+                                let active = self.active_column();
+                                self.columns[active].selected = false;
+                                self.columns[col].selected = true;
+                                self.column_select = true;
+                            }
                         }
                     }
                 }
                 EventResult::Ignored
+            }
+            // Handle column resize drag
+            Event::Mouse {
+                position,
+                offset,
+                event: MouseEvent::Hold(MouseButton::Left),
+            } if self.resizing_column.is_some() => {
+                if let Some(position) = position.checked_sub(offset) {
+                    if let Some(col_idx) = self.resizing_column {
+                        let delta = position.x as isize - self.resize_start_x as isize;
+                        let new_width = (self.resize_start_width as isize + delta).max(5) as usize;
+
+                        // Update the column width and mark as absolute width
+                        self.columns[col_idx].width = new_width;
+                        self.columns[col_idx].requested_width = Some(TableColumnWidth::Absolute(new_width));
+                        self.needs_relayout = true;
+                    }
+                }
+                EventResult::Consumed(None)
+            }
+            // Handle column resize end
+            Event::Mouse {
+                event: MouseEvent::Release(MouseButton::Left),
+                ..
+            } if self.resizing_column.is_some() => {
+                self.resizing_column = None;
+                EventResult::Consumed(None)
             }
             event => scroll::on_event(
                 self,
