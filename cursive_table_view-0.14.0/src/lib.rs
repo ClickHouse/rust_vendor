@@ -1137,6 +1137,22 @@ where
                 self.resizing_column = None;
                 EventResult::Consumed(None)
             }
+            // Handle column removal on middle mouse press
+            Event::Mouse {
+                position,
+                offset,
+                event: MouseEvent::Press(MouseButton::Middle),
+            } if position.checked_sub(offset).map_or(false, |p| p.y == 0 || p.y == 1) => {
+                if let Some(position) = position.checked_sub(offset) {
+                    if let Some(col_idx) = self.column_for_x(position.x) {
+                        if self.columns.len() > 1 {
+                            self.remove_column(col_idx);
+                            return EventResult::Consumed(None);
+                        }
+                    }
+                }
+                EventResult::Ignored
+            }
             event => scroll::on_event(
                 self,
                 event.relativized((0, 2)),
