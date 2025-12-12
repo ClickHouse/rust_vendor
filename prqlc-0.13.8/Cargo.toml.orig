@@ -1,0 +1,196 @@
+[package]
+description = "PRQL is a modern language for transforming data — a simple, powerful, pipelined SQL replacement."
+name = "prqlc"
+autobenches = false
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+# Required for `cargo-msrv`, which doesn't yet support workspaces
+metadata.msrv = "1.75.0"
+
+build = "build.rs"
+
+[features]
+cli = [
+  "anyhow",
+  "clap_complete_command",
+  "clap",
+  "clio",
+  "color-eyre",
+  "colorchoice-clap",
+  "is-terminal",
+  "minijinja",
+  "notify",
+  "serde_yaml",
+  "walkdir",
+]
+default = ["cli"]
+lsp = ["lsp-server", "lsp-types"] # Just a stub without any real functionality
+serde_yaml = ["prqlc-parser/serde_yaml", "dep:serde_yaml"]
+test-dbs = [
+  "rusqlite",
+  "duckdb",
+  "connector_arrow",
+  "connector_arrow/src_sqlite",
+  "connector_arrow/src_duckdb",
+]
+test-dbs-external = [
+  # We could attempt to allow running `test-dbs-external` without `test-dbs`,
+  # but it doesn't offer much value, and it's simpler to require both.
+  "test-dbs",
+  "postgres",
+  "mysql",
+  "tiberius",
+  "futures",
+  "tokio",
+  "tokio-util",
+  "connector_arrow/src_mysql",
+  "connector_arrow/src_postgres",
+  "connector_arrow/src_tiberius",
+]
+
+[dependencies]
+prqlc-parser = { path = "../prqlc-parser", version = "0.13.8" }
+
+anstream = { version = "0.6.21", features = ["auto"] }
+ariadne = "0.5.1"
+chrono = "0.4.39"
+csv = "1.4.0"
+enum-as-inner = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+regex = "1.12.2"
+schemars = { workspace = true }
+semver = { workspace = true }
+# serde is required for the `from_text` feature of PRQL, so we can't really put
+# it behind a feature.
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true, optional = true }
+sqlformat = "0.3.5"
+sqlparser = { version = "0.60.0", features = [
+  "serde",
+  # enabling "recursive-protection" causes wasm compilation to fail on MacOS
+], default-features = false }
+strum = { workspace = true }
+strum_macros = { workspace = true }
+lsp-server = { version = "0.7.9", optional = true }
+lsp-types = { version = "0.97.0", optional = true }
+
+[build-dependencies]
+vergen-gitcl = { version = "1.0.0", features = ["build"] }
+
+[target.'cfg(not(target_family="wasm"))'.dependencies]
+
+# unique dependencies from the CLI, marked as optional and included in the 'cli'
+# feature
+anyhow = { version = "1.0.100", features = ["backtrace"], optional = true }
+clap = { version = "4.5.53", features = [
+  "derive",
+  "env",
+  "wrap_help",
+], optional = true }
+clap_complete_command = { version = "0.5.1", optional = true }
+clio = { version = "0.3.3", features = ['clap-parse'], optional = true }
+color-eyre = { version = "0.6.5", optional = true }
+colorchoice-clap = { version = "1.0.0", optional = true }
+is-terminal = { version = "0.4.17", optional = true }
+notify = { version = "7.0.0", optional = true }
+walkdir = { version = "2.5.0", optional = true }
+
+# We use minijinja just for the Jinja lexer, which is not part of the
+# public interface which is covered by semver guarantees.
+minijinja = { version = "2.13.0", features = [
+  "unstable_machinery",
+], optional = true }
+
+# For integration tests. These are gated by the `test-dbs` and `test-dbs-external` features,
+# rather than dev-dependencies, because dev-dependencies can't be optional.
+
+connector_arrow = { version = "0.7.0", optional = true }
+duckdb = { version = "1.2.2", optional = true, features = [
+  "bundled",
+  "chrono",
+] }
+futures = { version = "0.3.31", optional = true }
+mysql = { version = "26", optional = true }
+postgres = { version = "0.19.10", optional = true }
+rusqlite = { version = "0.34.0", optional = true, features = [
+  "bundled",
+  "csvtab",
+] }
+tiberius = { version = "0.12.3", optional = true, default-features = false, features = [
+  "sql-browser-tokio",
+  "bigdecimal",
+  "time",
+  "rustls",
+  "tds73",
+] }
+tokio = { version = "1.48.0", optional = true, features = ["full"] }
+tokio-util = { version = "0.7.17", optional = true, features = ["compat"] }
+
+[dev-dependencies]
+glob = { version = "0.3.3" }
+insta = { workspace = true }
+insta-cmd = { workspace = true }
+rstest = "0.26.1"
+similar = { workspace = true }
+similar-asserts = { workspace = true }
+tempfile = { version = "3.23.0" }
+test_each_file = "0.3.6"
+
+# criterion 0.8 depends on `alloca` which doesn't support WASM targets
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
+criterion = { version = "0.8.1", default-features = false }
+
+# We use `benches/bench.rs` for the benchmark harness so disable searching for
+# benchmarks in bin & lib here to simplify using criterion
+# https://bheisler.github.io/criterion.rs/book/faq.html#cargo-bench-gives-unrecognized-option-errors-for-valid-command-line-options
+[lib]
+bench = false
+[[bin]]
+bench = false
+name = "prqlc"
+[[bench]]
+harness = false
+name = "bench"
+
+# Putting these pre-release replacements in the workspace root causes it to
+# refer to the path relative to `prqlc`, so we choose this crate out of
+# default.
+
+[[package.metadata.release.pre-release-replacements]]
+exactly = 1
+file = "../packages/snap/snapcraft.yaml"
+replace = 'version: "{{version}}"'
+search = '^version: "[\d.]+"$'
+
+[[package.metadata.release.pre-release-replacements]]
+exactly = 1
+file = "../../web/book/src/project/target.md"
+# This should be on the previous version, since otherwise it won't be able to
+# compile during development, since we use the most recent tag during
+# development (and the most recent tag is the prior version).
+replace = 'prql version:"{{prev_version}}"'
+search = 'prql version:"[\d.]+"'
+
+[[package.metadata.release.pre-release-replacements]]
+exactly = 1
+file = "../../CHANGELOG.md"
+replace = "# PRQL Changelog\n\n## [unreleased]\n\n**Language**:\n\n**Features**:\n\n**Fixes**:\n\n**Documentation**:\n\n**Web**:\n\n**Integrations**:\n\n**Internal changes**:\n\n**New Contributors**:\n\n"
+search = "# PRQL Changelog\n\n"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# Our error type is 128 bytes, because it contains 5 strings & an Enum, which
+# is exactly the default warning level. Given we're not that performance
+# sensitive, it's fine to ignore this at the moment (and not worth having a
+# clippy config file for a single setting). We can consider adjusting it as a
+# yak-shaving exercise in the future.
+result_large_err = "allow"
