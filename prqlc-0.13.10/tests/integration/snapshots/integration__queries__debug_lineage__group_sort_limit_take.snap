@@ -1,0 +1,433 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# Compute the 3 longest songs for each genre and sort by genre\n# mssql:test\nfrom tracks\nselect {genre_id,milliseconds}\ngroup {genre_id} (\n  sort {-milliseconds}\n  take 3\n)\njoin genres (==genre_id)\nselect {name, milliseconds}\nsort {+name,-milliseconds}\n"
+input_file: prqlc/prqlc/tests/integration/queries/group_sort_limit_take.prql
+---
+frames:
+- - 1:88-118
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 131
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - milliseconds
+      target_id: 132
+      target_name: null
+    inputs:
+    - id: 129
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:163-169
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 135
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - milliseconds
+      target_id: 132
+      target_name: null
+    inputs:
+    - id: 129
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:172-196
+  - columns:
+    - !Single
+      name:
+      - tracks
+      - genre_id
+      target_id: 135
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - milliseconds
+      target_id: 132
+      target_name: null
+    - !All
+      input_id: 120
+      except: []
+    inputs:
+    - id: 129
+      name: tracks
+      table:
+      - default_db
+      - tracks
+    - id: 120
+      name: genres
+      table:
+      - default_db
+      - genres
+- - 1:197-224
+  - columns:
+    - !Single
+      name:
+      - genres
+      - name
+      target_id: 173
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - milliseconds
+      target_id: 174
+      target_name: null
+    inputs:
+    - id: 129
+      name: tracks
+      table:
+      - default_db
+      - tracks
+    - id: 120
+      name: genres
+      table:
+      - default_db
+      - genres
+- - 1:225-251
+  - columns:
+    - !Single
+      name:
+      - genres
+      - name
+      target_id: 173
+      target_name: null
+    - !Single
+      name:
+      - tracks
+      - milliseconds
+      target_id: 174
+      target_name: null
+    inputs:
+    - id: 129
+      name: tracks
+      table:
+      - default_db
+      - tracks
+    - id: 120
+      name: genres
+      table:
+      - default_db
+      - genres
+nodes:
+- id: 120
+  kind: Ident
+  span: 1:177-183
+  ident: !Ident
+  - default_db
+  - genres
+  parent: 172
+- id: 129
+  kind: Ident
+  span: 1:76-87
+  ident: !Ident
+  - default_db
+  - tracks
+  parent: 134
+- id: 131
+  kind: Ident
+  span: 1:96-104
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 129
+  parent: 133
+- id: 132
+  kind: Ident
+  span: 1:105-117
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 129
+  parent: 133
+- id: 133
+  kind: Tuple
+  span: 1:95-118
+  children:
+  - 131
+  - 132
+  parent: 134
+- id: 134
+  kind: 'TransformCall: Select'
+  span: 1:88-118
+  children:
+  - 129
+  - 133
+  parent: 164
+- id: 135
+  kind: Ident
+  span: 1:126-134
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 131
+  parent: 136
+- id: 136
+  kind: Tuple
+  span: 1:125-135
+  children:
+  - 135
+- id: 160
+  kind: Ident
+  span: 1:147-159
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 132
+- id: 164
+  kind: 'TransformCall: Take'
+  span: 1:163-169
+  children:
+  - 134
+  - 165
+  parent: 172
+- id: 165
+  kind: Literal
+  parent: 164
+- id: 168
+  kind: RqOperator
+  span: 1:185-195
+  targets:
+  - 170
+  - 171
+  parent: 172
+- id: 170
+  kind: Ident
+  span: 1:187-195
+  ident: !Ident
+  - this
+  - tracks
+  - genre_id
+  targets:
+  - 135
+- id: 171
+  kind: Ident
+  span: 1:187-195
+  ident: !Ident
+  - that
+  - genres
+  - genre_id
+  targets:
+  - 120
+- id: 172
+  kind: 'TransformCall: Join'
+  span: 1:172-196
+  children:
+  - 164
+  - 120
+  - 168
+  parent: 176
+- id: 173
+  kind: Ident
+  span: 1:205-209
+  ident: !Ident
+  - this
+  - genres
+  - name
+  targets:
+  - 120
+  parent: 175
+- id: 174
+  kind: Ident
+  span: 1:211-223
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 132
+  parent: 175
+- id: 175
+  kind: Tuple
+  span: 1:204-224
+  children:
+  - 173
+  - 174
+  parent: 176
+- id: 176
+  kind: 'TransformCall: Select'
+  span: 1:197-224
+  children:
+  - 172
+  - 175
+  parent: 182
+- id: 177
+  kind: Ident
+  span: 1:231-236
+  ident: !Ident
+  - this
+  - genres
+  - name
+  targets:
+  - 173
+  parent: 182
+- id: 180
+  kind: Ident
+  span: 1:238-250
+  ident: !Ident
+  - this
+  - tracks
+  - milliseconds
+  targets:
+  - 174
+  parent: 182
+- id: 182
+  kind: 'TransformCall: Sort'
+  span: 1:225-251
+  children:
+  - 176
+  - 177
+  - 180
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:76-80
+              args:
+              - Ident:
+                - tracks
+                span: 1:81-87
+            span: 1:76-87
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:88-94
+              args:
+              - Tuple:
+                - Ident:
+                  - genre_id
+                  span: 1:96-104
+                - Ident:
+                  - milliseconds
+                  span: 1:105-117
+                span: 1:95-118
+            span: 1:88-118
+          - FuncCall:
+              name:
+                Ident:
+                - group
+                span: 1:119-124
+              args:
+              - Tuple:
+                - Ident:
+                  - genre_id
+                  span: 1:126-134
+                span: 1:125-135
+              - Pipeline:
+                  exprs:
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - sort
+                        span: 1:140-144
+                      args:
+                      - Tuple:
+                        - Unary:
+                            op: Neg
+                            expr:
+                              Ident:
+                              - milliseconds
+                              span: 1:147-159
+                          span: 1:146-159
+                        span: 1:145-160
+                    span: 1:140-160
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - take
+                        span: 1:163-167
+                      args:
+                      - Literal:
+                          Integer: 3
+                        span: 1:168-169
+                    span: 1:163-169
+                span: 1:140-169
+            span: 1:119-171
+          - FuncCall:
+              name:
+                Ident:
+                - join
+                span: 1:172-176
+              args:
+              - Ident:
+                - genres
+                span: 1:177-183
+              - Unary:
+                  op: EqSelf
+                  expr:
+                    Ident:
+                    - genre_id
+                    span: 1:187-195
+                span: 1:185-195
+            span: 1:172-196
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:197-203
+              args:
+              - Tuple:
+                - Ident:
+                  - name
+                  span: 1:205-209
+                - Ident:
+                  - milliseconds
+                  span: 1:211-223
+                span: 1:204-224
+            span: 1:197-224
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:225-229
+              args:
+              - Tuple:
+                - Unary:
+                    op: Add
+                    expr:
+                      Ident:
+                      - name
+                      span: 1:232-236
+                  span: 1:231-236
+                - Unary:
+                    op: Neg
+                    expr:
+                      Ident:
+                      - milliseconds
+                      span: 1:238-250
+                  span: 1:237-250
+                span: 1:230-251
+            span: 1:225-251
+        span: 1:76-251
+    span: 1:0-251

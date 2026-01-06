@@ -1,0 +1,327 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# mssql:test\nfrom e=employees\nfilter first_name != \"Mitchell\"\nsort {first_name, last_name}\n\n# joining may use HashMerge, which can undo ORDER BY\njoin manager=employees side:left (e.reports_to == manager.employee_id)\n\nselect {e.first_name, e.last_name, manager.first_name}\n"
+input_file: prqlc/prqlc/tests/integration/queries/sort.prql
+---
+frames:
+- - 1:30-61
+  - columns:
+    - !All
+      input_id: 126
+      except: []
+    inputs:
+    - id: 126
+      name: e
+      table:
+      - default_db
+      - employees
+- - 1:62-90
+  - columns:
+    - !All
+      input_id: 126
+      except: []
+    inputs:
+    - id: 126
+      name: e
+      table:
+      - default_db
+      - employees
+- - 1:145-215
+  - columns:
+    - !All
+      input_id: 126
+      except: []
+    - !All
+      input_id: 117
+      except: []
+    inputs:
+    - id: 126
+      name: e
+      table:
+      - default_db
+      - employees
+    - id: 117
+      name: manager
+      table:
+      - default_db
+      - employees
+- - 1:217-271
+  - columns:
+    - !Single
+      name: null
+      target_id: 142
+      target_name: null
+    - !Single
+      name:
+      - e
+      - last_name
+      target_id: 143
+      target_name: null
+    - !Single
+      name:
+      - manager
+      - first_name
+      target_id: 144
+      target_name: null
+    inputs:
+    - id: 126
+      name: e
+      table:
+      - default_db
+      - employees
+    - id: 117
+      name: manager
+      table:
+      - default_db
+      - employees
+nodes:
+- id: 117
+  kind: Ident
+  span: 1:158-167
+  ident: !Ident
+  - default_db
+  - employees
+  parent: 141
+- id: 126
+  kind: Ident
+  span: 1:13-29
+  ident: !Ident
+  - default_db
+  - employees
+  parent: 132
+- id: 128
+  kind: RqOperator
+  span: 1:37-61
+  targets:
+  - 130
+  - 131
+  parent: 132
+- id: 130
+  kind: Ident
+  span: 1:37-47
+  ident: !Ident
+  - this
+  - e
+  - first_name
+  targets:
+  - 126
+- id: 131
+  kind: Literal
+  span: 1:51-61
+- id: 132
+  kind: 'TransformCall: Filter'
+  span: 1:30-61
+  children:
+  - 126
+  - 128
+  parent: 136
+- id: 133
+  kind: Ident
+  span: 1:68-78
+  ident: !Ident
+  - this
+  - e
+  - first_name
+  targets:
+  - 126
+  parent: 136
+- id: 134
+  kind: Ident
+  span: 1:80-89
+  ident: !Ident
+  - this
+  - e
+  - last_name
+  targets:
+  - 126
+  parent: 136
+- id: 136
+  kind: 'TransformCall: Sort'
+  span: 1:62-90
+  children:
+  - 132
+  - 133
+  - 134
+  parent: 141
+- id: 137
+  kind: RqOperator
+  span: 1:179-214
+  targets:
+  - 139
+  - 140
+  parent: 141
+- id: 139
+  kind: Ident
+  span: 1:179-191
+  ident: !Ident
+  - this
+  - e
+  - reports_to
+  targets:
+  - 126
+- id: 140
+  kind: Ident
+  span: 1:195-214
+  ident: !Ident
+  - that
+  - manager
+  - employee_id
+  targets:
+  - 117
+- id: 141
+  kind: 'TransformCall: Join'
+  span: 1:145-215
+  children:
+  - 136
+  - 117
+  - 137
+  parent: 146
+- id: 142
+  kind: Ident
+  span: 1:225-237
+  ident: !Ident
+  - this
+  - e
+  - first_name
+  targets:
+  - 126
+  parent: 145
+- id: 143
+  kind: Ident
+  span: 1:239-250
+  ident: !Ident
+  - this
+  - e
+  - last_name
+  targets:
+  - 126
+  parent: 145
+- id: 144
+  kind: Ident
+  span: 1:252-270
+  ident: !Ident
+  - this
+  - manager
+  - first_name
+  targets:
+  - 117
+  parent: 145
+- id: 145
+  kind: Tuple
+  span: 1:224-271
+  children:
+  - 142
+  - 143
+  - 144
+  parent: 146
+- id: 146
+  kind: 'TransformCall: Select'
+  span: 1:217-271
+  children:
+  - 141
+  - 145
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:13-17
+              args:
+              - Ident:
+                - employees
+                span: 1:20-29
+                alias: e
+            span: 1:13-29
+          - FuncCall:
+              name:
+                Ident:
+                - filter
+                span: 1:30-36
+              args:
+              - Binary:
+                  left:
+                    Ident:
+                    - first_name
+                    span: 1:37-47
+                  op: Ne
+                  right:
+                    Literal:
+                      String: Mitchell
+                    span: 1:51-61
+                span: 1:37-61
+            span: 1:30-61
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:62-66
+              args:
+              - Tuple:
+                - Ident:
+                  - first_name
+                  span: 1:68-78
+                - Ident:
+                  - last_name
+                  span: 1:80-89
+                span: 1:67-90
+            span: 1:62-90
+          - FuncCall:
+              name:
+                Ident:
+                - join
+                span: 1:145-149
+              args:
+              - Ident:
+                - employees
+                span: 1:158-167
+                alias: manager
+              - Binary:
+                  left:
+                    Ident:
+                    - e
+                    - reports_to
+                    span: 1:179-191
+                  op: Eq
+                  right:
+                    Ident:
+                    - manager
+                    - employee_id
+                    span: 1:195-214
+                span: 1:179-214
+              named_args:
+                side:
+                  Ident:
+                  - left
+                  span: 1:173-177
+            span: 1:145-215
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:217-223
+              args:
+              - Tuple:
+                - Ident:
+                  - e
+                  - first_name
+                  span: 1:225-237
+                - Ident:
+                  - e
+                  - last_name
+                  span: 1:239-250
+                - Ident:
+                  - manager
+                  - first_name
+                  span: 1:252-270
+                span: 1:224-271
+            span: 1:217-271
+        span: 1:13-271
+    span: 1:0-271

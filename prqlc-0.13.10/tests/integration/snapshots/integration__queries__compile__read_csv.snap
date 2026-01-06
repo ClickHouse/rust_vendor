@@ -1,0 +1,29 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# sqlite:skip\n# postgres:skip\n# mysql:skip\nfrom (read_csv \"data_file_root/media_types.csv\")\nappend (read_json \"data_file_root/media_types.json\")\nsort media_type_id\n"
+input_file: prqlc/prqlc/tests/integration/queries/read_csv.prql
+---
+WITH table_0 AS (
+  SELECT
+    *
+  FROM
+    read_csv('data_file_root/media_types.csv')
+),
+table_2 AS (
+  SELECT
+    *
+  FROM
+    table_0
+  UNION
+  ALL
+  SELECT
+    *
+  FROM
+    read_json('data_file_root/media_types.json')
+)
+SELECT
+  *
+FROM
+  table_2
+ORDER BY
+  media_type_id

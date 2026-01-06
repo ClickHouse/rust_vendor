@@ -1,0 +1,638 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "from invoices\nselect { customer_id, invoice_id, billing_country }\ntake 5\nappend (\n  from employees\n  select { employee_id, employee_id, country }\n  take 5\n)\nappend (\n  from invoice_items\n  select { invoice_line_id, invoice_id, null }\n  take 5\n)\nselect { billing_country, invoice_id }\n"
+input_file: prqlc/prqlc/tests/integration/queries/append_select_multiple_with_null.prql
+---
+frames:
+- - 1:14-65
+  - columns:
+    - !Single
+      name:
+      - invoices
+      - customer_id
+      target_id: 166
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - invoice_id
+      target_id: 167
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - billing_country
+      target_id: 168
+      target_name: null
+    inputs:
+    - id: 164
+      name: invoices
+      table:
+      - default_db
+      - invoices
+- - 1:66-72
+  - columns:
+    - !Single
+      name:
+      - invoices
+      - customer_id
+      target_id: 166
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - invoice_id
+      target_id: 167
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - billing_country
+      target_id: 168
+      target_name: null
+    inputs:
+    - id: 164
+      name: invoices
+      table:
+      - default_db
+      - invoices
+- - 1:101-145
+  - columns:
+    - !Single
+      name: null
+      target_id: 148
+      target_name: null
+    - !Single
+      name:
+      - employees
+      - employee_id
+      target_id: 149
+      target_name: null
+    - !Single
+      name:
+      - employees
+      - country
+      target_id: 150
+      target_name: null
+    inputs:
+    - id: 146
+      name: employees
+      table:
+      - default_db
+      - employees
+- - 1:148-154
+  - columns:
+    - !Single
+      name: null
+      target_id: 148
+      target_name: null
+    - !Single
+      name:
+      - employees
+      - employee_id
+      target_id: 149
+      target_name: null
+    - !Single
+      name:
+      - employees
+      - country
+      target_id: 150
+      target_name: null
+    inputs:
+    - id: 146
+      name: employees
+      table:
+      - default_db
+      - employees
+- - 1:73-156
+  - columns:
+    - !Single
+      name:
+      - invoices
+      - customer_id
+      target_id: 166
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - invoice_id
+      target_id: 167
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - billing_country
+      target_id: 168
+      target_name: null
+    inputs:
+    - id: 164
+      name: invoices
+      table:
+      - default_db
+      - invoices
+    - id: 146
+      name: employees
+      table:
+      - default_db
+      - employees
+- - 1:189-233
+  - columns:
+    - !Single
+      name:
+      - invoice_items
+      - invoice_line_id
+      target_id: 127
+      target_name: null
+    - !Single
+      name:
+      - invoice_items
+      - invoice_id
+      target_id: 128
+      target_name: null
+    - !Single
+      name: null
+      target_id: 129
+      target_name: null
+    inputs:
+    - id: 125
+      name: invoice_items
+      table:
+      - default_db
+      - invoice_items
+- - 1:236-242
+  - columns:
+    - !Single
+      name:
+      - invoice_items
+      - invoice_line_id
+      target_id: 127
+      target_name: null
+    - !Single
+      name:
+      - invoice_items
+      - invoice_id
+      target_id: 128
+      target_name: null
+    - !Single
+      name: null
+      target_id: 129
+      target_name: null
+    inputs:
+    - id: 125
+      name: invoice_items
+      table:
+      - default_db
+      - invoice_items
+- - 1:157-244
+  - columns:
+    - !Single
+      name:
+      - invoices
+      - customer_id
+      target_id: 166
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - invoice_id
+      target_id: 167
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - billing_country
+      target_id: 168
+      target_name: null
+    inputs:
+    - id: 164
+      name: invoices
+      table:
+      - default_db
+      - invoices
+    - id: 146
+      name: employees
+      table:
+      - default_db
+      - employees
+    - id: 125
+      name: invoice_items
+      table:
+      - default_db
+      - invoice_items
+- - 1:245-283
+  - columns:
+    - !Single
+      name:
+      - invoices
+      - billing_country
+      target_id: 176
+      target_name: null
+    - !Single
+      name:
+      - invoices
+      - invoice_id
+      target_id: 177
+      target_name: null
+    inputs:
+    - id: 164
+      name: invoices
+      table:
+      - default_db
+      - invoices
+    - id: 146
+      name: employees
+      table:
+      - default_db
+      - employees
+    - id: 125
+      name: invoice_items
+      table:
+      - default_db
+      - invoice_items
+nodes:
+- id: 125
+  kind: Ident
+  span: 1:168-186
+  ident: !Ident
+  - default_db
+  - invoice_items
+  parent: 131
+- id: 127
+  kind: Ident
+  span: 1:198-213
+  ident: !Ident
+  - this
+  - invoice_items
+  - invoice_line_id
+  targets:
+  - 125
+  parent: 130
+- id: 128
+  kind: Ident
+  span: 1:215-225
+  ident: !Ident
+  - this
+  - invoice_items
+  - invoice_id
+  targets:
+  - 125
+  parent: 130
+- id: 129
+  kind: Literal
+  span: 1:227-231
+  parent: 130
+- id: 130
+  kind: Tuple
+  span: 1:196-233
+  children:
+  - 127
+  - 128
+  - 129
+  parent: 131
+- id: 131
+  kind: 'TransformCall: Select'
+  span: 1:189-233
+  children:
+  - 125
+  - 130
+  parent: 133
+- id: 133
+  kind: 'TransformCall: Take'
+  span: 1:236-242
+  children:
+  - 131
+  - 134
+  parent: 175
+- id: 134
+  kind: Literal
+  parent: 133
+- id: 146
+  kind: Ident
+  span: 1:84-98
+  ident: !Ident
+  - default_db
+  - employees
+  parent: 152
+- id: 148
+  kind: Ident
+  span: 1:110-121
+  ident: !Ident
+  - this
+  - employees
+  - employee_id
+  targets:
+  - 146
+  parent: 151
+- id: 149
+  kind: Ident
+  span: 1:123-134
+  ident: !Ident
+  - this
+  - employees
+  - employee_id
+  targets:
+  - 146
+  parent: 151
+- id: 150
+  kind: Ident
+  span: 1:136-143
+  ident: !Ident
+  - this
+  - employees
+  - country
+  targets:
+  - 146
+  parent: 151
+- id: 151
+  kind: Tuple
+  span: 1:108-145
+  children:
+  - 148
+  - 149
+  - 150
+  parent: 152
+- id: 152
+  kind: 'TransformCall: Select'
+  span: 1:101-145
+  children:
+  - 146
+  - 151
+  parent: 154
+- id: 154
+  kind: 'TransformCall: Take'
+  span: 1:148-154
+  children:
+  - 152
+  - 155
+  parent: 174
+- id: 155
+  kind: Literal
+  parent: 154
+- id: 164
+  kind: Ident
+  span: 1:0-13
+  ident: !Ident
+  - default_db
+  - invoices
+  parent: 170
+- id: 166
+  kind: Ident
+  span: 1:23-34
+  ident: !Ident
+  - this
+  - invoices
+  - customer_id
+  targets:
+  - 164
+  parent: 169
+- id: 167
+  kind: Ident
+  span: 1:36-46
+  ident: !Ident
+  - this
+  - invoices
+  - invoice_id
+  targets:
+  - 164
+  parent: 169
+- id: 168
+  kind: Ident
+  span: 1:48-63
+  ident: !Ident
+  - this
+  - invoices
+  - billing_country
+  targets:
+  - 164
+  parent: 169
+- id: 169
+  kind: Tuple
+  span: 1:21-65
+  children:
+  - 166
+  - 167
+  - 168
+  parent: 170
+- id: 170
+  kind: 'TransformCall: Select'
+  span: 1:14-65
+  children:
+  - 164
+  - 169
+  parent: 172
+- id: 172
+  kind: 'TransformCall: Take'
+  span: 1:66-72
+  children:
+  - 170
+  - 173
+  parent: 174
+- id: 173
+  kind: Literal
+  parent: 172
+- id: 174
+  kind: 'TransformCall: Append'
+  span: 1:73-156
+  children:
+  - 172
+  - 154
+  parent: 175
+- id: 175
+  kind: 'TransformCall: Append'
+  span: 1:157-244
+  children:
+  - 174
+  - 133
+  parent: 179
+- id: 176
+  kind: Ident
+  span: 1:254-269
+  ident: !Ident
+  - this
+  - invoices
+  - billing_country
+  targets:
+  - 168
+  parent: 178
+- id: 177
+  kind: Ident
+  span: 1:271-281
+  ident: !Ident
+  - this
+  - invoices
+  - invoice_id
+  targets:
+  - 167
+  parent: 178
+- id: 178
+  kind: Tuple
+  span: 1:252-283
+  children:
+  - 176
+  - 177
+  parent: 179
+- id: 179
+  kind: 'TransformCall: Select'
+  span: 1:245-283
+  children:
+  - 175
+  - 178
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:0-4
+              args:
+              - Ident:
+                - invoices
+                span: 1:5-13
+            span: 1:0-13
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:14-20
+              args:
+              - Tuple:
+                - Ident:
+                  - customer_id
+                  span: 1:23-34
+                - Ident:
+                  - invoice_id
+                  span: 1:36-46
+                - Ident:
+                  - billing_country
+                  span: 1:48-63
+                span: 1:21-65
+            span: 1:14-65
+          - FuncCall:
+              name:
+                Ident:
+                - take
+                span: 1:66-70
+              args:
+              - Literal:
+                  Integer: 5
+                span: 1:71-72
+            span: 1:66-72
+          - FuncCall:
+              name:
+                Ident:
+                - append
+                span: 1:73-79
+              args:
+              - Pipeline:
+                  exprs:
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - from
+                        span: 1:84-88
+                      args:
+                      - Ident:
+                        - employees
+                        span: 1:89-98
+                    span: 1:84-98
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - select
+                        span: 1:101-107
+                      args:
+                      - Tuple:
+                        - Ident:
+                          - employee_id
+                          span: 1:110-121
+                        - Ident:
+                          - employee_id
+                          span: 1:123-134
+                        - Ident:
+                          - country
+                          span: 1:136-143
+                        span: 1:108-145
+                    span: 1:101-145
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - take
+                        span: 1:148-152
+                      args:
+                      - Literal:
+                          Integer: 5
+                        span: 1:153-154
+                    span: 1:148-154
+                span: 1:84-154
+            span: 1:73-156
+          - FuncCall:
+              name:
+                Ident:
+                - append
+                span: 1:157-163
+              args:
+              - Pipeline:
+                  exprs:
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - from
+                        span: 1:168-172
+                      args:
+                      - Ident:
+                        - invoice_items
+                        span: 1:173-186
+                    span: 1:168-186
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - select
+                        span: 1:189-195
+                      args:
+                      - Tuple:
+                        - Ident:
+                          - invoice_line_id
+                          span: 1:198-213
+                        - Ident:
+                          - invoice_id
+                          span: 1:215-225
+                        - Literal: 'Null'
+                          span: 1:227-231
+                        span: 1:196-233
+                    span: 1:189-233
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - take
+                        span: 1:236-240
+                      args:
+                      - Literal:
+                          Integer: 5
+                        span: 1:241-242
+                    span: 1:236-242
+                span: 1:168-242
+            span: 1:157-244
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:245-251
+              args:
+              - Tuple:
+                - Ident:
+                  - billing_country
+                  span: 1:254-269
+                - Ident:
+                  - invoice_id
+                  span: 1:271-281
+                span: 1:252-283
+            span: 1:245-283
+        span: 1:0-283
+    span: 1:0-283

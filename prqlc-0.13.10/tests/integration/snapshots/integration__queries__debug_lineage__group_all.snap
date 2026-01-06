@@ -1,0 +1,345 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# mssql:test\nfrom a=albums\ntake 10\njoin tracks (==album_id)\ngroup {a.album_id, a.title} (aggregate price = (sum tracks.unit_price | math.round 2))\nsort album_id\n"
+input_file: prqlc/prqlc/tests/integration/queries/group_all.prql
+---
+frames:
+- - 1:27-34
+  - columns:
+    - !All
+      input_id: 126
+      except: []
+    inputs:
+    - id: 126
+      name: a
+      table:
+      - default_db
+      - albums
+- - 1:35-59
+  - columns:
+    - !All
+      input_id: 126
+      except: []
+    - !All
+      input_id: 120
+      except: []
+    inputs:
+    - id: 126
+      name: a
+      table:
+      - default_db
+      - albums
+    - id: 120
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:89-145
+  - columns:
+    - !Single
+      name:
+      - a
+      - album_id
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - a
+      - title
+      target_id: 137
+      target_name: null
+    - !Single
+      name:
+      - price
+      target_id: 155
+      target_name: null
+    inputs:
+    - id: 126
+      name: a
+      table:
+      - default_db
+      - albums
+    - id: 120
+      name: tracks
+      table:
+      - default_db
+      - tracks
+- - 1:147-160
+  - columns:
+    - !Single
+      name:
+      - a
+      - album_id
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - a
+      - title
+      target_id: 137
+      target_name: null
+    - !Single
+      name:
+      - price
+      target_id: 155
+      target_name: null
+    inputs:
+    - id: 126
+      name: a
+      table:
+      - default_db
+      - albums
+    - id: 120
+      name: tracks
+      table:
+      - default_db
+      - tracks
+nodes:
+- id: 120
+  kind: Ident
+  span: 1:40-46
+  ident: !Ident
+  - default_db
+  - tracks
+  parent: 135
+- id: 126
+  kind: Ident
+  span: 1:13-26
+  ident: !Ident
+  - default_db
+  - albums
+  parent: 129
+- id: 129
+  kind: 'TransformCall: Take'
+  span: 1:27-34
+  children:
+  - 126
+  - 130
+  parent: 135
+- id: 130
+  kind: Literal
+  parent: 129
+- id: 131
+  kind: RqOperator
+  span: 1:48-58
+  targets:
+  - 133
+  - 134
+  parent: 135
+- id: 133
+  kind: Ident
+  span: 1:50-58
+  ident: !Ident
+  - this
+  - a
+  - album_id
+  targets:
+  - 126
+- id: 134
+  kind: Ident
+  span: 1:50-58
+  ident: !Ident
+  - that
+  - tracks
+  - album_id
+  targets:
+  - 120
+- id: 135
+  kind: 'TransformCall: Join'
+  span: 1:35-59
+  children:
+  - 129
+  - 120
+  - 131
+  parent: 163
+- id: 136
+  kind: Ident
+  span: 1:67-77
+  ident: !Ident
+  - this
+  - a
+  - album_id
+  targets:
+  - 126
+  parent: 138
+- id: 137
+  kind: Ident
+  span: 1:79-86
+  ident: !Ident
+  - this
+  - a
+  - title
+  targets:
+  - 126
+  parent: 138
+- id: 138
+  kind: Tuple
+  span: 1:66-87
+  children:
+  - 136
+  - 137
+  parent: 163
+- id: 155
+  kind: RqOperator
+  span: 1:132-144
+  alias: price
+  targets:
+  - 158
+  - 159
+  parent: 162
+- id: 158
+  kind: Literal
+  span: 1:143-144
+- id: 159
+  kind: RqOperator
+  span: 1:108-129
+  targets:
+  - 161
+- id: 161
+  kind: Ident
+  span: 1:112-129
+  ident: !Ident
+  - this
+  - tracks
+  - unit_price
+  targets:
+  - 120
+- id: 162
+  kind: Tuple
+  span: 1:132-144
+  children:
+  - 155
+  parent: 163
+- id: 163
+  kind: 'TransformCall: Aggregate'
+  span: 1:89-145
+  children:
+  - 135
+  - 162
+  - 138
+  parent: 168
+- id: 166
+  kind: Ident
+  span: 1:152-160
+  ident: !Ident
+  - this
+  - a
+  - album_id
+  targets:
+  - 136
+  parent: 168
+- id: 168
+  kind: 'TransformCall: Sort'
+  span: 1:147-160
+  children:
+  - 163
+  - 166
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from
+                span: 1:13-17
+              args:
+              - Ident:
+                - albums
+                span: 1:20-26
+                alias: a
+            span: 1:13-26
+          - FuncCall:
+              name:
+                Ident:
+                - take
+                span: 1:27-31
+              args:
+              - Literal:
+                  Integer: 10
+                span: 1:32-34
+            span: 1:27-34
+          - FuncCall:
+              name:
+                Ident:
+                - join
+                span: 1:35-39
+              args:
+              - Ident:
+                - tracks
+                span: 1:40-46
+              - Unary:
+                  op: EqSelf
+                  expr:
+                    Ident:
+                    - album_id
+                    span: 1:50-58
+                span: 1:48-58
+            span: 1:35-59
+          - FuncCall:
+              name:
+                Ident:
+                - group
+                span: 1:60-65
+              args:
+              - Tuple:
+                - Ident:
+                  - a
+                  - album_id
+                  span: 1:67-77
+                - Ident:
+                  - a
+                  - title
+                  span: 1:79-86
+                span: 1:66-87
+              - FuncCall:
+                  name:
+                    Ident:
+                    - aggregate
+                    span: 1:89-98
+                  args:
+                  - Pipeline:
+                      exprs:
+                      - FuncCall:
+                          name:
+                            Ident:
+                            - sum
+                            span: 1:108-111
+                          args:
+                          - Ident:
+                            - tracks
+                            - unit_price
+                            span: 1:112-129
+                        span: 1:108-129
+                      - FuncCall:
+                          name:
+                            Ident:
+                            - math
+                            - round
+                            span: 1:132-142
+                          args:
+                          - Literal:
+                              Integer: 2
+                            span: 1:143-144
+                        span: 1:132-144
+                    span: 1:108-144
+                    alias: price
+                span: 1:89-145
+            span: 1:60-146
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:147-151
+              args:
+              - Ident:
+                - album_id
+                span: 1:152-160
+            span: 1:147-160
+        span: 1:13-160
+    span: 1:0-160
