@@ -1,0 +1,44 @@
+[package]
+name = "openvino-sys"
+description = "Low-level bindings for OpenVINO (use the `openvino` crate for easier-to-use bindings)."
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/openvino-sys"
+keywords = ["openvino", "machine-learning", "ml", "neural-network"]
+categories = ["external-ffi-bindings", "science"]
+include = [
+    "/Cargo.toml",
+    "/README.md",
+    "/build.rs",
+    "/src",
+    # Since it is quite difficult to fit OpenVINO into the 10MB crate limit, this crate is published
+    # with only the sources necessary for bindgen to build the Rust bindings. This means that the
+    # crate can only be either:
+    # - built from OpenVINO sources when built as the primary crate (unlikely usage)
+    # - built from an OpenVINO installation when used as a dependency
+    "/upstream/src/bindings/c/include",
+]
+links = "openvino_c_api"
+
+[dependencies]
+libloading = { version = "0.8", optional = true }
+openvino-finder = { workspace = true }
+
+[build-dependencies]
+openvino-finder = { workspace = true }
+env_logger = { workspace = true }
+
+[features]
+# Linking features: `build.rs` will default to dynamic linking if none is selected.
+# - Will find and bind to an OpenVINO shared library at compile time.
+dynamic-linking = []
+# - Will bind to an OpenVINO shared library at runtime using `load`.
+runtime-linking = ["libloading"]
+
+[package.metadata.docs.rs]
+features = ["runtime-linking"]

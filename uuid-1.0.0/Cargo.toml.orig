@@ -1,0 +1,179 @@
+[package]
+authors = [
+    "Ashley Mannix<ashleymannix@live.com.au>",
+    "Christopher Armstrong",
+    "Dylan DPC<dylan.dpc@gmail.com>",
+    "Hunar Roop Kahlon<hunar.roop@gmail.com>"
+]
+categories = [
+    "data-structures",
+    "no-std",
+    "parser-implementations",
+    "wasm"
+]
+description = "A library to generate and parse UUIDs."
+documentation = "https://docs.rs/uuid"
+edition = "2018"
+exclude = [
+    ".github/**",
+    ".travis.yml",
+    "appveyor.yml",
+    "bors.toml"
+]
+keywords = [
+    "guid",
+    "unique",
+    "uuid"
+]
+license = "Apache-2.0 OR MIT"
+homepage = "https://github.com/uuid-rs/uuid"
+name = "uuid"
+readme = "README.md"
+repository = "https://github.com/uuid-rs/uuid"
+version = "1.0.0" # remember to update html_root_url in lib.rs
+
+[package.metadata.docs.rs]
+features = ["serde", "arbitrary", "slog", "v1", "v3", "v4", "v5"]
+
+[package.metadata.playground]
+features = ["serde", "v1", "v3", "v4", "v5"]
+
+[badges.is-it-maintained-issue-resolution]
+repository = "uuid-rs/uuid"
+
+[badges.is-it-maintained-open-issues]
+repository = "uuid-rs/uuid"
+
+[badges.maintenance]
+status = "actively-developed"
+
+[badges.travis-ci]
+repository = "uuid-rs/uuid"
+
+[features]
+default = ["std"]
+std = []
+macro-diagnostics = ["private_uuid-macro-internal"]
+
+v1 = ["private_atomic"]
+v3 = ["md5"]
+v4 = ["rng"]
+v5 = ["sha1"]
+
+js = ["private_getrandom", "private_getrandom/js"]
+
+rng = ["private_getrandom"]
+fast-rng = ["rng", "private_rand"]
+
+sha1 = ["private_sha1_smol"]
+md5 = ["private_md-5"]
+
+# Public: Used in trait impls on `Uuid`
+[dependencies.serde]
+default-features = false
+optional = true
+version = "1.0.56"
+
+# Public: Used in trait impls on `Uuid`
+[dependencies.slog]
+optional = true
+version = "2"
+
+# Public: Used in trait impls on `Uuid`
+[dependencies.arbitrary]
+optional = true
+version = "1"
+
+# Public (unstable): Used in `zerocopy` derive
+# Unstable: also need RUSTFLAGS="--cfg uuid_unstable" to work
+# This feature may break between releases, or be removed entirely before
+# stabilization. 
+# See: https://github.com/uuid-rs/uuid/issues/588
+[dependencies.zerocopy]
+optional = true
+version = "0.6"
+
+# Private
+# Don't depend on this optional feature directly: it may change at any time
+# use the `rng` feature instead
+[dependencies.private_getrandom]
+package = "getrandom"
+optional = true
+version = "0.2"
+
+# Private
+# Don't depend on this optional feature directly: it may change at any time
+# use the `fast-rng` feature instead
+[dependencies.private_rand]
+package = "rand"
+optional = true
+version = "0.8"
+
+# Private
+# Don't depend on this optional feature directly: it may change at any time
+# Use the `md5` feature instead
+[dependencies.private_md-5]
+package = "md-5"
+default-features = false
+optional = true
+version = "0.10"
+
+# Private
+# Don't depend on this optional feature directly: it may change at any time
+# Use the `sha1` feature instead
+[dependencies.private_sha1_smol]
+package = "sha1_smol"
+default-features = false
+optional = true
+version = "1"
+
+# Public: Re-exported
+# Don't depend on this optional feature directly: it may change at any time
+# Use the `macro-diagnostics` feature instead
+[dependencies.private_uuid-macro-internal]
+package = "uuid-macro-internal"
+version = "1.0.0"
+path = "macros"
+optional = true
+
+# Private
+# Don't depend on this optional feature directly: it may change at any time
+[dependencies.private_atomic]
+package = "atomic"
+default-features = false
+optional = true
+version = "0.5"
+
+[dev-dependencies.bincode]
+version = "1.0"
+
+[dev-dependencies.serde_derive]
+version = "1.0.79"
+
+[dev-dependencies.serde_json]
+version = "1.0"
+
+[dev-dependencies.serde_test]
+version = "1.0.56"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies.wasm-bindgen-lib]
+package = "wasm-bindgen"
+version = "0.2"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies.wasm-bindgen-test]
+version = "0.3"
+
+[dev-dependencies.trybuild]
+version = "1.0.52"
+
+[dev-dependencies.rustversion]
+version = "1"
+
+[target.'cfg(windows)'.dev-dependencies.winapi]
+version = "0.3"
+features = ["combaseapi", "impl-default"]
+
+[workspace]
+members = [
+    "macros"
+]
