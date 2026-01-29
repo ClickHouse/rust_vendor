@@ -1,0 +1,13 @@
+[package]
+name = "multi-stash"
+version = "0.2.0"
+edition = "2021"
+authors = ["Robin Freyler <robin.freyler@gmail.com>"]
+license = "MIT/Apache-2.0"
+keywords = ["stash", "vector", "arena", "index", "actor"]
+categories = ["data-structures", "no-std"]
+description = "Vector-based arena data structure that reuses vacant slots."
+repository = "https://github.com/robbepop/multi-stash"
+documentation = "https://docs.rs/multi-stash/"
+
+[dependencies]
