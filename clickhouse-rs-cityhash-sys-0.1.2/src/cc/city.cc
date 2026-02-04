@@ -22,6 +22,9 @@
 //
 // This file provides CityHash64() and related functions.
 //
+// Modified for ClickHouse: Added extern "C" linkage to CityHash128 declaration
+// in city.h to fix linking on macOS x86_64 where CityHashCrc128 is compiled.
+//
 // It's probably possible to create even faster hash functions by
 // writing a program that systematically explores some of the space of
 // possible hash functions, by using SIMD instructions, or by
@@ -337,7 +340,7 @@ uint128 CityHash128WithSeed(const char *s, size_t len, uint128 seed) {
 }
 
 extern "C"
-uint128 CityHash128(char *s, size_t len) {
+uint128 CityHash128(const char *s, size_t len) {
   if (len >= 16) {
     return CityHash128WithSeed(s + 16,
                                len - 16,
