@@ -365,6 +365,10 @@ uint128 CityHash128(const char *s, size_t len) {
 #include "citycrc.h"
 #include <nmmintrin.h>
 
+// Forward declaration with C linkage to ensure CityHashCrc128 calls the correct symbol.
+// This is needed because the Rust FFI expects CityHash128 with C linkage.
+extern "C" uint128 CityHash128(const char *s, size_t len);
+
 // Requires len >= 240.
 static void CityHashCrc256Long(const char *s, size_t len,
                                uint32 seed, uint64 *result) {
