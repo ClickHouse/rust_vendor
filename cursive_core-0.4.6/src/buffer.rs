@@ -17,6 +17,15 @@ pub enum CellWidth {
 
     /// This character takes 2 cells in the grid (mostly for emojis and asian characters).
     Double,
+
+    /// This character takes 3 cells in the grid (hindi???).
+    Triple,
+
+    /// This character takes 4 cells in the grid (hindi???).
+    Quadruple,
+
+    /// This character takes 5 cells in the grid (hindi???).
+    Quintuple,
 }
 
 impl Default for CellWidth {
@@ -30,20 +39,26 @@ impl CellWidth {
     ///
     /// # Panics
     ///
-    /// If `width > 2`.
+    /// If `width > 5`.
     pub fn from_usize(width: usize) -> Self {
         match width {
             1 => CellWidth::Single,
             2 => CellWidth::Double,
-            n => panic!("expected width of 1 or 2 only. Got {n}."),
+            3 => CellWidth::Triple,
+            4 => CellWidth::Quadruple,
+            5 => CellWidth::Quintuple,
+            n => panic!("expected width of 1 or 2 or 3 or 4 or 5 only. Got {n}."),
         }
     }
 
-    /// Returns the width as a usize: 1 or 2.
+    /// Returns the width as a usize: 1 or 2 or 3 or 4 or 5.
     pub fn as_usize(self) -> usize {
         match self {
             CellWidth::Single => 1,
             CellWidth::Double => 2,
+            CellWidth::Triple => 3,
+            CellWidth::Quadruple => 4,
+            CellWidth::Quintuple => 5,
         }
     }
 
@@ -51,7 +66,7 @@ impl CellWidth {
     ///
     /// # Panics
     ///
-    /// If `text` has a width > 2 (it means it is not a single grapheme).
+    /// If `text` has a width > 5 (it means it is not a single grapheme).
     pub fn from_grapheme(text: &str) -> Self {
         Self::from_usize(text.width())
     }
@@ -71,9 +86,9 @@ pub struct Cell {
     /// Most graphemes fit in a couple bytes, but there's theoretically no limit.
     text: compact_str::CompactString,
 
-    /// Either 1 or 2.
+    /// Either 1 or 2 or 3 or 4 or 5.
     ///
-    /// If it's 2, the next cell should be None.
+    /// If it's 5, the next cell should be None.
     ///
     /// Should be equal to `text.width()`
     ///
@@ -89,9 +104,9 @@ impl Cell {
         &self.text
     }
 
-    /// Returns the width of this cell: either 1 or 2.
+    /// Returns the width of this cell: either 1 or 2 or 3 or 4 or 5.
     ///
-    /// If this returns 2, then the next cell in the grid should be empty.
+    /// If this returns more than 1, then the next cells in the grid should be empty.
     pub fn width(&self) -> usize {
         self.width.as_usize()
     }
@@ -103,11 +118,11 @@ impl Cell {
 
     /// Sets the content of this cell.
     ///
-    /// `text` should be a single grapheme, with width 1 or 2.
+    /// `text` should be a single grapheme, with width 1 or 2 or 3 or 4 or 5.
     ///
     /// # Panics
     ///
-    /// If `text.width() > 2`.
+    /// If `text.width() > 5`.
     pub fn set_text(&mut self, text: &str) {
         self.text.clear();
         self.text.push_str(text);
@@ -291,13 +306,31 @@ impl PrintBuffer {
         if self.active_buffer[id].is_none() && start.x > 0 {
             // If the previous character is double-wide, then this cell would be None.
             // So only check that if we're None to begin with.
-            // Here `id - 1` is safe to compute since `start.x > 0`.
-            if let Some(ref mut prev) = self.active_buffer[id - 1] {
-                if prev.width == CellWidth::Double {
-                    prev.width = CellWidth::Single;
-                    prev.text.clear();
-                    prev.text.push_str(" ");
-                    // Preserve style.
+            // Here `id - i` is safe to compute since `start.x >= i`, and `id >= start_x`.
+            for i in 1..=start.x {
+                let mut style_to_clear = None;
+                if let Some(ref mut prev) = self.active_buffer[id - i] {
+                    // For ex, double-wide with i=1: remove it
+                    if prev.width.as_usize() > i {
+                        // Clear out all cells between id-i and id
+                        prev.width = CellWidth::Single;
+                        prev.text.clear();
+                        prev.text.push_str(" ");
+                        // Preserve style.
+                        style_to_clear = Some(prev.style);
+                    } else {
+                        break;
+                    }
+                }
+                if let Some(style) = style_to_clear {
+                    for j in 0..i {
+                        self.active_buffer[id - j] = Some(Cell {
+                            style,
+                            width: CellWidth::Single,
+                            text: " ".into(),
+                        });
+                    }
+                    break;
                 }
             }
         }
@@ -460,13 +493,46 @@ impl PrintBuffer {
             }
 
             // Make sure we have the correct style
-            // eprintln!("Applying {style:?} over {:?} for {text} @ {x}:{y}", self.current_style);
             apply_diff(&self.current_style, style, backend);
             self.current_style = *style;
 
+            let width = width.as_usize();
+            // Graphemes larger than 2 are not very well supported in terminals.
+            // The actual rendered width may vary (the terminal is wrong in this case).
+            // This disagreement between UnicodeWidth and the terminal can result in UI glitches.
+            // For example, we increment our internal cursor by the grapheme width, and expect the
+            // terminal to increment its own cursor, so we don't usually need to call move_to all
+            // the time.
+            // But if the terminal increment the cursor by the wrong value, it will result in
+            // shifted text. To avoid that, we'd like to force a move_to after these large
+            // graphemes, to reduce the risk of drift.
+            //
+            // One way to do that is to force the cursor to be out of sync with the grid.
+            // To do that, we'll increment the X position of the cursor by a wrong value if the
+            // width is >2. Incrementing it by min(2, width) ensures that: if the width is >2,
+            // the next cell will call move_to and re-sync the cursor.
+            //
+            // It does not prevent _all_ glitches. If the grapheme ends up rendered smaller than
+            // the proper width, then the missing cells will never be written to. To avoid that, we
+            // pre-fill the space covered by this grapheme with spaces.
+            //
+            // If the rendered width is _larger_ than the proper width, then there's not much we
+            // can do, and it will mess up with the UI. Forcing a move_to after ensures that it
+            // doesn't lead to cascading shift, but it will still look weird. Not much we can do.
+            //
+            // All of this comes at a performance cost, but the hope is that such wide graphemes
+            // are rare enough that being correct matters more.
+            //
+            // See https://github.com/gyscos/cursive/issues/821
+            if width > 2 {
+                for _ in 0..width {
+                    backend.print(" ");
+                }
+                backend.move_to(current_pos);
+            }
             backend.print(text);
 
-            current_pos.x += width.as_usize();
+            current_pos.x += usize::min(2, width);
 
             // Assume we never wrap over?
         }
