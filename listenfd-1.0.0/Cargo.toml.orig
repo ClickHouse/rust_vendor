@@ -1,0 +1,23 @@
+[package]
+name = "listenfd"
+version = "1.0.0"
+authors = ["Armin Ronacher <armin.ronacher@active-4.com>"]
+description = "A simple library to work with listenfds passed from the outside (systemd/catflap socket activation)"
+keywords = ["socket", "listenfd", "systemd", "socketactivation"]
+categories = [ "os::unix-apis" ]
+homepage = "https://github.com/mitsuhiko/rust-listenfd"
+readme = "README.md"
+license = "Apache-2.0"
+edition = "2018"
+
+[target."cfg(not(windows))".dependencies]
+libc = "0.2.40"
+
+[target."cfg(windows)".dependencies]
+uuid = "1.0.0"
+winapi = { version = "0.3.4", features = ["winsock2", "processthreadsapi"] }
+
+[dev-dependencies]
+hyper = "0.14.16"
+tokio = { version = "1.15.0", features = ["full"] }
+warp = "0.3.2"

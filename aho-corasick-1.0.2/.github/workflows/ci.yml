@@ -1,0 +1,124 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches:
+    - master
+  schedule:
+  - cron: '00 01 * * *'
+jobs:
+  test:
+    name: test
+    env:
+      # For some builds, we use cross to test on 32-bit and big-endian
+      # systems.
+      CARGO: cargo
+      # When CARGO is set to CROSS, TARGET is set to `--target matrix.target`.
+      TARGET:
+      # Bump this as appropriate. We pin to a version to make sure CI
+      # continues to work as cross releases in the past have broken things
+      # in subtle ways.
+      CROSS_VERSION: v0.2.5
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build:
+        - pinned
+        - stable
+        - stable-32
+        - stable-mips
+        - beta
+        - nightly
+        - macos
+        - win-msvc
+        - win-gnu
+        include:
+        - build: pinned
+          os: ubuntu-latest
+          rust: 1.60.0
+        - build: stable
+          os: ubuntu-latest
+          rust: stable
+        - build: stable-32
+          os: ubuntu-latest
+          rust: stable
+          target: i686-unknown-linux-gnu
+        - build: stable-mips
+          os: ubuntu-latest
+          rust: stable
+          target: mips64-unknown-linux-gnuabi64
+        - build: beta
+          os: ubuntu-latest
+          rust: beta
+        - build: nightly
+          os: ubuntu-latest
+          rust: nightly
+        - build: macos
+          os: macos-latest
+          rust: stable
+        - build: win-msvc
+          os: windows-latest
+          rust: stable
+        - build: win-gnu
+          os: windows-latest
+          rust: stable-x86_64-gnu
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ matrix.rust }}
+    - name: Install and configure Cross
+      if: matrix.os == 'ubuntu-latest' && matrix.target != ''
+      run: |
+        # In the past, new releases of 'cross' have broken CI. So for now, we
+        # pin it. We also use their pre-compiled binary releases because cross
+        # has over 100 dependencies and takes a bit to compile.
+        dir="$RUNNER_TEMP/cross-download"
+        mkdir "$dir"
+        echo "$dir" >> $GITHUB_PATH
+        cd "$dir"
+        curl -LO "https://github.com/cross-rs/cross/releases/download/$CROSS_VERSION/cross-x86_64-unknown-linux-musl.tar.gz"
+        tar xf cross-x86_64-unknown-linux-musl.tar.gz
+
+        # We used to install 'cross' from master, but it kept failing. So now
+        # we build from a known-good version until 'cross' becomes more stable
+        # or we find an alternative. Notably, between v0.2.1 and current
+        # master (2022-06-14), the number of Cross's dependencies has doubled.
+        echo "CARGO=cross" >> $GITHUB_ENV
+        echo "TARGET=--target ${{ matrix.target }}" >> $GITHUB_ENV
+    - name: Show command used for Cargo
+      run: |
+        echo "cargo command is: ${{ env.CARGO }}"
+        echo "target flag is: ${{ env.TARGET }}"
+    - name: Show CPU info for debugging
+      if: matrix.os == 'ubuntu-latest'
+      run: lscpu
+    - run: ${{ env.CARGO }} build --verbose $TARGET
+    - run: ${{ env.CARGO }} doc --verbose $TARGET
+    - run: ${{ env.CARGO }} test --verbose $TARGET
+    - run: ${{ env.CARGO }} test --lib --verbose --no-default-features --features std,perf-literal $TARGET
+    - run: ${{ env.CARGO }} test --lib --verbose --no-default-features $TARGET
+    - run: ${{ env.CARGO }} test --lib --verbose --no-default-features --features std $TARGET
+    - run: ${{ env.CARGO }} test --lib --verbose --no-default-features --features perf-literal $TARGET
+    - run: ${{ env.CARGO }} test --lib --verbose --no-default-features --features std,perf-literal,logging $TARGET
+    - if: matrix.build == 'nightly'
+      run: ${{ env.CARGO }} build --manifest-path aho-corasick-debug/Cargo.toml $TARGET
+    - if: matrix.build == 'nightly'
+      run: ${{ env.CARGO }} bench --verbose --manifest-path bench/Cargo.toml -- --test
+
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: stable
+        components: rustfmt
+    - name: Check formatting
+      run: |
+        cargo fmt --all -- --check

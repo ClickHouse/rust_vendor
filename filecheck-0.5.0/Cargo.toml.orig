@@ -1,0 +1,22 @@
+[package]
+authors = ["The Cranelift Project Developers"]
+name = "filecheck"
+version = "0.5.0"
+description = "Library for writing tests for utilities that read text files and produce text output"
+license = "Apache-2.0 WITH LLVM-exception"
+repository = "https://github.com/CraneStation/filecheck"
+documentation = "https://docs.rs/filecheck"
+readme = "README.md"
+keywords = ["test"]
+edition = "2018"
+
+[lib]
+name = "filecheck"
+
+[dependencies]
+regex = "1"
+thiserror = "1"
+
+[badges]
+maintenance = { status = "passively-maintained" }
+travis-ci = { repository = "Cranelift/filecheck" }

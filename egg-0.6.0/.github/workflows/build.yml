@@ -1,0 +1,24 @@
+name: Build and Test
+
+on: [push, pull_request]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v1
+    - name: Cache cargo bin
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/bin
+        key: ${{ runner.os }}-cargo-bin
+    - name: Install cargo web
+      run: which cargo-web || cargo install cargo-web
+    - name: Install cargo deadlinks
+      run: which cargo-deadlinks || cargo install cargo-deadlinks
+    - name: Install graphviz
+      run: sudo apt-get update && sudo apt-get install graphviz
+    - name: Build and Test
+      run: make

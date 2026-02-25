@@ -1,0 +1,36 @@
+[package]
+authors = ["m4b <m4b.github.io@gmail.com>",
+           "Richo Healey <richo@psych0tik.net>",
+           "Travis Finkenauer <tmfinken@gmail.com>"]
+description = "High level bindings to capstone disassembly engine (https://capstone-engine.org/)"
+keywords = ["disassemble"]
+license = "MIT"
+name = "capstone"
+repository = "https://github.com/capstone-rust/capstone-rs"
+readme = "../README.md"
+edition = "2018"
+version = "0.13.0"
+rust-version.workspace = true
+
+[badges]
+travis-ci = { repository = "capstone-rust/capstone-rs" }
+
+[dependencies]
+capstone-sys = { path = "../capstone-sys", version = "0.17.0",  default-features = false }
+libc = { version = "0.2", default-features = false }
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
+
+[features]
+default = ["full", "std"]
+std = []
+# The 'full' feature, enabled by default, compiles Capstone normally. When disabled,
+# Capstone will be built in Diet mode (https://www.capstone-engine.org/diet.html).
+# This disables some features to reduce the size of the library
+full = ["capstone-sys/full"]
+use_bindgen = ["capstone-sys/use_bindgen"]

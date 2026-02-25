@@ -1,0 +1,39 @@
+[package]
+name = "egg"
+version = "0.6.0"
+authors = ["Max Willsey <me@mwillsey.com>"]
+edition = "2018"
+description = "An implementation of egraphs"
+repository = "https://github.com/mwillsey/egg"
+readme = "README.md"
+license = "MIT"
+keywords = ["e-graphs"]
+categories = ["data-structures"]
+
+[dependencies]
+symbolic_expressions = "5"
+log = "0.4"
+smallvec = "1"
+indexmap = "1"
+instant = "0.1"
+once_cell = "1"
+# for the serde-1 feature
+serde = { version = "1", features = ["derive"], optional = true }
+# for the reports feature
+serde_json = { version = "1", optional = true }
+
+[dev-dependencies]
+env_logger = {version = "0.7", default-features = false}
+ordered-float = "1"
+
+[features]
+upward-merging = []
+stdweb = [ "instant/stdweb" ]
+serde-1 = [ "serde", "indexmap/serde-1" ]
+reports = [ "serde-1", "serde_json" ]
+
+[workspace]
+members = [
+    ".",
+    "web-demo",
+]

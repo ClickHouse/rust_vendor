@@ -1,0 +1,28 @@
+[package]
+name = "openvino"
+description = "High-level bindings for OpenVINO."
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/openvino"
+keywords = ["openvino", "machine-learning", "ml", "neural-network"]
+categories = ["api-bindings", "science"]
+exclude = ["/tests"]
+
+[dependencies]
+openvino-sys = { workspace = true }
+openvino-finder = { workspace = true }
+
+[dev-dependencies]
+float-cmp = "0.10"
+anyhow = "1.0"
+
+[features]
+runtime-linking = ["openvino-sys/runtime-linking"]
+
+[package.metadata.docs.rs]
+features = ["runtime-linking"]

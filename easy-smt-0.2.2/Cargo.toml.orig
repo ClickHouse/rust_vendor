@@ -1,0 +1,20 @@
+[package]
+name = "easy-smt"
+version = "0.2.2"
+authors = [
+    "Trevor Elliott <awesomelyawesome@gmail.com>",
+    "Nick Fitzgerald <fitzgen@gmail.com>",
+]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+keywords = ["smt"]
+description = "Easily interact with an smt solver as a subprocess"
+repository = "https://github.com/elliottt/easy-smt"
+readme = "README.md"
+
+[dependencies]
+log = "0.4.17"
+unicode-segmentation = "1.10.0"
+
+[dev-dependencies]
+env_logger = "0.10.0"
