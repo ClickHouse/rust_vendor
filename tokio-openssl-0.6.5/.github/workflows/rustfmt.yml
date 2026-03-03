@@ -1,0 +1,16 @@
+name: Enforce Rust formatting
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  rustfmt:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sfackler/actions/rustup@master
+      - uses: sfackler/actions/rustfmt@master
