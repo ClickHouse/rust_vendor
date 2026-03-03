@@ -1,0 +1,7 @@
+# Preserve exact bytes for Windows files to avoid breaking cargo vendor checksums
+*.cmd binary
+*.bat binary
+*.ps1 binary
+*.vcxproj binary
+*.sln binary
+*.rc binary
