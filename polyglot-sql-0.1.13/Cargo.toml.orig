@@ -1,0 +1,101 @@
+[package]
+name = "polyglot-sql"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+description = "SQL parsing, validating, formatting, and dialect translation library"
+
+[features]
+default = ["all-dialects", "transpile"]
+bindings = ["dep:ts-rs"]
+transpile = []
+all-dialects = [
+    "dialect-postgresql", "dialect-mysql", "dialect-bigquery",
+    "dialect-snowflake", "dialect-duckdb", "dialect-tsql",
+    "dialect-clickhouse", "dialect-oracle", "dialect-hive",
+    "dialect-spark", "dialect-sqlite", "dialect-presto",
+    "dialect-trino", "dialect-redshift", "dialect-databricks",
+    "dialect-athena", "dialect-teradata", "dialect-doris",
+    "dialect-starrocks", "dialect-materialize", "dialect-risingwave",
+    "dialect-singlestore", "dialect-cockroachdb", "dialect-tidb",
+    "dialect-druid", "dialect-solr", "dialect-tableau",
+    "dialect-dune", "dialect-fabric", "dialect-drill",
+    "dialect-dremio", "dialect-exasol", "dialect-datafusion",
+]
+dialect-postgresql = []
+dialect-mysql = []
+dialect-bigquery = []
+dialect-snowflake = []
+dialect-duckdb = []
+dialect-tsql = []
+dialect-clickhouse = []
+dialect-oracle = []
+dialect-hive = []
+dialect-spark = []
+dialect-sqlite = []
+dialect-presto = []
+dialect-trino = []
+dialect-redshift = []
+dialect-databricks = []
+dialect-athena = []
+dialect-teradata = []
+dialect-doris = []
+dialect-starrocks = []
+dialect-materialize = []
+dialect-risingwave = []
+dialect-singlestore = []
+dialect-cockroachdb = []
+dialect-tidb = []
+dialect-druid = []
+dialect-solr = []
+dialect-tableau = []
+dialect-dune = []
+dialect-fabric = []
+dialect-drill = []
+dialect-dremio = []
+dialect-exasol = []
+dialect-datafusion = []
+function-catalog-clickhouse = [
+    "dep:polyglot-sql-function-catalogs",
+    "polyglot-sql-function-catalogs/dialect-clickhouse",
+]
+function-catalog-duckdb = [
+    "dep:polyglot-sql-function-catalogs",
+    "polyglot-sql-function-catalogs/dialect-duckdb",
+]
+function-catalog-all-dialects = [
+    "dep:polyglot-sql-function-catalogs",
+    "polyglot-sql-function-catalogs/all-dialects",
+]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+unicode-segmentation = { workspace = true }
+ts-rs = { version = "12.0", features = ["serde-compat"], optional = true }
+polyglot-sql-function-catalogs = { path = "../polyglot-sql-function-catalogs", version = "0.1.13", optional = true, default-features = false }
+
+[dev-dependencies]
+pretty_assertions = "1.4"
+once_cell = "1.19"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "parsing"
+harness = false
+
+[[bench]]
+name = "transpile"
+harness = false
+
+[[bench]]
+name = "in_list"
+harness = false
+
+[[bench]]
+name = "rust_parsing"
+harness = false
