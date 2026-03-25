@@ -1,0 +1,38 @@
+[package]
+description = "A parser for the PRQL query language."
+name = "prqlc-parser"
+
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lib]
+bench = false
+doctest = false
+
+[dependencies]
+chumsky = { version = "0.12.0", default-features = false, features = [
+    "std",
+    "pratt",
+] }
+enum-as-inner = { workspace = true }
+itertools = { workspace = true }
+log = { workspace = true }
+schemars = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true, optional = true }
+strum = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }
+serde_json = { workspace = true }
+
+[lints.rust]
+# https://github.com/taiki-e/cargo-llvm-cov/blob/4039500dc7ce5874748769166f1f481be294c90f/README.md#exclude-function-from-coverage
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(coverage,coverage_nightly)',
+] }
+unsafe_code = "forbid"

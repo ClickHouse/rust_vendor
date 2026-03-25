@@ -1,6 +1,0 @@
-{
-  "git": {
-    "sha1": "b0ccc004a560c473edfa3a676fd9d908f10d0aaf"
-  },
-  "path_in_vcs": "crates/polyglot-sql"
-}
