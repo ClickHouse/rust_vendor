@@ -1,0 +1,42 @@
+[package]
+name = "geojson"
+description = "Read and write GeoJSON vector geographic data"
+version = "0.24.2"
+authors = ["The GeoRust Developers <mods@georust.org>"]
+license = "MIT/Apache-2.0"
+repository = "https://github.com/georust/geojson"
+readme = "README.md"
+documentation = "https://docs.rs/geojson/"
+keywords = ["geojson", "gis", "json", "geo"]
+edition = "2018"
+
+[features]
+default = ["geo-types"]
+
+[dependencies]
+serde = { version="~1.0", features = ["derive"] }
+serde_json = "~1.0"
+geo-types = { version = "0.7.13", features = ["serde"], optional = true }
+thiserror = "2.0.6"
+log = "0.4.17"
+
+[dev-dependencies]
+num-traits = "0.2"
+criterion = "0.5.1"
+
+[[bench]]
+name = "parse"
+harness = false
+
+[[bench]]
+name = "serialize"
+harness = false
+
+[[bench]]
+name = "to_geo_types"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+

@@ -1,0 +1,22 @@
+[package]
+name = "pdqselect"
+version = "0.1.0"
+authors = ["Counter-Weight <danielwatson.311@gmail.com>"]
+
+description = "Selects the kth smallest element of a slice, based on Orson Peters's pdqsort"
+
+# documentation = "https://docs.rs/pdqselect"
+# repository = "https://github.com/TheIronBorn/pdqselect"
+
+# readme = "https://github.com/TheIronBorn/pdqselect/blob/master/README.md"
+
+keywords = ["quickselect", "quicksort", "pdqsort", "kth", "selection"]
+
+categories = ["no-std", "algorithms"]
+
+license = "Apache-2.0/MIT"
+
+exclude = [
+	"tests/*",
+	"benches/*"
+]

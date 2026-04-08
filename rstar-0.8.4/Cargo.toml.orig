@@ -1,0 +1,34 @@
+[package]
+name = "rstar"
+version = "0.8.4"
+authors = ["Stefan Altmayer <stoeoef@gmail.com>"]
+description = "R*-tree library for the rust ecosystem"
+documentation = "https://docs.rs/rstar/"
+repository = "https://github.com/Stoeoef/rstar"
+license = "MIT/Apache-2.0"
+readme = "README.md"
+edition = "2018"
+keywords = ["rtree", "r-tree", "rstar", "spatial", "nearest-neighbor"]
+categories = ["data-structures", "algorithms"]
+
+[badges]
+travis-ci = { repository = "Stoeoef/rstar", branch = "master" }
+codecov = { repository = "Stoeoef/rstar", branch = "master", service = "github" }
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+heapless = "0.6"
+num-traits = "0.2"
+pdqselect = "=0.1.0"
+serde = { version = "1.0", optional = true, features = ["derive"] }
+smallvec = "1.6"
+
+[features]
+default = []
+debug = []
+
+[dev-dependencies]
+rand = "0.7"
+rand_hc = "0.2"
+approx = "0.3"
+serde_json = "1.0"
