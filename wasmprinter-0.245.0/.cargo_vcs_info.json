@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "42127681cc850a4dc62824efc3786e25aa5f9910"
+  },
+  "path_in_vcs": "crates/wasmprinter"
+}
