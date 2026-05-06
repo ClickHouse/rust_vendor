@@ -1,0 +1,11 @@
+on: [push]
+
+jobs:
+  check:
+    runs-on: forgejo-builder
+    steps:
+      - uses: actions/checkout@v6
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --no-default-features -- --deny warnings
+      - run: cargo clippy --all-targets --all-features -- --deny warnings
+      - run: cargo test --all-features

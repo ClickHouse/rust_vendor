@@ -1,0 +1,24 @@
+[package]
+name = "i_key_sort"
+version = "0.10.3"
+authors = ["Nail Sharipov <nailxsharipov@gmail.com>"]
+edition = "2024"
+description = "Counting sort algorithm."
+license = "MIT"
+repository = "https://github.com/iShape-Rust/iKeySort"
+
+categories = ["no-std", "algorithms"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[dependencies]
+rayon = { optional = true, version = "^1.11" }
+
+[features]
+
+default = []
+std = []
+allow_multithreading = ["std", "dep:rayon"]
