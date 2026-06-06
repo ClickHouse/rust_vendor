@@ -1,0 +1,29 @@
+[package]
+name = "h3o-bit"
+version = "0.1.2"
+authors = ["Sylvain Laperche <sylvain.laperche@gmail.com>"]
+edition = "2024"
+description = "Low-level library for H3 indexes' bit twiddling."
+documentation = "https://docs.rs/h3o-bit/"
+readme = "README.md"
+homepage = "https://docs.rs/h3o-bit"
+repository = "https://github.com/HydroniumLabs/h3o-bit"
+license = "BSD-3-Clause"
+keywords = ["geography", "geospatial", "gis", "h3", "spatial-index"]
+categories = ["science::geo", "no-std::no-alloc"]
+
+[package.metadata.docs.rs]
+all-features = true
+
+[package.metadata.release]
+pre-release-commit-message = "release {{version}}"
+pre-release-replacements = [
+  {file="CHANGELOG.md", search="Unreleased", replace="{{version}}", min=1},
+  {file="CHANGELOG.md", search="ReleaseDate", replace="{{date}}", min=1},
+  {file="CHANGELOG.md", search="<!-- next-header -->", replace="<!-- next-header -->\n## [Unreleased] - ReleaseDate\n", exactly=1},
+]
+
+[dependencies]
+
+[profile.release]
+lto = "thin"

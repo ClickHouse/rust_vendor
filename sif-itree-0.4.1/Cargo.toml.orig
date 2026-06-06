@@ -1,0 +1,19 @@
+[package]
+name = "sif-itree"
+description = "simple, immutable, flat interval tree"
+version = "0.4.1"
+edition = "2021"
+authors = ["Adam Reichold <adam.reichold@t-online.de>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+documentation = "https://docs.rs/sif-itree"
+repository = "https://codeberg.org/adamreichold/sif-itree"
+keywords = ["interval", "tree"]
+categories = ["data-structures", "date-and-time"]
+
+[dev-dependencies]
+proptest = "1.4"
+
+[dependencies]
+rayon = { version = "1.8", optional = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
