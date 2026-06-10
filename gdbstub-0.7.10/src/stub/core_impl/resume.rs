@@ -1,0 +1,515 @@
+use super::prelude::*;
+use super::DisconnectReason;
+use crate::arch::Arch;
+use crate::common::Signal;
+use crate::common::Tid;
+use crate::protocol::commands::_vCont::Actions;
+use crate::protocol::commands::ext::Resume;
+use crate::protocol::SpecificIdKind;
+use crate::protocol::SpecificThreadId;
+use crate::stub::MultiThreadStopReason;
+use crate::target::ext::base::reverse_exec::ReplayLogPosition;
+use crate::target::ext::base::ResumeOps;
+use crate::target::ext::catch_syscalls::CatchSyscallPosition;
+
+impl<T: Target, C: Connection> GdbStubImpl<T, C> {
+    pub(crate) fn handle_stop_resume(
+        &mut self,
+        res: &mut ResponseWriter<'_, C>,
+        target: &mut T,
+        command: Resume<'_>,
+    ) -> Result<HandlerStatus, Error<T::Error, C::Error>> {
+        let mut ops = match target.base_ops().resume_ops() {
+            Some(ops) => ops,
+            None => return Ok(HandlerStatus::Handled),
+        };
+
+        let actions = match command {
+            Resume::vCont(cmd) => {
+                use crate::protocol::commands::_vCont::vCont;
+                match cmd {
+                    vCont::Query => {
+                        // Continue is part of the base protocol
+                        res.write_str("vCont;c;C")?;
+
+                        // Single stepping is optional
+                        if match &mut ops {
+                            ResumeOps::SingleThread(ops) => ops.support_single_step().is_some(),
+                            ResumeOps::MultiThread(ops) => ops.support_single_step().is_some(),
+                        } {
+                            res.write_str(";s;S")?;
+                        }
+
+                        // Range stepping is optional
+                        if match &mut ops {
+                            ResumeOps::SingleThread(ops) => ops.support_range_step().is_some(),
+                            ResumeOps::MultiThread(ops) => ops.support_range_step().is_some(),
+                        } {
+                            res.write_str(";r")?;
+                        }
+
+                        // doesn't actually invoke vCont
+                        return Ok(HandlerStatus::Handled);
+                    }
+                    vCont::Actions(actions) => actions,
+                }
+            }
+            // TODO?: support custom resume addr in 'c' and 's'
+            //
+            // vCont doesn't have a notion of "resume addr", and since the implementation of these
+            // packets reuse vCont infrastructure, supporting this obscure feature will be a bit
+            // annoying...
+            //
+            // TODO: add `support_legacy_s_c_packets` flag (similar to `use_X_packet`)
+            Resume::c(cmd) => {
+                let _addr = cmd.addr;
+                Actions::new_continue(SpecificThreadId {
+                    pid: None,
+                    tid: self.current_resume_tid,
+                })
+            }
+            Resume::s(cmd) => {
+                let _addr = cmd.addr;
+                Actions::new_step(SpecificThreadId {
+                    pid: None,
+                    tid: self.current_resume_tid,
+                })
+            }
+        };
+
+        self.do_vcont(ops, actions)
+    }
+
+    fn do_vcont_single_thread(
+        ops: &mut dyn crate::target::ext::base::singlethread::SingleThreadResume<
+            Arch = T::Arch,
+            Error = T::Error,
+        >,
+        actions: &Actions<'_>,
+    ) -> Result<(), Error<T::Error, C::Error>> {
+        use crate::protocol::commands::_vCont::VContKind;
+
+        let mut actions = actions.iter();
+        let first_action = actions
+            .next()
+            .ok_or(Error::PacketParse(
+                crate::protocol::PacketParseError::MalformedCommand,
+            ))?
+            .ok_or(Error::PacketParse(
+                crate::protocol::PacketParseError::MalformedCommand,
+            ))?;
+
+        let invalid_second_action = match actions.next() {
+            None => false,
+            Some(act) => match act {
+                None => {
+                    return Err(Error::PacketParse(
+                        crate::protocol::PacketParseError::MalformedCommand,
+                    ))
+                }
+                Some(act) => !matches!(act.kind, VContKind::Continue),
+            },
+        };
+
+        if invalid_second_action || actions.next().is_some() {
+            return Err(Error::PacketUnexpected);
+        }
+
+        match first_action.kind {
+            VContKind::Continue | VContKind::ContinueWithSig(_) => {
+                let signal = match first_action.kind {
+                    VContKind::ContinueWithSig(sig) => Some(sig),
+                    _ => None,
+                };
+
+                ops.resume(signal).map_err(Error::TargetError)?;
+                Ok(())
+            }
+            VContKind::Step | VContKind::StepWithSig(_) if ops.support_single_step().is_some() => {
+                let ops = ops.support_single_step().unwrap();
+
+                let signal = match first_action.kind {
+                    VContKind::StepWithSig(sig) => Some(sig),
+                    _ => None,
+                };
+
+                ops.step(signal).map_err(Error::TargetError)?;
+                Ok(())
+            }
+            VContKind::RangeStep(start, end) if ops.support_range_step().is_some() => {
+                let ops = ops.support_range_step().unwrap();
+
+                let start = start.decode().map_err(|_| Error::TargetMismatch)?;
+                let end = end.decode().map_err(|_| Error::TargetMismatch)?;
+
+                ops.resume_range_step(start, end)
+                    .map_err(Error::TargetError)?;
+                Ok(())
+            }
+            // TODO: update this case when non-stop mode is implemented
+            VContKind::Stop => Err(Error::PacketUnexpected),
+
+            // Instead of using `_ =>`, explicitly list out any remaining unguarded cases.
+            VContKind::RangeStep(..) | VContKind::Step | VContKind::StepWithSig(..) => {
+                error!("GDB client sent resume action not reported by `vCont?`");
+                Err(Error::PacketUnexpected)
+            }
+        }
+    }
+
+    fn do_vcont_multi_thread(
+        ops: &mut dyn crate::target::ext::base::multithread::MultiThreadResume<
+            Arch = T::Arch,
+            Error = T::Error,
+        >,
+        actions: &Actions<'_>,
+    ) -> Result<(), Error<T::Error, C::Error>> {
+        ops.clear_resume_actions().map_err(Error::TargetError)?;
+
+        // Track whether the packet contains a wildcard/default continue action
+        // (e.g., `c` or `c:-1`).
+        //
+        // Presence of this action implies "Scheduler Locking" is OFF.
+        // Absence implies "Scheduler Locking" is ON.
+        let mut has_wildcard_continue = false;
+
+        for action in actions.iter() {
+            use crate::protocol::commands::_vCont::VContKind;
+
+            let action = action.ok_or(Error::PacketParse(
+                crate::protocol::PacketParseError::MalformedCommand,
+            ))?;
+
+            match action.kind {
+                VContKind::Continue | VContKind::ContinueWithSig(_) => {
+                    let signal = match action.kind {
+                        VContKind::ContinueWithSig(sig) => Some(sig),
+                        _ => None,
+                    };
+
+                    match action.thread.map(|thread| thread.tid) {
+                        // An action with no thread-id matches all threads
+                        None | Some(SpecificIdKind::All) => {
+                            // Target API contract specifies that the default
+                            // resume action for all threads is continue.
+                            has_wildcard_continue = true;
+                        }
+                        Some(SpecificIdKind::WithId(tid)) => ops
+                            .set_resume_action_continue(tid, signal)
+                            .map_err(Error::TargetError)?,
+                    }
+                }
+                VContKind::Step | VContKind::StepWithSig(_)
+                    if ops.support_single_step().is_some() =>
+                {
+                    let ops = ops.support_single_step().unwrap();
+
+                    let signal = match action.kind {
+                        VContKind::StepWithSig(sig) => Some(sig),
+                        _ => None,
+                    };
+
+                    match action.thread.map(|thread| thread.tid) {
+                        // An action with no thread-id matches all threads
+                        None | Some(SpecificIdKind::All) => {
+                            error!("GDB client sent 'step' as default resume action");
+                            return Err(Error::PacketUnexpected);
+                        }
+                        Some(SpecificIdKind::WithId(tid)) => {
+                            ops.set_resume_action_step(tid, signal)
+                                .map_err(Error::TargetError)?;
+                        }
+                    };
+                }
+
+                VContKind::RangeStep(start, end) if ops.support_range_step().is_some() => {
+                    let ops = ops.support_range_step().unwrap();
+
+                    match action.thread.map(|thread| thread.tid) {
+                        // An action with no thread-id matches all threads
+                        None | Some(SpecificIdKind::All) => {
+                            error!("GDB client sent 'range step' as default resume action");
+                            return Err(Error::PacketUnexpected);
+                        }
+                        Some(SpecificIdKind::WithId(tid)) => {
+                            let start = start.decode().map_err(|_| Error::TargetMismatch)?;
+                            let end = end.decode().map_err(|_| Error::TargetMismatch)?;
+
+                            ops.set_resume_action_range_step(tid, start, end)
+                                .map_err(Error::TargetError)?;
+                        }
+                    };
+                }
+                // TODO: update this case when non-stop mode is implemented
+                VContKind::Stop => return Err(Error::PacketUnexpected),
+
+                // GDB doesn't always respect `vCont?` responses that omit `;s;S`, and will try to
+                // send step packets regardless. Inform the user of this bug by issuing a
+                // `UnexpectedStepPacket` error, which is more useful than a generic
+                // `PacketUnexpected` error.
+                VContKind::Step | VContKind::StepWithSig(..) => {
+                    return Err(Error::UnexpectedStepPacket)
+                }
+
+                // Instead of using `_ =>`, explicitly list out any remaining unguarded cases.
+                VContKind::RangeStep(..) => {
+                    error!("GDB client sent resume action not reported by `vCont?`");
+                    return Err(Error::PacketUnexpected);
+                }
+            }
+        }
+
+        if !has_wildcard_continue {
+            let Some(locking_ops) = ops.support_scheduler_locking() else {
+                return Err(Error::MissingMultiThreadSchedulerLocking);
+            };
+            locking_ops
+                .set_resume_action_scheduler_lock()
+                .map_err(Error::TargetError)?;
+        }
+
+        ops.resume().map_err(Error::TargetError)
+    }
+
+    fn do_vcont(
+        &mut self,
+        ops: ResumeOps<'_, T::Arch, T::Error>,
+        actions: Actions<'_>,
+    ) -> Result<HandlerStatus, Error<T::Error, C::Error>> {
+        match ops {
+            ResumeOps::SingleThread(ops) => Self::do_vcont_single_thread(ops, &actions)?,
+            ResumeOps::MultiThread(ops) => Self::do_vcont_multi_thread(ops, &actions)?,
+        };
+
+        Ok(HandlerStatus::DeferredStopReason)
+    }
+
+    fn write_stop_common(
+        &mut self,
+        res: &mut ResponseWriter<'_, C>,
+        target: &mut T,
+        tid: Option<Tid>,
+        signal: Signal,
+    ) -> Result<(), Error<T::Error, C::Error>> {
+        res.write_str("T")?;
+        res.write_num(signal.0)?;
+
+        if let Some(tid) = tid {
+            self.current_mem_tid = tid;
+            self.current_resume_tid = SpecificIdKind::WithId(tid);
+
+            res.write_str("thread:")?;
+            res.write_specific_thread_id(SpecificThreadId {
+                pid: self
+                    .features
+                    .multiprocess()
+                    .then_some(SpecificIdKind::WithId(self.get_current_pid(target)?)),
+                tid: SpecificIdKind::WithId(tid),
+            })?;
+            res.write_str(";")?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) fn finish_exec(
+        &mut self,
+        res: &mut ResponseWriter<'_, C>,
+        target: &mut T,
+        stop_reason: MultiThreadStopReason<<T::Arch as Arch>::Usize>,
+    ) -> Result<FinishExecStatus, Error<T::Error, C::Error>> {
+        /// Helper macro to gate certain stop reasons on whether the target
+        /// supports it.
+        macro_rules! guard {
+            (reverse_exec) => {{
+                if let Some(resume_ops) = target.base_ops().resume_ops() {
+                    let (reverse_cont, reverse_step) = match resume_ops {
+                        ResumeOps::MultiThread(ops) => (
+                            ops.support_reverse_cont().is_some(),
+                            ops.support_reverse_step().is_some(),
+                        ),
+                        ResumeOps::SingleThread(ops) => (
+                            ops.support_reverse_cont().is_some(),
+                            ops.support_reverse_step().is_some(),
+                        ),
+                    };
+
+                    reverse_cont || reverse_step
+                } else {
+                    false
+                }
+            }};
+
+            (break $op:ident) => {
+                target
+                    .support_breakpoints()
+                    .and_then(|ops| ops.$op())
+                    .is_some()
+            };
+
+            (catch_syscall) => {
+                target.support_catch_syscalls().is_some()
+            };
+
+            (fork) => {
+                target.use_fork_stop_reason()
+            };
+
+            (vfork) => {
+                target.use_vfork_stop_reason()
+            };
+
+            (vforkdone) => {
+                target.use_vforkdone_stop_reason()
+            };
+        }
+
+        let status = match stop_reason {
+            MultiThreadStopReason::DoneStep => {
+                res.write_str("S")?;
+                res.write_num(Signal::SIGTRAP.0)?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::Signal(sig) => {
+                res.write_str("S")?;
+                res.write_num(sig.0)?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::Exited(code) => {
+                res.write_str("W")?;
+                res.write_num(code)?;
+                FinishExecStatus::Disconnect(DisconnectReason::TargetExited(code))
+            }
+            MultiThreadStopReason::Terminated(sig) => {
+                res.write_str("X")?;
+                res.write_num(sig.0)?;
+                FinishExecStatus::Disconnect(DisconnectReason::TargetTerminated(sig))
+            }
+            MultiThreadStopReason::SignalWithThread { tid, signal } => {
+                self.write_stop_common(res, target, Some(tid), signal)?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::SwBreak(tid) if guard!(break support_sw_breakpoint) => {
+                crate::__dead_code_marker!("sw_breakpoint", "stop_reason");
+
+                self.write_stop_common(res, target, Some(tid), Signal::SIGTRAP)?;
+                res.write_str("swbreak:;")?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::HwBreak(tid) if guard!(break support_hw_breakpoint) => {
+                crate::__dead_code_marker!("hw_breakpoint", "stop_reason");
+
+                self.write_stop_common(res, target, Some(tid), Signal::SIGTRAP)?;
+                res.write_str("hwbreak:;")?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::Watch { tid, kind, addr }
+                if guard!(break support_hw_watchpoint) =>
+            {
+                crate::__dead_code_marker!("hw_watchpoint", "stop_reason");
+
+                self.write_stop_common(res, target, Some(tid), Signal::SIGTRAP)?;
+
+                use crate::target::ext::breakpoints::WatchKind;
+                match kind {
+                    WatchKind::Write => res.write_str("watch:")?,
+                    WatchKind::Read => res.write_str("rwatch:")?,
+                    WatchKind::ReadWrite => res.write_str("awatch:")?,
+                }
+                res.write_num(addr)?;
+                res.write_str(";")?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::ReplayLog { tid, pos } if guard!(reverse_exec) => {
+                crate::__dead_code_marker!("reverse_exec", "stop_reason");
+
+                self.write_stop_common(res, target, tid, Signal::SIGTRAP)?;
+
+                res.write_str("replaylog:")?;
+                res.write_str(match pos {
+                    ReplayLogPosition::Begin => "begin",
+                    ReplayLogPosition::End => "end",
+                })?;
+                res.write_str(";")?;
+
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::CatchSyscall {
+                tid,
+                number,
+                position,
+            } if guard!(catch_syscall) => {
+                crate::__dead_code_marker!("catch_syscall", "stop_reason");
+
+                self.write_stop_common(res, target, tid, Signal::SIGTRAP)?;
+
+                res.write_str(match position {
+                    CatchSyscallPosition::Entry => "syscall_entry:",
+                    CatchSyscallPosition::Return => "syscall_return:",
+                })?;
+                res.write_num(number)?;
+                res.write_str(";")?;
+
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::Library(tid) => {
+                self.write_stop_common(res, target, Some(tid), Signal::SIGTRAP)?;
+                res.write_str("library:;")?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::Fork { cur_tid, new_tid } if guard!(fork) => {
+                crate::__dead_code_marker!("fork_events", "stop_reason");
+                self.write_stop_common(res, target, Some(cur_tid), Signal::SIGTRAP)?;
+                res.write_str("fork:")?;
+                res.write_specific_thread_id(SpecificThreadId {
+                    pid: self
+                        .features
+                        .multiprocess()
+                        .then_some(SpecificIdKind::WithId(self.get_current_pid(target)?)),
+                    tid: SpecificIdKind::WithId(new_tid),
+                })?;
+                res.write_str(";")?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::VFork { cur_tid, new_tid } if guard!(vfork) => {
+                crate::__dead_code_marker!("vfork_events", "stop_reason");
+                self.write_stop_common(res, target, Some(cur_tid), Signal::SIGTRAP)?;
+                res.write_str("vfork:")?;
+                res.write_specific_thread_id(SpecificThreadId {
+                    pid: self
+                        .features
+                        .multiprocess()
+                        .then_some(SpecificIdKind::WithId(self.get_current_pid(target)?)),
+                    tid: SpecificIdKind::WithId(new_tid),
+                })?;
+                res.write_str(";")?;
+                FinishExecStatus::Handled
+            }
+            MultiThreadStopReason::VForkDone(tid) if guard!(vforkdone) => {
+                crate::__dead_code_marker!("vforkdone_events", "stop_reason");
+                self.write_stop_common(res, target, Some(tid), Signal::SIGTRAP)?;
+                res.write_str("vforkdone:;")?;
+                FinishExecStatus::Handled
+            }
+            // Explicitly avoid using `_ =>` to handle the "unguarded" variants, as doing so would
+            // squelch the useful compiler error that crops up whenever stop reasons are added.
+            MultiThreadStopReason::SwBreak(_)
+            | MultiThreadStopReason::HwBreak(_)
+            | MultiThreadStopReason::Watch { .. }
+            | MultiThreadStopReason::ReplayLog { .. }
+            | MultiThreadStopReason::CatchSyscall { .. }
+            | MultiThreadStopReason::Fork { .. }
+            | MultiThreadStopReason::VFork { .. }
+            | MultiThreadStopReason::VForkDone { .. } => {
+                return Err(Error::UnsupportedStopReason);
+            }
+        };
+
+        Ok(status)
+    }
+}
+
+pub(crate) enum FinishExecStatus {
+    Handled,
+    Disconnect(DisconnectReason),
+}
