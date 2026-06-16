@@ -1,0 +1,348 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "# mssql:test\nlet distinct = rel -> (from t = _param.rel | group {t.*} (take 1))\n\nfrom_text format:json '{ \"columns\": [\"a\"], \"data\": [[1], [2], [2], [3]] }'\ndistinct\nremove (from_text format:json '{ \"columns\": [\"a\"], \"data\": [[1], [2]] }')\nsort a\n"
+input_file: prqlc/prqlc/tests/integration/queries/set_ops_remove.prql
+---
+frames:
+- - 1:71-77
+  - columns:
+    - !Single
+      name:
+      - t
+      - a
+      target_id: 136
+      target_name: null
+    inputs:
+    - id: 127
+      name: t
+      table:
+      - default_db
+      - _literal_127
+- - 0:3172-3258
+  - columns:
+    - !Single
+      name:
+      - t
+      - a
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - b
+      - a
+      target_id: 122
+      target_name: a
+    inputs:
+    - id: 127
+      name: t
+      table:
+      - default_db
+      - _literal_127
+    - id: 122
+      name: b
+      table:
+      - default_db
+      - _literal_122
+- - 0:3261-3315
+  - columns:
+    - !Single
+      name:
+      - t
+      - a
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - b
+      - a
+      target_id: 122
+      target_name: a
+    inputs:
+    - id: 127
+      name: t
+      table:
+      - default_db
+      - _literal_127
+    - id: 122
+      name: b
+      table:
+      - default_db
+      - _literal_122
+- - 1:165-238
+  - columns:
+    - !Single
+      name:
+      - t
+      - a
+      target_id: 213
+      target_name: null
+    inputs:
+    - id: 127
+      name: t
+      table:
+      - default_db
+      - _literal_127
+    - id: 122
+      name: b
+      table:
+      - default_db
+      - _literal_122
+- - 1:239-245
+  - columns:
+    - !Single
+      name:
+      - t
+      - a
+      target_id: 213
+      target_name: null
+    inputs:
+    - id: 127
+      name: t
+      table:
+      - default_db
+      - _literal_127
+    - id: 122
+      name: b
+      table:
+      - default_db
+      - _literal_122
+nodes:
+- id: 122
+  kind: Array
+  span: 1:173-237
+  parent: 192
+- id: 127
+  kind: Array
+  span: 1:36-55
+  parent: 154
+- id: 136
+  kind: Ident
+  ident: !Ident
+  - this
+  - t
+  - a
+  targets:
+  - 127
+  parent: 138
+- id: 138
+  kind: Tuple
+  span: 1:64-69
+  children:
+  - 136
+- id: 154
+  kind: 'TransformCall: Take'
+  span: 1:71-77
+  children:
+  - 127
+  - 155
+  parent: 192
+- id: 155
+  kind: Literal
+  parent: 154
+- id: 181
+  kind: Ident
+  ident: !Ident
+  - this
+  - t
+  - a
+  targets:
+  - 136
+- id: 184
+  kind: Ident
+  ident: !Ident
+  - that
+  - b
+  - a
+  targets:
+  - 122
+- id: 190
+  kind: RqOperator
+  span: 0:3201-3257
+  targets:
+  - 181
+  - 184
+  parent: 192
+- id: 192
+  kind: 'TransformCall: Join'
+  span: 0:3172-3258
+  children:
+  - 154
+  - 122
+  - 190
+  parent: 211
+- id: 203
+  kind: Ident
+  span: 0:6033-6041
+  ident: !Ident
+  - this
+  - b
+  - a
+  targets:
+  - 122
+- id: 207
+  kind: RqOperator
+  span: 0:3269-3314
+  targets:
+  - 203
+  - 210
+  parent: 211
+- id: 210
+  kind: Literal
+  span: 0:6045-6049
+- id: 211
+  kind: 'TransformCall: Filter'
+  span: 0:3261-3315
+  children:
+  - 192
+  - 207
+  parent: 215
+- id: 213
+  kind: Ident
+  ident: !Ident
+  - this
+  - t
+  - a
+  targets:
+  - 136
+  parent: 214
+- id: 214
+  kind: Tuple
+  span: 0:3325-3328
+  children:
+  - 213
+  parent: 215
+- id: 215
+  kind: 'TransformCall: Select'
+  span: 1:165-238
+  children:
+  - 211
+  - 214
+  parent: 218
+- id: 216
+  kind: Ident
+  span: 1:244-245
+  ident: !Ident
+  - this
+  - t
+  - a
+  targets:
+  - 213
+  parent: 218
+- id: 218
+  kind: 'TransformCall: Sort'
+  span: 1:239-245
+  children:
+  - 215
+  - 216
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Let
+      name: distinct
+      value:
+        Func:
+          return_ty: null
+          body:
+            Pipeline:
+              exprs:
+              - FuncCall:
+                  name:
+                    Ident:
+                    - from
+                    span: 1:36-40
+                  args:
+                  - Ident:
+                    - _param
+                    - rel
+                    span: 1:45-55
+                    alias: t
+                span: 1:36-55
+              - FuncCall:
+                  name:
+                    Ident:
+                    - group
+                    span: 1:58-63
+                  args:
+                  - Tuple:
+                    - Ident:
+                      - t
+                      - '*'
+                      span: 1:65-68
+                    span: 1:64-69
+                  - FuncCall:
+                      name:
+                        Ident:
+                        - take
+                        span: 1:71-75
+                      args:
+                      - Literal:
+                          Integer: 1
+                        span: 1:76-77
+                    span: 1:71-77
+                span: 1:58-78
+            span: 1:35-79
+          params:
+          - name: rel
+            default_value: null
+          named_params: []
+        span: 1:28-79
+    span: 1:0-79
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - FuncCall:
+              name:
+                Ident:
+                - from_text
+                span: 1:81-90
+              args:
+              - Literal:
+                  String: '{ "columns": ["a"], "data": [[1], [2], [2], [3]] }'
+                span: 1:103-155
+              named_args:
+                format:
+                  Ident:
+                  - json
+                  span: 1:98-102
+            span: 1:81-155
+          - Ident:
+            - distinct
+            span: 1:156-164
+          - FuncCall:
+              name:
+                Ident:
+                - remove
+                span: 1:165-171
+              args:
+              - FuncCall:
+                  name:
+                    Ident:
+                    - from_text
+                    span: 1:173-182
+                  args:
+                  - Literal:
+                      String: '{ "columns": ["a"], "data": [[1], [2]] }'
+                    span: 1:195-237
+                  named_args:
+                    format:
+                      Ident:
+                      - json
+                      span: 1:190-194
+                span: 1:173-237
+            span: 1:165-238
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:239-243
+              args:
+              - Ident:
+                - a
+                span: 1:244-245
+            span: 1:239-245
+        span: 1:81-245
+    span: 1:79-245
