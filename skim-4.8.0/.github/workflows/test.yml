@@ -1,0 +1,159 @@
+name: Build & Test
+
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      plan:
+        required: false
+        type: string
+  # pull_request: # No need to trigger on PR, cargo-dist already does
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nextest:
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        build: [linux, macos, windows]
+        include:
+          - build: linux
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - build: macos
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - build: windows
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - name: "[linux] Install dependencies"
+        run: |
+          sudo apt-get install tmux
+          tmux -V
+          locale
+        if: runner.os == 'Linux'
+      - name: "[macos] Install dependencies"
+        run: |
+          brew install tmux
+          tmux -V
+          locale
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.8
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with: &cache-with
+          key: ${{ runner.os }}
+          add-job-id-key: "false"
+          add-rust-environment-hash-key: "false"
+          env-vars: "____"
+          cache-on-failure: "true"
+          cache-all-crates: "true"
+      - name: Run doctests
+        run: cargo test --doc
+      - name: Run tests
+        # Do not use `--all-targets` to avoid running benches
+        run: cargo llvm-cov nextest --release --profile ci --bins --lib --examples --tests --codecov --output-path codecov.json
+        env:
+          LC_ALL: en_US.UTF-8
+          TERM: xterm-256color
+          INSTA_UPDATE: new
+      - name: Show snapshot diffs on failure
+        if: failure()
+        run: |
+          find tests/snapshots/ -name "*.snap.new" | while read -r new_snap; do
+            base="${new_snap%.new}"
+            echo "=== Snapshot diff: $base ==="
+            echo "new: $new_snap"
+            cat "$new_snap"
+            if [ -f "$base" ]; then
+              echo "old: $base"
+              cat "$base"
+              diff "$base" "$new_snap"
+            fi
+          done
+        shell: bash
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: codecov.json
+          fail_ci_if_error: false
+        continue-on-error: true
+      - name: Upload test results to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          report_type: test_results
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: target/nextest/ci/junit.xml
+          fail_ci_if_error: false
+        continue-on-error: true
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - run: rustup toolchain install
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with: *cache-with
+      - name: Clippy
+        run: cargo clippy
+
+  rustfmt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - run: rustup toolchain install
+      - name: Check formatting
+        run: |
+          cargo fmt --all -- --check
+
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+      - run: rustup toolchain install
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-msrv@0.19
+      - name: MSRV Verify
+        run: cargo msrv verify
+
+  build-no-default-features:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+      - run: rustup toolchain install
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+        with: *cache-with
+      - name: Build without any feature
+        run: |
+          cargo build --no-default-features

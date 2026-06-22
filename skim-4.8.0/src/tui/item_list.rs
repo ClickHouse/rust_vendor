@@ -1,0 +1,635 @@
+use std::rc::Rc;
+use std::sync::Arc;
+
+use indexmap::IndexSet;
+use ratatui::widgets::{
+    Block, Borders, Clear, List, ListDirection, ListItem, Scrollbar, ScrollbarOrientation, ScrollbarState,
+    StatefulWidget, Widget,
+};
+use regex::Regex;
+
+use crate::item::MatchedItem;
+use crate::options::feature_flag;
+use crate::spinlock::SpinLock;
+use crate::theme::ColorTheme;
+use crate::tui::BorderType;
+use crate::tui::item_renderer::ItemRenderer;
+use crate::tui::options::TuiLayout;
+use crate::tui::widget::{SkimRender, SkimWidget};
+use crate::{Selector, SkimOptions};
+
+/// How to apply processed items to the display list
+#[derive(Default, Clone, Copy)]
+pub(crate) enum MergeStrategy {
+    /// Replace the entire item list (full re-match or first result)
+    #[default]
+    Replace,
+    /// Merge into existing list using sorted merge by rank
+    SortedMerge,
+    /// Append to existing list without sorting (for --no-sort)
+    Append,
+}
+
+/// Processed items ready for rendering
+pub(crate) struct ProcessedItems {
+    pub(crate) items: Vec<MatchedItem>,
+    pub(crate) merge: MergeStrategy,
+}
+
+impl Default for ProcessedItems {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            merge: MergeStrategy::Replace,
+        }
+    }
+}
+
+/// Widget for displaying and managing the list of filtered items
+#[allow(clippy::struct_excessive_bools)]
+pub struct ItemList {
+    pub(crate) items: Vec<MatchedItem>,
+    pub(crate) selection: IndexSet<MatchedItem>,
+    pub(crate) processed_items: Arc<SpinLock<Option<ProcessedItems>>>,
+    pub(crate) direction: ListDirection,
+    pub(crate) offset: usize,
+    /// How many leading sub-lines of items[offset] have been scrolled off the top.
+    /// Only meaningful when multiline is active; always 0 otherwise.
+    sub_offset: usize,
+    pub(crate) current: usize,
+    pub(crate) height: u16,
+    pub(crate) theme: std::sync::Arc<crate::theme::ColorTheme>,
+    pub(crate) multi_select: bool,
+    reserved: usize,
+    pub(crate) no_hscroll: bool,
+    pub(crate) ellipsis: String,
+    pub(crate) keep_right: bool,
+    pub(crate) skip_to_pattern: Option<Regex>,
+    pub(crate) tabstop: usize,
+    selector: Option<Rc<dyn Selector>>,
+    pre_select_target: usize, // How many items we want to pre-select
+    no_clear_if_empty: bool,
+    interactive: bool,              // Whether we're in interactive mode
+    showing_stale_items: bool,      // True when displaying old items due to no_clear_if_empty
+    pub(crate) manual_hscroll: i32, // Manual horizontal scroll offset for ScrollLeft/ScrollRight
+    pub(crate) selector_icon: String,
+    pub(crate) multi_select_icon: String,
+    cycle: bool,
+    pub(crate) wrap: bool,
+    /// When Some, split item text on this separator and show each part on its own line
+    pub(crate) multiline: Option<String>,
+    /// Border type
+    pub border: BorderType,
+    /// When true, prepend each item's match score to its display text
+    pub(crate) show_score: bool,
+    pub(crate) show_index: bool,
+    /// When true, highlight the entire current line (not just the matched text)
+    pub(crate) highlight_line: bool,
+    /// Scrollbar display configuration
+    pub(crate) scrollbar_thumb: String,
+}
+
+impl Default for ItemList {
+    fn default() -> Self {
+        Self::_default()
+    }
+}
+
+impl ItemList {
+    fn cursor(&self) -> usize {
+        self.current
+    }
+
+    /// Returns the count of items for status display.
+    ///
+    /// This may differ from `items.len()` when `no_clear_if_empty` is active and showing stale items
+    #[must_use]
+    pub fn count(&self) -> usize {
+        if self.showing_stale_items { 0 } else { self.items.len() }
+    }
+
+    /// Returns the currently selected item, if any
+    #[must_use]
+    pub fn selected(&self) -> Option<MatchedItem> {
+        let item = self.items.get(self.cursor());
+        if item.is_some_and(|i| !i.item.disabled()) {
+            item.cloned()
+        } else {
+            None
+        }
+    }
+
+    /// Appends new matched items to the list
+    pub fn append(&mut self, items: &mut Vec<MatchedItem>) {
+        self.items.append(items);
+        self.showing_stale_items = false;
+    }
+
+    /// Toggles the selection state of the item at the given index
+    pub fn toggle_at(&mut self, index: usize) {
+        if self.items.is_empty() {
+            return;
+        }
+        let item = &self.items[index];
+        trace!("Toggled item {} at index {}", item.text(), index);
+        toggle_item(&mut self.selection, item);
+        trace!(
+            "Selection is now {:#?}",
+            self.selection.iter().map(|item| item.item.text()).collect::<Vec<_>>()
+        );
+    }
+    /// Toggles the selection state of the currently selected item
+    pub fn toggle(&mut self) {
+        self.toggle_at(self.cursor());
+    }
+    /// Toggles the selection state of all items
+    pub fn toggle_all(&mut self) {
+        for item in &self.items {
+            toggle_item(&mut self.selection, item);
+        }
+    }
+
+    /// Add row at cursor to selection
+    pub fn select(&mut self) {
+        debug!("{}", self.cursor());
+        self.select_row(self.cursor());
+    }
+
+    /// Add row to selection
+    pub fn select_row(&mut self, index: usize) {
+        let item = self.items[index].clone();
+        if !item.disabled() {
+            self.selection.insert(item);
+        }
+    }
+    /// Selects all items
+    pub fn select_all(&mut self) {
+        for item in self.items.clone() {
+            if !item.disabled() {
+                self.selection.insert(item.clone());
+            }
+        }
+    }
+    /// Clears all selections
+    pub fn clear_selection(&mut self) {
+        self.selection.clear();
+    }
+    /// Clears all items from the list
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.selection.clear();
+        self.current = 0;
+        self.offset = 0;
+        self.sub_offset = 0;
+        self.showing_stale_items = false;
+    }
+    /// Scrolls the list by `rows` terminal rows, counting each item's sub-lines.
+    /// Positive = toward higher indices (up the screen in default layout).
+    pub fn scroll_by_rows(&mut self, rows: i32) {
+        if self.reserved >= self.items.len() || rows == 0 {
+            return;
+        }
+        let total = self.items.len();
+        let reserved = self.reserved;
+
+        if rows > 0 {
+            let mut remaining = rows.unsigned_abs() as usize;
+            let mut idx = self.current;
+            while remaining > 0 && idx + 1 < total {
+                idx += 1;
+                let row_count = self.item_row_count(idx);
+                remaining = remaining.saturating_sub(row_count);
+            }
+            self.current = idx;
+        } else {
+            let mut remaining = rows.unsigned_abs() as usize;
+            let mut idx = self.current;
+            while remaining > 0 && idx > reserved {
+                let row_count = self.item_row_count(idx);
+                remaining = remaining.saturating_sub(row_count);
+                idx -= 1;
+            }
+            self.current = idx.max(reserved);
+        }
+    }
+
+    /// Scrolls the list by the given offset
+    pub fn scroll_by(&mut self, offset: i32) {
+        if self.reserved >= self.items.len() {
+            return;
+        }
+        let reserved = i32::try_from(self.reserved).unwrap_or(0);
+        let total = i32::try_from(self.items.len()).unwrap_or(i32::MAX);
+        let mut new = i32::try_from(self.current).unwrap_or(0) + offset;
+        if self.cycle {
+            let n = total - reserved;
+            new = reserved + (new + n - reserved) % n;
+        } else {
+            new = new.min(total - 1).max(reserved);
+        }
+        self.current = new.max(0).unsigned_abs() as usize;
+        debug!("Scrolled to {}", self.current);
+        debug!("Selection: {:?}", self.selection);
+    }
+    /// Selects the previous item in the list
+    pub fn select_previous(&mut self) {
+        self.scroll_by(-1);
+    }
+    /// Selects the next item in the list
+    pub fn select_next(&mut self) {
+        self.scroll_by(1);
+    }
+    /// Jump to the first selectable item (respecting reserved header lines)
+    pub fn jump_to_first(&mut self) {
+        if self.items.len() > self.reserved {
+            self.current = self.reserved;
+            self.offset = self.reserved;
+            self.sub_offset = 0;
+        }
+    }
+    /// Given a terminal row within the list's rendered inner area (0 = topmost row),
+    /// return the index of the item that occupies that row, or `None` if the row is
+    /// empty (e.g. fewer items than the available height).
+    ///
+    /// Respects `direction`: in `BottomToTop` layouts item `offset` occupies the
+    /// bottom row, so row 0 (top) maps to the highest-indexed visible item.
+    #[must_use]
+    pub fn item_at_visual_row(&self, row: usize) -> Option<usize> {
+        let available_rows = self.height as usize;
+        if row >= available_rows || self.items.is_empty() {
+            return None;
+        }
+        // In BottomToTop, flat_rows[0] is rendered at the BOTTOM terminal row.
+        // Terminal row `r` from the top = flat_row index `available_rows - 1 - r`.
+        let flat_row = match self.direction {
+            ListDirection::BottomToTop => available_rows - 1 - row,
+            ListDirection::TopToBottom => row,
+        };
+        // Walk items from `offset`, counting sub-lines, until we cover `flat_row`.
+        let mut rows_counted = 0;
+        for idx in self.offset..self.items.len() {
+            let item_rows = if idx == self.offset {
+                self.item_row_count(idx).saturating_sub(self.sub_offset)
+            } else {
+                self.item_row_count(idx)
+            };
+            rows_counted += item_rows;
+            if rows_counted > flat_row {
+                return Some(idx);
+            }
+            if rows_counted >= available_rows {
+                break;
+            }
+        }
+        None
+    }
+
+    /// Jump to the last item in the list
+    pub fn jump_to_last(&mut self) {
+        if !self.items.is_empty() {
+            self.current = self.items.len().saturating_sub(1);
+            self.sub_offset = 0;
+        }
+    }
+
+    /// Number of terminal rows item at `index` occupies.
+    ///
+    /// When `--multiline` is active this is the number of sub-lines produced by
+    /// splitting on the separator; otherwise every item is exactly 1 row.
+    fn item_row_count(&self, index: usize) -> usize {
+        if let Some(sep) = self.multiline.as_deref()
+            && let Some(item) = self.items.get(index)
+        {
+            item.item.text().split(sep).count().max(1)
+        } else {
+            1
+        }
+    }
+
+    /// How many terminal rows are consumed by items `[from, from + count)`.
+    fn rows_for_range(&self, from: usize, count: usize) -> usize {
+        (from..from + count).map(|i| self.item_row_count(i)).sum()
+    }
+
+    /// How many rows are consumed by items `[offset..=current]`, with `sub_offset`
+    /// leading sub-lines of `items[offset]` already scrolled off.
+    fn rows_visible(&self, offset: usize, sub_offset: usize, current: usize) -> usize {
+        if offset > current {
+            return 0;
+        }
+        let top_rows = self.item_row_count(offset).saturating_sub(sub_offset);
+        if offset == current {
+            return top_rows;
+        }
+        top_rows + self.rows_for_range(offset + 1, current - offset)
+    }
+
+    /// Advance `(offset, sub_offset)` one row at a time until `current` fits
+    /// within `available_rows`.  Returns the new `(offset, sub_offset)`.
+    fn advance_to_fit(&self, current: usize, available_rows: usize) -> (usize, usize) {
+        let mut offset = self.offset;
+        let mut sub_offset = self.sub_offset;
+        while offset < current && self.rows_visible(offset, sub_offset, current) > available_rows {
+            let top_rows = self.item_row_count(offset);
+            if sub_offset + 1 < top_rows {
+                // Still more sub-lines in the top item: scroll one sub-line off.
+                sub_offset += 1;
+            } else {
+                // Entire top item scrolled off: move to next item.
+                offset += 1;
+                sub_offset = 0;
+            }
+        }
+        (offset, sub_offset)
+    }
+}
+
+impl SkimWidget for ItemList {
+    fn from_options(options: &SkimOptions, theme: Arc<ColorTheme>) -> Self {
+        use crate::helper::selector::DefaultSkimSelector;
+        use crate::util::read_file_lines;
+
+        let skip_to_pattern = options
+            .skip_to_pattern
+            .as_ref()
+            .and_then(|pattern| Regex::new(pattern).ok());
+
+        // Build the selector from options and calculate pre-select target
+        let (selector, pre_select_target) = if options.pre_select_n > 0
+            || !options.pre_select_pat.is_empty()
+            || !options.pre_select_items.is_empty()
+            || options.pre_select_file.is_some()
+            || options.selector.is_some()
+        {
+            if let Some(s) = options.selector.clone() {
+                // For custom selectors, use a very large target (pre-select all matching)
+                (Some(s), usize::MAX)
+            } else {
+                let mut preset_items: Vec<String> = options
+                    .pre_select_items
+                    .split('\n')
+                    .filter(|s| !s.is_empty())
+                    .map(std::string::ToString::to_string)
+                    .collect();
+
+                if let Some(ref pre_select_file) = options.pre_select_file
+                    && let Ok(file_items) = read_file_lines(pre_select_file)
+                {
+                    preset_items.extend(file_items);
+                }
+
+                let selector = DefaultSkimSelector::default()
+                    .first_n(options.pre_select_n)
+                    .regex(&options.pre_select_pat)
+                    .preset(preset_items.clone());
+
+                // Only use a target for --pre-select-n
+                // For pattern/items, the selector always returns the same matches regardless of timing
+                let target = if options.pre_select_n > 0 {
+                    options.pre_select_n
+                } else {
+                    usize::MAX // No target - keep selecting matching items
+                };
+
+                (Some(Rc::new(selector) as Rc<dyn Selector>), target)
+            }
+        } else {
+            (None, 0)
+        };
+
+        let processed_items = Arc::new(SpinLock::new(None));
+
+        let interactive = options.interactive;
+        let no_clear_if_empty = options.no_clear_if_empty;
+        let multi_select = options.multi;
+
+        // Spawn background processing thread with the appropriate configuration
+        Self {
+            processed_items,
+            reserved: 0, // header_lines are now displayed in the Header widget, not ItemList
+            direction: match options.layout {
+                TuiLayout::Default => ratatui::widgets::ListDirection::BottomToTop,
+                TuiLayout::Reverse | TuiLayout::ReverseList => ratatui::widgets::ListDirection::TopToBottom,
+            },
+            current: 0,
+            theme,
+            multi_select,
+            no_hscroll: options.no_hscroll,
+            ellipsis: options.ellipsis.clone(),
+            keep_right: options.keep_right,
+            skip_to_pattern,
+            tabstop: options.tabstop.max(1),
+            selector,
+            pre_select_target,
+            no_clear_if_empty,
+            interactive,
+            showing_stale_items: false,
+            manual_hscroll: 0,
+            items: Default::default(),
+            selection: Default::default(),
+            offset: Default::default(),
+            sub_offset: 0,
+            height: Default::default(),
+            selector_icon: options.selector_icon.clone(),
+            multi_select_icon: options.multi_select_icon.clone(),
+            cycle: options.cycle,
+            wrap: options.wrap_items,
+            multiline: options
+                .multiline
+                .clone()
+                .map(|opt_m| opt_m.unwrap_or(String::from("\\n"))),
+            border: options.border,
+            show_score: feature_flag!(options, ShowScore),
+            show_index: feature_flag!(options, ShowIndex),
+            highlight_line: options.highlight_line,
+            scrollbar_thumb: options.scrollbar.clone(),
+        }
+    }
+
+    // The render function handles the full item list rendering pipeline; splitting
+    // it into smaller helpers would require passing many parameters between them.
+    #[allow(clippy::too_many_lines)]
+    fn render(&mut self, area: ratatui::prelude::Rect, buf: &mut ratatui::prelude::Buffer) -> SkimRender {
+        let this = &mut *self;
+
+        // Calculate inner area if borders are enabled
+        let inner_area = if this.border.is_some() {
+            ratatui::layout::Rect {
+                x: area.x + 1,
+                y: area.y + 1,
+                width: area.width.saturating_sub(2),
+                height: area.height.saturating_sub(2),
+            }
+        } else {
+            area
+        };
+
+        this.height = inner_area.height;
+        let available_rows = inner_area.height as usize;
+
+        // Clamp current to valid range after any item list replacement.
+        if this.items.is_empty() {
+            this.current = 0;
+            this.offset = 0;
+        } else {
+            this.current = this.current.min(this.items.len() - 1).max(this.reserved);
+        }
+
+        if this.current < this.offset {
+            // Cursor moved above the top item: snap to it with no sub-line offset.
+            this.offset = this.current;
+            this.sub_offset = 0;
+        } else if this.rows_visible(this.offset, this.sub_offset, this.current) > available_rows {
+            // Current item is below the visible window: advance one row at a time.
+            (this.offset, this.sub_offset) = this.advance_to_fit(this.current, available_rows);
+        }
+        let initial_current = this.selected();
+
+        // Check for pre-processed items from background thread (non-blocking)
+        let items_updated = if let Some(processed) = this.processed_items.lock().take() {
+            debug!("Render: Got {} processed items", processed.items.len());
+
+            // Check if items are empty or blank for no_clear_if_empty handling
+            let items_are_empty_or_blank =
+                processed.items.is_empty() || processed.items.iter().all(|item| item.item.text().trim().is_empty());
+
+            if this.interactive && this.no_clear_if_empty && items_are_empty_or_blank && !this.items.is_empty() {
+                debug!(
+                    "no_clear_if_empty: keeping {} old items for display (new items are empty/blank)",
+                    this.items.len()
+                );
+                this.showing_stale_items = true;
+            } else {
+                match processed.merge {
+                    MergeStrategy::Replace => {
+                        this.items = processed.items;
+                        this.sub_offset = 0;
+                    }
+                    MergeStrategy::SortedMerge => {
+                        let existing = std::mem::take(&mut this.items);
+                        this.items = MatchedItem::sorted_merge(existing, processed.items);
+                        this.sub_offset = 0;
+                    }
+                    MergeStrategy::Append => {
+                        this.items.extend(processed.items);
+                    }
+                }
+                this.showing_stale_items = false;
+
+                // Apply pre-selection only when new items arrive and only if we haven't reached target
+                // This runs once per item batch, not on every render
+                if this.multi_select
+                    && let Some(selector) = &this.selector
+                    && this.selection.len() < this.pre_select_target
+                {
+                    debug!(
+                        "Applying pre-selection to {} items (currently {} selected, target {})",
+                        this.items.len(),
+                        this.selection.len(),
+                        this.pre_select_target
+                    );
+                    for (index, item) in this.items.iter().enumerate() {
+                        if this.selection.len() >= this.pre_select_target {
+                            break;
+                        }
+                        let should_select = selector.should_select(index, item.item.as_ref());
+                        if should_select {
+                            debug!("Pre-selecting item[{}]: '{}'", index, item.item.text());
+                            this.selection.insert(item.clone());
+                        }
+                    }
+                    debug!("Pre-selected {} items total", this.selection.len());
+                }
+            }
+
+            true
+        } else {
+            false
+        };
+
+        let icon_width = this.selector_icon.chars().count() + this.multi_select_icon.chars().count();
+        let container_width = (inner_area.width as usize).saturating_sub(icon_width);
+        let sub_offset = this.sub_offset;
+
+        let renderer = ItemRenderer::new_for(this, container_width);
+
+        let mut flat_rows: Vec<ListItem<'static>> = Vec::with_capacity(available_rows + 1);
+        let mut rows_used = 0usize;
+
+        for (idx, item) in this.items.iter().enumerate().skip(this.offset) {
+            if rows_used >= available_rows {
+                break;
+            }
+            let is_current = idx == this.current;
+            let is_selected = this.selection.contains(item);
+            let skip_subs = if idx == this.offset { sub_offset } else { 0 };
+            rows_used += renderer.render_item(
+                item,
+                is_current,
+                is_selected,
+                skip_subs,
+                available_rows,
+                rows_used,
+                &mut flat_rows,
+            );
+        }
+
+        let list = List::new(flat_rows).direction(this.direction).style(this.theme.normal);
+
+        Widget::render(Clear, area, buf);
+
+        // Render border if enabled
+        if let Some(border_type) = this.border.into_ratatui() {
+            let block = Block::default()
+                .borders(Borders::ALL)
+                .border_type(border_type)
+                .border_style(this.theme.border);
+            Widget::render(block, area, buf);
+        }
+
+        // We manage offset and selection styling ourselves, so render as a plain
+        // Widget — this bypasses ratatui's get_items_bounds which can index out of
+        // bounds on our pre-sliced flat_rows when the selected row is near the edge.
+        Widget::render(list, inner_area, buf);
+
+        // Render the scrollbar on top of the rightmost column of inner_area, but only
+        // when there are more items than fit on screen (nothing to scroll → no bar).
+        if !this.scrollbar_thumb.is_empty() && this.items.len() > available_rows {
+            // Use offset directly as the scroll position for all layout directions:
+            // offset == 0           → thumb at top    (beginning of content)
+            // offset == max_offset  → thumb at bottom (end of content)
+            // This matches conventional scrollbar behaviour regardless of list direction.
+            let mut scrollbar_state = ScrollbarState::new(this.items.len()).position(this.current);
+            // .viewport_content_length(available_rows);
+
+            // Both Default and Custom use a thumb-only style (no track/begin/end arrows).
+            // Default uses ▐ (right half-block), which gives a clean minimal look.
+            let scrollbar: Scrollbar<'_> = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .thumb_symbol(&self.scrollbar_thumb)
+                .track_symbol(None)
+                .begin_symbol(None)
+                .end_symbol(None);
+            StatefulWidget::render(scrollbar, inner_area, buf, &mut scrollbar_state);
+        }
+
+        let run_preview = if let Some(curr) = self.selected()
+            && let Some(prev) = initial_current
+        {
+            curr.text() != prev.text()
+        } else {
+            self.selected().is_some() != initial_current.is_some()
+        };
+        SkimRender {
+            items_updated,
+            run_preview,
+        }
+    }
+}
+
+fn toggle_item(sel: &mut IndexSet<MatchedItem>, item: &MatchedItem) {
+    if sel.contains(item) {
+        sel.shift_remove(item);
+    } else if !item.disabled() {
+        sel.insert(item.clone());
+    }
+}

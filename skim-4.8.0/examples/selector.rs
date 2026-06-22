@@ -1,0 +1,34 @@
+//! Demonstrates a custom selector implementation.
+
+extern crate skim;
+use skim::prelude::*;
+
+struct BasicSelector {
+    pub pat: String,
+}
+
+impl Selector for BasicSelector {
+    fn should_select(&self, _index: usize, item: &dyn SkimItem) -> bool {
+        item.text().contains(&self.pat)
+    }
+}
+
+fn main() {
+    let selector = BasicSelector {
+        pat: String::from("examples"),
+    };
+    let options = SkimOptionsBuilder::default()
+        .multi(true)
+        .selector(Rc::from(selector))
+        .query("skim/")
+        .build()
+        .unwrap();
+
+    let selected_items = Skim::run_with(options, None)
+        .map(|out| out.selected_items)
+        .unwrap_or_default();
+
+    for item in &selected_items {
+        println!("{}", item.output());
+    }
+}

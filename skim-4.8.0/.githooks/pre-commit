@@ -1,0 +1,5 @@
+set -xeuo pipefail
+
+cargo +nightly fmt --check --all
+cargo clippy --all-targets -- -Dwarnings
+cargo check --no-default-features

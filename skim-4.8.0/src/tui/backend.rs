@@ -1,0 +1,306 @@
+use std::io::BufWriter;
+use std::ops::{Deref, DerefMut};
+use std::sync::Once;
+
+use color_eyre::eyre::Result;
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, KeyEventKind,
+};
+use crossterm::terminal::{Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::{self, cursor};
+use futures::{FutureExt as _, StreamExt as _};
+use ratatui::layout::Rect;
+use ratatui::prelude::{Backend, CrosstermBackend};
+use ratatui::{TerminalOptions, Viewport};
+use tokio::sync::mpsc::{Receiver, Sender, channel};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+use super::util::cursor_pos_from_tty;
+use super::{Event, Size, TICK_RATE};
+
+static PANIC_HOOK_SET: Once = Once::new();
+
+/// Terminal user interface handler for skim
+pub struct Tui<B: Backend = ratatui::backend::CrosstermBackend<BufWriter<std::io::Stderr>>>
+where
+    B::Error: Send + Sync + 'static,
+{
+    /// The ratatui terminal instance
+    pub terminal: ratatui::Terminal<B>,
+    /// Background task handle for event polling
+    pub task: Option<JoinHandle<()>>,
+    /// Receiver for TUI events
+    pub event_rx: Receiver<Event>,
+    /// Sender for TUI events
+    pub event_tx: Sender<Event>,
+    /// Tick rate for updates (ticks per second)
+    pub tick_rate: f64,
+    /// Token for cancelling background tasks
+    pub cancellation_token: CancellationToken,
+    /// Whether running in fullscreen mode
+    pub is_fullscreen: bool,
+    enable_mouse: bool,
+}
+
+impl Tui {
+    /// Creates a TUI with the default backend (buffered stderr) and the specified height
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the TUI backend cannot be initialized.
+    pub fn new_with_height(height: Size) -> Result<Self> {
+        let backend = CrosstermBackend::new(std::io::BufWriter::new(std::io::stderr()));
+        Self::new_with_height_and_backend(backend, height)
+    }
+    /// Disable mouse handling.
+    /// Needs to be called before enter.
+    pub fn disable_mouse(&mut self) -> &mut Self {
+        self.enable_mouse = false;
+        self
+    }
+}
+
+impl<B: Backend> Tui<B>
+where
+    B::Error: Send + Sync + 'static,
+{
+    /// Creates a new TUI with the specified backend and height
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the terminal size cannot be determined or setup fails.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the terminal size cannot be read from the backend.
+    pub fn new_with_height_and_backend(backend: B, height: Size) -> Result<Self> {
+        let event_channel = channel(1024 * 1024);
+
+        let term_height = backend.size().expect("Failed to get terminal height").height;
+        let lines = match height {
+            Size::Percent(100) => None,
+            Size::Fixed(lines) => Some(lines),
+            Size::Percent(p) => Some(term_height * p / 100),
+            Size::Neg(lines) => Some(term_height.saturating_sub(lines)),
+        };
+
+        let viewport = if let Some(mut height) = lines {
+            // Until https://github.com/crossterm-rs/crossterm/issues/919 is fixed, we need to do it ourselves
+            let cursor_pos = cursor_pos_from_tty()?;
+            let mut y = cursor_pos.1 - 1;
+            height = height.min(term_height);
+            if term_height - cursor_pos.1 < height {
+                let to_scroll = height - (term_height - cursor_pos.1) - 1;
+                crossterm::execute!(std::io::stderr(), crossterm::terminal::ScrollUp(to_scroll))?;
+                y = y.saturating_sub(to_scroll);
+            }
+            Viewport::Fixed(Rect::new(
+                0,
+                y,
+                backend.size().expect("Failed to get terminal width").width - 1,
+                height,
+            ))
+        } else {
+            Viewport::Fullscreen
+        };
+
+        set_panic_hook();
+        Ok(Self {
+            terminal: ratatui::Terminal::with_options(backend, TerminalOptions { viewport })?,
+            task: None,
+            event_rx: event_channel.1,
+            event_tx: event_channel.0,
+            tick_rate: f64::from(TICK_RATE),
+            cancellation_token: CancellationToken::default(),
+            is_fullscreen: lines.is_none(),
+            enable_mouse: true,
+        })
+    }
+
+    /// Enters the TUI by enabling raw mode and starting event handling
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if enabling raw mode or mouse capture fails.
+    pub fn enter(&mut self) -> Result<()> {
+        self.enter_terminal()?;
+        self.start();
+        Ok(())
+    }
+
+    /// Enables terminal modes and enters the alternate screen without starting event polling.
+    ///
+    /// This lets callers run terminal queries after alternate-screen entry but
+    /// before the event stream starts reading terminal input.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if enabling raw mode or terminal features fails.
+    pub fn enter_terminal(&mut self) -> Result<()> {
+        crossterm::terminal::enable_raw_mode()?;
+        // On Windows, install a console ctrl handler so that CTRL_C_EVENT
+        // performs terminal cleanup instead of killing the process abruptly.
+        #[cfg(windows)]
+        super::windows::install_ctrl_c_handler()?;
+
+        crossterm::execute!(std::io::stderr(), EnableBracketedPaste)?;
+        if self.enable_mouse {
+            crossterm::execute!(std::io::stderr(), EnableMouseCapture)?;
+        }
+        if self.is_fullscreen {
+            crossterm::execute!(std::io::stderr(), EnterAlternateScreen, cursor::Hide)?;
+        }
+        Ok(())
+    }
+
+    /// Exits the TUI by stopping event handling and disabling raw mode
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if disabling raw mode or mouse capture fails.
+    pub fn exit(&mut self) -> Result<()> {
+        self.stop();
+        cleanup_terminal()?;
+        // Remove our console ctrl handler now that raw mode is off.
+        #[cfg(windows)]
+        super::windows::uninstall_ctrl_c_handler();
+        // When using the inline layout, we want to remove all previous output
+        //  -> reset cursor at the top of the drawing area
+        if !self.is_fullscreen {
+            let area = self.get_frame().area();
+            let orig = ratatui::layout::Position { x: area.x, y: area.y };
+            crossterm::execute!(
+                std::io::stderr(),
+                cursor::MoveTo(orig.x, orig.y),
+                Clear(ClearType::FromCursorDown)
+            )?;
+            self.set_cursor_position(orig)?;
+        }
+        Ok(())
+    }
+    /// Stops the TUI event loop
+    /// Equivalent to `self.cancel()`
+    pub fn stop(&self) {
+        self.cancel();
+    }
+    /// Cancels all background tasks
+    pub fn cancel(&self) {
+        self.cancellation_token.cancel();
+    }
+    /// Starts the event loop for handling keyboard and timer events
+    pub fn start(&mut self) {
+        let tick_delay = std::time::Duration::from_secs_f64(1.0 / self.tick_rate);
+        let event_tx_clone = self.event_tx.clone();
+        let cancellation_token_clone = self.cancellation_token.clone();
+        if self.task.is_some() {
+            self.cancel();
+        }
+        self.task = Some(tokio::spawn(async move {
+            let mut reader = crossterm::event::EventStream::new();
+            let mut tick_interval = tokio::time::interval(tick_delay);
+            loop {
+                let tick_delay = tick_interval.tick();
+                let crossterm_event = reader.next().fuse();
+                tokio::select! {
+                    () = cancellation_token_clone.cancelled() => {
+                        break;
+                    }
+                    maybe_event = crossterm_event => {
+                      match maybe_event {
+                        Some(Ok(crossterm::event::Event::Key(key))) => {
+                          if key.kind == KeyEventKind::Press {
+                            _ = event_tx_clone.try_send(Event::Key(key));
+                          }
+                        }
+                        Some(Ok(crossterm::event::Event::Paste(text))) => {
+                          _ = event_tx_clone.try_send(Event::Paste(text));
+                        }
+                        Some(Ok(crossterm::event::Event::Mouse(mouse))) => {
+                          _ = event_tx_clone.try_send(Event::Mouse(mouse));
+                        }
+                        Some(Ok(crossterm::event::Event::Resize(cols, rows))) => {
+                          _ = event_tx_clone.try_send(Event::Resize(cols, rows));
+                          _ = event_tx_clone.try_send(Event::Render);
+                        }
+                        Some(Err(e)) => {
+                          _ = event_tx_clone.try_send(Event::Error(e.to_string()));
+                        }
+                        None | Some(Ok(_)) => {},
+                      }
+                    },
+                    _ = tick_delay => {
+                        _ = event_tx_clone.try_send(Event::Heartbeat);
+                    },
+                }
+            }
+        }));
+    }
+
+    /// Gets the next event from the event queue
+    pub async fn next(&mut self) -> Option<Event> {
+        self.event_rx.recv().await
+    }
+}
+
+impl<B: Backend> Deref for Tui<B>
+where
+    B::Error: Send + Sync + 'static,
+{
+    type Target = ratatui::Terminal<B>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.terminal
+    }
+}
+
+impl<B: Backend> DerefMut for Tui<B>
+where
+    B::Error: Send + Sync + 'static,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.terminal
+    }
+}
+
+impl<B: Backend> Drop for Tui<B>
+where
+    B::Error: Send + Sync + 'static,
+{
+    fn drop(&mut self) {
+        if let Some(t) = self.task.take() {
+            t.abort();
+        }
+        let _ = self.exit();
+    }
+}
+
+fn set_panic_hook() {
+    PANIC_HOOK_SET.call_once(|| {
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic_info| {
+            let _ = cleanup_terminal();
+            #[cfg(windows)]
+            super::windows::uninstall_ctrl_c_handler();
+            hook(panic_info);
+        }));
+    });
+}
+
+/// Perform terminal cleanup: disable mouse capture, bracketed paste,
+/// leave alternate screen, show cursor, and disable raw mode.
+///
+/// This is safe to call from any thread since:
+/// - Escape sequences are written atomically to stderr
+/// - `SetConsoleMode` (used by `disable_raw_mode`) is thread-safe on Windows
+pub(crate) fn cleanup_terminal() -> std::io::Result<()> {
+    crossterm::execute!(
+        std::io::stderr(),
+        DisableMouseCapture,
+        DisableBracketedPaste,
+        LeaveAlternateScreen,
+        cursor::Show
+    )?;
+    crossterm::terminal::disable_raw_mode()?;
+    Ok(())
+}
