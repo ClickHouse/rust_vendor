@@ -1,0 +1,40 @@
+[package]
+name = "hyperloglogplus"
+version = "0.4.1"
+authors = ["Tasos Bakogiannis <t.bakogiannis@gmail.com>"]
+description = "HyperLogLog implementations."
+homepage = "https://github.com/tabac/hyperloglog.rs"
+repository = "https://github.com/tabac/hyperloglog.rs"
+documentation = "https://docs.rs/hyperloglogplus"
+readme = "README.md"
+license = "MIT"
+keywords = ["hyperloglog", "hyperloglogplus", "probabilistic", "sketch"]
+categories = ["data-structures", "algorithms", "no-std"]
+edition = "2018"
+exclude = ["evaluation/*", "benchmarks/*"]
+
+[features]
+default = ["std"]
+# By default std is assumed.
+std = ["serde/std", "serde/derive"]
+# Specify when building with `--no-default-features`.
+alloc = ["serde/alloc"]
+# Specify this feature flag to enable an optimization for `count()` that
+# is based on Rust's `const_loop` feature.
+# 
+# It requires a Rust compiler version 1.45.0 or higher.
+const-loop = []
+# Specify this feature flag to run also unit benchmarks
+# using the nightly compiler.
+bench-units = []
+
+[profile.release]
+debug = true
+
+[dev-dependencies]
+rand = "0.7"
+serde_json = "1.0"
+siphasher = "0.3.3"
+
+[dependencies]
+serde = { version = "1.0", default-features = false, features = ["derive"] }
