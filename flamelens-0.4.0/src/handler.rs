@@ -112,6 +112,9 @@ fn handle_command_flamegraph(key_event: KeyEvent, app: &mut App) -> AppResult<bo
         KeyCode::Char('r') => {
             app.flamegraph_view.reset();
         }
+        KeyCode::Char('i') => {
+            app.toggle_reversed();
+        }
         KeyCode::Char('#') => {
             app.search_selected();
         }

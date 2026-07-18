@@ -17,9 +17,8 @@
 
 use crate::dialect::Dialect;
 
-/// A [`Dialect`] for [ClickHouse](https://clickhouse.com/).
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+// A [`Dialect`] for [ClickHouse](https://clickhouse.com/).
+#[derive(Debug)]
 pub struct ClickHouseDialect {}
 
 impl Dialect for ClickHouseDialect {
@@ -64,14 +63,6 @@ impl Dialect for ClickHouseDialect {
         true
     }
 
-    fn supports_partition_by_after_order_by(&self) -> bool {
-        true
-    }
-
-    fn supports_array_join_syntax(&self) -> bool {
-        true
-    }
-
     // ClickHouse uses this for some FORMAT expressions in `INSERT` context, e.g. when inserting
     // with FORMAT JSONEachRow a raw JSON key-value expression is valid and expected.
     //
@@ -101,56 +92,6 @@ impl Dialect for ClickHouseDialect {
 
     /// See <https://clickhouse.com/docs/en/sql-reference/statements/select/group-by#rollup-modifier>
     fn supports_group_by_with_modifier(&self) -> bool {
-        true
-    }
-
-    /// Supported since 2020.
-    /// See <https://clickhouse.com/docs/whats-new/changelog/2020#backward-incompatible-change-2>
-    fn supports_nested_comments(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/optimize>
-    fn supports_optimize_table(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/select/prewhere>
-    fn supports_prewhere(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/select/order-by#order-by-expr-with-fill-modifier>
-    fn supports_with_fill(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/select/limit-by>
-    fn supports_limit_by(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/select/order-by#order-by-expr-with-fill-modifier>
-    fn supports_interpolate(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/select#settings-in-select-query>
-    fn supports_settings(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/en/sql-reference/statements/select/format>
-    fn supports_select_format(&self) -> bool {
-        true
-    }
-
-    /// See <https://clickhouse.com/docs/sql-reference/statements/select#replace>
-    fn supports_select_wildcard_replace(&self) -> bool {
-        true
-    }
-
-    fn supports_comma_separated_trim(&self) -> bool {
         true
     }
 }

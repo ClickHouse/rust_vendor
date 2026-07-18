@@ -77,6 +77,7 @@ Key | Action
 `#` | Find and highlight frames matching the selected frame
 `n` | Jump to next match
 `N` | Jump to previous match
+`i` | Toggle reversed stack order (group stacks from the topmost frames)
 `r` | Reset to default view
 `z` (in Live mode) | Freeze the flamegraph
 `q` (or `Ctrl + c`) | Exit

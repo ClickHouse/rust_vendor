@@ -42,6 +42,10 @@ pub struct FlameGraphState {
     pub zoom: Option<ZoomState>,
     pub search_pattern: Option<SearchPattern>,
     pub freeze: bool,
+    /// Merge stacks from the topmost (leaf) frames instead of the bottommost.
+    /// Kept here rather than only on the flamegraph so replacement graphs in
+    /// live mode are re-oriented to match.
+    pub reversed: bool,
     pub view_kind: ViewKind,
     pub table_state: TableState,
 }
@@ -56,6 +60,7 @@ impl Default for FlameGraphState {
             zoom: None,
             search_pattern: None,
             freeze: false,
+            reversed: false,
             view_kind: ViewKind::FlameGraph,
             table_state: TableState::default(),
         }

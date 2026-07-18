@@ -132,6 +132,7 @@ pub struct FlameGraph {
     pub ordered_stacks: Ordered,
     hits: Option<Hits>,
     sorted: bool,
+    pub reversed: bool,
     pub diff_mode: bool,
     pub max_abs_diff: u64,
 }
@@ -234,6 +235,7 @@ impl FlameGraph {
             ordered_stacks: ordered,
             hits: None,
             sorted,
+            reversed: false,
             diff_mode: false,
             max_abs_diff: 0,
         };
@@ -465,6 +467,40 @@ impl FlameGraph {
         descendants
     }
 
+    /// Rebuild the flamegraph with the frame order of each folded line reversed,
+    /// like flamegraph.pl's --reverse: stacks are merged starting from the
+    /// topmost (leaf) frames instead of the bottommost (root) frames, so the
+    /// first level groups by where time is spent and descendants show the
+    /// callers that converge into each frame. `ordered_stacks` is carried over
+    /// unchanged since per-name Total/Own counts are orientation-independent
+    /// (recomputing them here would misattribute Own to the original root
+    /// frames, which become the leaves of the reversed graph).
+    pub fn to_reversed(&self) -> FlameGraph {
+        let mut reversed_content = String::with_capacity(self.data.len());
+        for line in self.data.lines() {
+            // Same line filtering as from_string
+            let Some((stack, count)) = line.rsplit_once(' ') else {
+                continue;
+            };
+            if line.starts_with('#') || stack.is_empty() || count.parse::<u64>().is_err() {
+                continue;
+            }
+            for (i, frame) in stack.rsplit(';').enumerate() {
+                if i > 0 {
+                    reversed_content.push(';');
+                }
+                reversed_content.push_str(frame);
+            }
+            reversed_content.push(' ');
+            reversed_content.push_str(count);
+            reversed_content.push('\n');
+        }
+        let mut out = FlameGraph::from_string(reversed_content, self.sorted);
+        out.ordered_stacks = self.ordered_stacks.clone();
+        out.reversed = !self.reversed;
+        out
+    }
+
     /// Compute per-frame diff against a baseline ("before") flamegraph, following
     /// flamegraph.pl's differential coloring semantics: the delta is the change in
     /// *self-time* for each frame (`after.self_count - before.self_count`), not the
@@ -682,6 +718,62 @@ mod tests {
     #[test]
     fn test_recursive() {
         check_result("tests/data/recursive.txt");
+    }
+
+    #[test]
+    fn test_to_reversed() {
+        // "x" is a leaf reached from two different roots: reversed, it must
+        // merge into a single first-level frame with both callers below it.
+        let content = "\
+a;b;x 1
+c;x 2
+a;b 4
+# some comment
+d 8
+";
+        let fg = FlameGraph::from_string(content.to_string(), false);
+        let rev = fg.to_reversed();
+        assert!(rev.reversed);
+        assert_eq!(rev.total_count(), 15);
+
+        let get = |full: &str| rev.get_stack_by_full_name(full).unwrap();
+        assert_eq!(get("x").total_count, 3);
+        assert_eq!(get("x;b").total_count, 1);
+        assert_eq!(get("x;b;a").total_count, 1);
+        assert_eq!(get("x;c").total_count, 2);
+        assert_eq!(get("b").total_count, 4);
+        assert_eq!(get("b;a").total_count, 4);
+        assert_eq!(get("d").total_count, 8);
+        // Self counts land on the reversed leaves, i.e. the original root frames
+        assert_eq!(get("x;b;a").self_count, 1);
+        assert_eq!(get("x;c").self_count, 2);
+        assert_eq!(get("d").self_count, 8);
+
+        // Per-name Total/Own counts are carried over from the original
+        // orientation, where Own is attributed to the true leaf frames
+        let own = |name: &str| {
+            rev.ordered_stacks
+                .entries
+                .iter()
+                .find(|e| e.name == name)
+                .unwrap()
+                .count
+                .own
+        };
+        assert_eq!(own("x"), 3);
+        assert_eq!(own("a"), 0);
+        assert_eq!(own("b"), 4);
+
+        // Reversing again restores the original grouping
+        let back = rev.to_reversed();
+        assert!(!back.reversed);
+        assert_eq!(back.total_count(), 15);
+        let get = |full: &str| back.get_stack_by_full_name(full).unwrap();
+        assert_eq!(get("a").total_count, 5);
+        assert_eq!(get("a;b").total_count, 5);
+        assert_eq!(get("a;b;x").total_count, 1);
+        assert_eq!(get("c;x").total_count, 2);
+        assert_eq!(get("a;b").self_count, 4);
     }
 
     #[test]

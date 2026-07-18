@@ -50,6 +50,9 @@ pub struct App {
     pub transient_message: Option<String>,
     /// Debug mode
     pub debug: bool,
+    /// Baseline ("before") flamegraph of diff mode, kept to recompute the diff
+    /// when the stack order is toggled
+    diff_baseline: Option<FlameGraph>,
     /// Next flamegraph to swap in
     next_flamegraph: Arc<Mutex<Option<ParsedFlameGraph>>>,
     #[cfg(feature = "python")]
@@ -67,6 +70,7 @@ impl App {
             elapsed: HashMap::new(),
             transient_message: None,
             debug: false,
+            diff_baseline: None,
             next_flamegraph: Arc::new(Mutex::new(None)),
             #[cfg(feature = "python")]
             sampler_state: None,
@@ -138,7 +142,27 @@ impl App {
             elapsed: HashMap::new(),
             transient_message: None,
             debug: false,
+            diff_baseline: None,
             sampler_state: Some(sampler_state),
+        }
+    }
+
+    pub fn set_diff_baseline(&mut self, before: FlameGraph) {
+        self.flamegraph_view.flamegraph.set_diff_against(&before);
+        self.diff_baseline = Some(before);
+    }
+
+    pub fn toggle_reversed(&mut self) {
+        self.flamegraph_view.toggle_reversed();
+        // Recompute the diff in the new orientation: full names changed, so the
+        // baseline must be reversed the same way for them to match up.
+        if let Some(baseline) = &self.diff_baseline {
+            let flamegraph = &mut self.flamegraph_view.flamegraph;
+            if flamegraph.reversed {
+                flamegraph.set_diff_against(&baseline.to_reversed());
+            } else {
+                flamegraph.set_diff_against(baseline);
+            }
         }
     }
 
@@ -235,5 +259,40 @@ impl App {
 
     pub fn toggle_debug(&mut self) {
         self.debug = !self.debug;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_toggle_reversed_recomputes_diff() {
+        let before = "a;x 10\nb;x 20\n";
+        let after = "a;x 10\nb;x 50\n";
+        let fg = FlameGraph::from_string(after.to_string(), false);
+        let mut app = App::with_flamegraph("test", fg);
+        app.set_diff_baseline(FlameGraph::from_string(before.to_string(), false));
+
+        let diff_of = |app: &App, full: &str| {
+            app.flamegraph()
+                .get_stack_by_full_name(full)
+                .unwrap()
+                .diff
+                .unwrap()
+        };
+        assert!(app.flamegraph().diff_mode);
+        assert_eq!(diff_of(&app, "b;x"), 30);
+
+        app.toggle_reversed();
+        assert!(app.flamegraph().reversed);
+        assert!(app.flamegraph().diff_mode);
+        assert_eq!(diff_of(&app, "x;b"), 30);
+        assert_eq!(diff_of(&app, "x;a"), 0);
+        assert_eq!(app.flamegraph().max_abs_diff, 30);
+
+        app.toggle_reversed();
+        assert!(!app.flamegraph().reversed);
+        assert_eq!(diff_of(&app, "b;x"), 30);
     }
 }

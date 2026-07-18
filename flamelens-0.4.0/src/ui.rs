@@ -190,6 +190,7 @@ impl<'a> FlamelensWidget<'a> {
             help_tags.add("enter/esc", "zoom");
             help_tags.add("/", "search");
             help_tags.add("#", "search like cursor");
+            help_tags.add("i", "reverse stack order");
             if let Some(p) = &self.app.flamegraph_state().search_pattern {
                 if p.is_manual {
                     help_tags.add("n/N", "next/prev search");
@@ -564,7 +565,7 @@ impl<'a> FlamelensWidget<'a> {
     }
 
     fn get_header_text(&self, _width: u16) -> Line<'_> {
-        let header_text = match &self.app.flamegraph_input {
+        let mut header_text = match &self.app.flamegraph_input {
             FlameGraphInput::File(path) => path.to_string(),
             FlameGraphInput::Pid(pid, info) => {
                 let mut out = format!("Process: {}", pid);
@@ -591,6 +592,9 @@ impl<'a> FlamelensWidget<'a> {
                 out
             }
         };
+        if self.app.flamegraph().reversed {
+            header_text += " [Reversed]";
+        }
         Line::from(header_text).style(Style::default().bold())
     }
 
