@@ -4,7 +4,7 @@ use crate::{
     binary::{protocol, Encoder},
     client_info,
     errors::Result,
-    types::{Context, Options, Query, SettingType, Simple},
+    types::{Context, Options, Query, SettingType, SettingValue, Simple},
     Block,
 };
 
@@ -113,7 +113,7 @@ fn encode_query(query: &Query, context: &Context) -> Result<Vec<u8>> {
         SettingsBinaryFormat::Old
     };
 
-    serialize_settings(&mut encoder, &options, settings_format);
+    serialize_settings(&mut encoder, &options, query, settings_format);
 
     encoder.uvarint(protocol::STATE_COMPLETE);
 
@@ -131,9 +131,24 @@ fn encode_query(query: &Query, context: &Context) -> Result<Vec<u8>> {
     Ok(encoder.get_buffer())
 }
 
-fn serialize_settings(encoder: &mut Encoder, options: &Options, format: SettingsBinaryFormat) {
+fn serialize_settings(
+    encoder: &mut Encoder,
+    options: &Options,
+    query: &Query,
+    format: SettingsBinaryFormat,
+) {
+    // Per-query settings override connection-level settings with the same name.
+    let mut settings: std::collections::HashMap<&str, &SettingValue> = options
+        .settings
+        .iter()
+        .map(|(name, value)| (name.as_str(), value))
+        .collect();
+    for (name, value) in query.get_settings() {
+        settings.insert(name.as_str(), value);
+    }
+
     if format < SettingsBinaryFormat::Strings {
-        for (name, value) in &options.settings {
+        for (&name, &value) in &settings {
             encoder.string(name);
             match &value.value {
                 SettingType::String(val) => encoder.string(val),
@@ -145,7 +160,7 @@ fn serialize_settings(encoder: &mut Encoder, options: &Options, format: Settings
             }
         }
     } else {
-        for (name, value) in &options.settings {
+        for (&name, &value) in &settings {
             encoder.string(name);
             encoder.write(value.is_important);
             encoder.string(value.to_string());

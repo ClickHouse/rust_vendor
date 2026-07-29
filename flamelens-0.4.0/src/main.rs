@@ -22,6 +22,12 @@ struct Args {
     #[clap(long, action, value_name = "echo")]
     echo: bool,
 
+    /// Baseline ("before") folded-stacks file to diff against. The positional
+    /// filename (or stdin) is treated as "after". Unchanged frames are rendered
+    /// neutral; hotter frames shift toward red, colder toward blue.
+    #[clap(long, value_name = "before-file")]
+    diff: Option<String>,
+
     /// Pid for live flamegraph
     #[cfg(feature = "python")]
     #[clap(long, value_name = "pid")]
@@ -57,6 +63,12 @@ fn get_app_from_filename_or_stdin(args: &Args, echo: bool) -> App {
     let tic = std::time::Instant::now();
     let flamegraph = FlameGraph::from_string(content, args.sorted);
     let mut app = App::with_flamegraph(filename, flamegraph);
+    if let Some(diff_file) = &args.diff {
+        let before_content =
+            std::fs::read_to_string(diff_file).expect("Could not read diff baseline file");
+        let before = FlameGraph::from_string(before_content, args.sorted);
+        app.set_diff_baseline(before);
+    }
     app.add_elapsed("flamegraph", tic.elapsed());
     app
 }

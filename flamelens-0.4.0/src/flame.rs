@@ -19,6 +19,8 @@ pub struct StackInfo {
     pub level: usize,
     pub width_factor: f64,
     pub hit: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +132,9 @@ pub struct FlameGraph {
     pub ordered_stacks: Ordered,
     hits: Option<Hits>,
     sorted: bool,
+    pub reversed: bool,
+    pub diff_mode: bool,
+    pub max_abs_diff: u64,
 }
 
 impl FlameGraph {
@@ -151,6 +156,7 @@ impl FlameGraph {
             children: Vec::<StackIdentifier>::new(),
             level: 0,
             hit: false,
+            diff: None,
         });
         let mut last_line_index = 0;
         let mut counts: HashMap<String, Count> = HashMap::new();
@@ -229,6 +235,9 @@ impl FlameGraph {
             ordered_stacks: ordered,
             hits: None,
             sorted,
+            reversed: false,
+            diff_mode: false,
+            max_abs_diff: 0,
         };
         out.populate_levels(&ROOT_ID, 0, None);
         out
@@ -300,6 +309,7 @@ impl FlameGraph {
                 children: Vec::<StackIdentifier>::new(),
                 level,
                 hit: false,
+                diff: None,
             });
             let stack_id = stacks.len() - 1;
             stacks.get_mut(parent_id).unwrap().children.push(stack_id);
@@ -457,6 +467,81 @@ impl FlameGraph {
         descendants
     }
 
+    /// Rebuild the flamegraph with the frame order of each folded line reversed,
+    /// like flamegraph.pl's --reverse: stacks are merged starting from the
+    /// topmost (leaf) frames instead of the bottommost (root) frames, so the
+    /// first level groups by where time is spent and descendants show the
+    /// callers that converge into each frame. `ordered_stacks` is carried over
+    /// unchanged since per-name Total/Own counts are orientation-independent
+    /// (recomputing them here would misattribute Own to the original root
+    /// frames, which become the leaves of the reversed graph).
+    pub fn to_reversed(&self) -> FlameGraph {
+        let mut reversed_content = String::with_capacity(self.data.len());
+        for line in self.data.lines() {
+            // Same line filtering as from_string
+            let Some((stack, count)) = line.rsplit_once(' ') else {
+                continue;
+            };
+            if line.starts_with('#') || stack.is_empty() || count.parse::<u64>().is_err() {
+                continue;
+            }
+            for (i, frame) in stack.rsplit(';').enumerate() {
+                if i > 0 {
+                    reversed_content.push(';');
+                }
+                reversed_content.push_str(frame);
+            }
+            reversed_content.push(' ');
+            reversed_content.push_str(count);
+            reversed_content.push('\n');
+        }
+        let mut out = FlameGraph::from_string(reversed_content, self.sorted);
+        out.ordered_stacks = self.ordered_stacks.clone();
+        out.reversed = !self.reversed;
+        out
+    }
+
+    /// Compute per-frame diff against a baseline ("before") flamegraph, following
+    /// flamegraph.pl's differential coloring semantics: the delta is the change in
+    /// *self-time* for each frame (`after.self_count - before.self_count`), not the
+    /// change in total_count. This matches flamegraph.pl's `flow()` behaviour where
+    /// the delta is attributed only to the leaf of each folded stack, so common
+    /// non-leaf ancestors stay neutral even when descendants moved. Width is driven
+    /// by this ("after") graph's totals; stacks only present in the baseline are not
+    /// drawn, consistent with flamegraph.pl (use the inverse diff + --negate to see
+    /// them, just like flamegraph.pl).
+    pub fn set_diff_against(&mut self, before: &FlameGraph) {
+        // O(1) lookup by full path; tied to `before`'s borrow for the scope of this fn.
+        let before_index: HashMap<&str, u64> = before
+            .stacks
+            .iter()
+            .filter(|s| s.id != ROOT_ID)
+            .map(|s| (before.get_stack_full_name_from_info(s), s.self_count))
+            .collect();
+
+        let mut max_abs: u64 = 0;
+        let deltas: Vec<i64> = self
+            .stacks
+            .iter()
+            .map(|stack| {
+                // Root carries no self samples in either graph; keep it neutral.
+                if stack.id == ROOT_ID {
+                    return 0i64;
+                }
+                let full_name = &self.data[stack.line_index..stack.end_index];
+                let before_self = before_index.get(full_name).copied().unwrap_or(0);
+                let delta = stack.self_count as i64 - before_self as i64;
+                max_abs = max_abs.max(delta.unsigned_abs());
+                delta
+            })
+            .collect();
+        for (stack, delta) in self.stacks.iter_mut().zip(deltas.iter()) {
+            stack.diff = Some(*delta);
+        }
+        self.max_abs_diff = max_abs;
+        self.diff_mode = true;
+    }
+
     pub fn set_hits(&mut self, p: &SearchPattern) {
         self.stacks.iter_mut().for_each(|stack| {
             stack.hit =
@@ -529,6 +614,8 @@ mod tests {
         pub level: usize,
         pub width_factor: f64,
         pub hit: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub diff: Option<i64>,
         pub short_name: &'a str,
         pub full_name: &'a str,
     }
@@ -549,6 +636,7 @@ mod tests {
                     level: stack.level,
                     width_factor: stack.width_factor,
                     hit: stack.hit,
+                    diff: stack.diff,
                     short_name: self.get_stack_short_name_from_info(stack),
                     full_name: self.get_stack_full_name_from_info(stack),
                 })
@@ -611,6 +699,7 @@ mod tests {
                 children: vec![3, 1, 5],
                 level: 0,
                 hit: false,
+                diff: None,
             }
         );
     }
@@ -629,5 +718,110 @@ mod tests {
     #[test]
     fn test_recursive() {
         check_result("tests/data/recursive.txt");
+    }
+
+    #[test]
+    fn test_to_reversed() {
+        // "x" is a leaf reached from two different roots: reversed, it must
+        // merge into a single first-level frame with both callers below it.
+        let content = "\
+a;b;x 1
+c;x 2
+a;b 4
+# some comment
+d 8
+";
+        let fg = FlameGraph::from_string(content.to_string(), false);
+        let rev = fg.to_reversed();
+        assert!(rev.reversed);
+        assert_eq!(rev.total_count(), 15);
+
+        let get = |full: &str| rev.get_stack_by_full_name(full).unwrap();
+        assert_eq!(get("x").total_count, 3);
+        assert_eq!(get("x;b").total_count, 1);
+        assert_eq!(get("x;b;a").total_count, 1);
+        assert_eq!(get("x;c").total_count, 2);
+        assert_eq!(get("b").total_count, 4);
+        assert_eq!(get("b;a").total_count, 4);
+        assert_eq!(get("d").total_count, 8);
+        // Self counts land on the reversed leaves, i.e. the original root frames
+        assert_eq!(get("x;b;a").self_count, 1);
+        assert_eq!(get("x;c").self_count, 2);
+        assert_eq!(get("d").self_count, 8);
+
+        // Per-name Total/Own counts are carried over from the original
+        // orientation, where Own is attributed to the true leaf frames
+        let own = |name: &str| {
+            rev.ordered_stacks
+                .entries
+                .iter()
+                .find(|e| e.name == name)
+                .unwrap()
+                .count
+                .own
+        };
+        assert_eq!(own("x"), 3);
+        assert_eq!(own("a"), 0);
+        assert_eq!(own("b"), 4);
+
+        // Reversing again restores the original grouping
+        let back = rev.to_reversed();
+        assert!(!back.reversed);
+        assert_eq!(back.total_count(), 15);
+        let get = |full: &str| back.get_stack_by_full_name(full).unwrap();
+        assert_eq!(get("a").total_count, 5);
+        assert_eq!(get("a;b").total_count, 5);
+        assert_eq!(get("a;b;x").total_count, 1);
+        assert_eq!(get("c;x").total_count, 2);
+        assert_eq!(get("a;b").self_count, 4);
+    }
+
+    #[test]
+    fn test_set_diff_against() {
+        // before: level1-a has level2-a=10, level2-b=20, level2-c=10 (total 40)
+        //         level1-b has level2-d=10, level2-e=20                (total 30)
+        // after:  level1-a has level2-a=10, level2-b=40, level2-c=10 (total 60)
+        //         level1-b has level2-e=10                             (total 10)
+        //         plus brand-new level1-c;level2-f=5
+        let before = "\
+level1-a;level2-a 10
+level1-a;level2-b 20
+level1-a;level2-c 10
+level1-b;level2-d 10
+level1-b;level2-e 20
+";
+        let after = "\
+level1-a;level2-a 10
+level1-a;level2-b 40
+level1-a;level2-c 10
+level1-b;level2-e 10
+level1-c;level2-f 5
+";
+        let before_fg = FlameGraph::from_string(before.to_string(), false);
+        let mut after_fg = FlameGraph::from_string(after.to_string(), false);
+        after_fg.set_diff_against(&before_fg);
+        assert!(after_fg.diff_mode);
+
+        let get = |full: &str| after_fg.get_stack_by_full_name(full).unwrap().diff.unwrap();
+
+        // Non-leaf ancestors are never leaves here, so self_count=0 in both
+        // flamegraphs and the diff is 0 — matching flamegraph.pl which leaves
+        // them neutral even though their total changed.
+        assert_eq!(get("level1-a"), 0);
+        assert_eq!(get("level1-b"), 0);
+        assert_eq!(get("level1-c"), 0);
+        // Unchanged leaves
+        assert_eq!(get("level1-a;level2-a"), 0);
+        assert_eq!(get("level1-a;level2-c"), 0);
+        // Hotter leaf
+        assert_eq!(get("level1-a;level2-b"), 20);
+        // Colder leaf
+        assert_eq!(get("level1-b;level2-e"), -10);
+        // Brand-new leaf
+        assert_eq!(get("level1-c;level2-f"), 5);
+        // Root stays neutral
+        assert_eq!(after_fg.root().diff, Some(0));
+        // Biggest self-count movement: level2-b moved from 20 → 40 (+20).
+        assert_eq!(after_fg.max_abs_diff, 20);
     }
 }

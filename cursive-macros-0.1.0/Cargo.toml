@@ -55,7 +55,7 @@ proc-macro = true
 proc-macro2 = "1.0.47"
 
 [dependencies.find-crate]
-version = "0.6.3"
+version = "0.7.1"
 optional = true
 
 [dependencies.quote]

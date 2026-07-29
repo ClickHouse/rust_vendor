@@ -273,8 +273,23 @@ impl ConnectingStream {
                 state: State::tls_host_err(),
             },
             Some(host) => {
+                // builder_with_provider() instead of builder(): the latter panics if
+                // more than one crypto provider feature is enabled in the final
+                // dependency graph (e.g. a downstream crate enables aws-lc-rs).
+                let config_builder = match ClientConfig::builder_with_provider(Arc::new(
+                    rustls::crypto::ring::default_provider(),
+                ))
+                .with_safe_default_protocol_versions()
+                {
+                    Ok(config_builder) => config_builder,
+                    Err(err) => {
+                        return Self {
+                            state: State::tls_err(err),
+                        };
+                    }
+                };
                 let builder = if options.skip_verify {
-                    ClientConfig::builder()
+                    config_builder
                         .dangerous()
                         .with_custom_certificate_verifier(Arc::new(DummyTlsVerifier))
                 } else {
@@ -302,8 +317,7 @@ impl ConnectingStream {
                             }
                         }
                     }
-                    ClientConfig::builder()
-                        .with_root_certificates(cert_store)
+                    config_builder.with_root_certificates(cert_store)
                 };
                 let config = if let Some(identity) = &options.client_tls_identity {
                     let ClientTlsIdentity::Pem { key, certs } = identity;
