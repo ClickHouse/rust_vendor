@@ -36,6 +36,9 @@ impl FlameGraphView {
     }
 
     pub fn replace_flamegraph(&mut self, mut new_flamegraph: FlameGraph) {
+        if new_flamegraph.reversed != self.state.reversed {
+            new_flamegraph = new_flamegraph.to_reversed();
+        }
         self.state
             .handle_flamegraph_replacement(&self.flamegraph, &mut new_flamegraph);
         // Preserve the sort column
@@ -49,6 +52,14 @@ impl FlameGraphView {
             self.set_zoom_for_id(zoom.stack_id);
         }
         self.updated_at = std::time::Instant::now();
+    }
+
+    pub fn toggle_reversed(&mut self) {
+        self.state.reversed = !self.state.reversed;
+        let new_flamegraph = self.flamegraph.to_reversed();
+        self.replace_flamegraph(new_flamegraph);
+        // The layout changed wholesale; the old scroll position is meaningless
+        self.state.level_offset = 0;
     }
 
     pub fn set_frame_height(&mut self, frame_height: u16) {
@@ -554,6 +565,30 @@ mod tests {
                 "<module> (long_running.py:25);work (long_running.py:7)",
             ),
         );
+    }
+
+    #[test]
+    fn test_toggle_reversed() {
+        let content = std::fs::read_to_string("tests/data/py-spy-simple.txt").unwrap();
+        let fg = FlameGraph::from_string(content.clone(), true);
+        let total = fg.total_count();
+        let mut view = FlameGraphView::new(fg);
+
+        view.toggle_reversed();
+        assert!(view.state.reversed);
+        assert!(view.flamegraph.reversed);
+        assert_eq!(view.flamegraph.total_count(), total);
+
+        // Replacement graphs (live mode) are re-oriented to match the state
+        let fg = FlameGraph::from_string(content, true);
+        view.replace_flamegraph(fg);
+        assert!(view.flamegraph.reversed);
+        assert_eq!(view.flamegraph.total_count(), total);
+
+        view.toggle_reversed();
+        assert!(!view.state.reversed);
+        assert!(!view.flamegraph.reversed);
+        assert_eq!(view.flamegraph.total_count(), total);
     }
 
     #[test]

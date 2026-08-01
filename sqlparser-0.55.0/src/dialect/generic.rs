@@ -19,8 +19,7 @@ use crate::dialect::Dialect;
 
 /// A permissive, general purpose [`Dialect`], which parses a wide variety of SQL
 /// statements, from many different dialects.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Default)]
 pub struct GenericDialect;
 
 impl Dialect for GenericDialect {
@@ -42,14 +41,6 @@ impl Dialect for GenericDialect {
     }
 
     fn supports_unicode_string_literal(&self) -> bool {
-        true
-    }
-
-    fn supports_partition_by_after_order_by(&self) -> bool {
-        true
-    }
-
-    fn supports_array_join_syntax(&self) -> bool {
         true
     }
 
@@ -105,22 +96,6 @@ impl Dialect for GenericDialect {
         true
     }
 
-    fn supports_extract_comma_syntax(&self) -> bool {
-        true
-    }
-
-    fn supports_create_view_comment_syntax(&self) -> bool {
-        true
-    }
-
-    fn supports_parens_around_table_factor(&self) -> bool {
-        true
-    }
-
-    fn supports_values_as_table_factor(&self) -> bool {
-        true
-    }
-
     fn supports_create_index_with_clause(&self) -> bool {
         true
     }
@@ -133,27 +108,11 @@ impl Dialect for GenericDialect {
         true
     }
 
-    fn supports_update_order_by(&self) -> bool {
-        true
-    }
-
-    fn supports_from_first_select(&self) -> bool {
-        true
-    }
-
-    fn supports_projection_trailing_commas(&self) -> bool {
-        true
-    }
-
     fn supports_asc_desc_in_column_definition(&self) -> bool {
         true
     }
 
     fn supports_try_convert(&self) -> bool {
-        true
-    }
-
-    fn supports_bitwise_shift_operators(&self) -> bool {
         true
     }
 
@@ -181,10 +140,6 @@ impl Dialect for GenericDialect {
         true
     }
 
-    fn supports_multiline_comment_hints(&self) -> bool {
-        true
-    }
-
     fn supports_user_host_grantee(&self) -> bool {
         true
     }
@@ -198,110 +153,6 @@ impl Dialect for GenericDialect {
     }
 
     fn supports_match_against(&self) -> bool {
-        true
-    }
-
-    fn supports_set_names(&self) -> bool {
-        true
-    }
-
-    fn supports_comma_separated_set_assignments(&self) -> bool {
-        true
-    }
-
-    fn supports_filter_during_aggregation(&self) -> bool {
-        true
-    }
-
-    fn supports_select_wildcard_exclude(&self) -> bool {
-        true
-    }
-
-    fn supports_data_type_signed_suffix(&self) -> bool {
-        true
-    }
-
-    fn supports_interval_options(&self) -> bool {
-        true
-    }
-
-    fn supports_quote_delimited_string(&self) -> bool {
-        true
-    }
-
-    fn supports_select_wildcard_replace(&self) -> bool {
-        true
-    }
-
-    fn supports_select_wildcard_ilike(&self) -> bool {
-        true
-    }
-
-    fn supports_select_wildcard_rename(&self) -> bool {
-        true
-    }
-
-    fn supports_optimize_table(&self) -> bool {
-        true
-    }
-
-    fn supports_install(&self) -> bool {
-        true
-    }
-
-    fn supports_detach(&self) -> bool {
-        true
-    }
-
-    fn supports_prewhere(&self) -> bool {
-        true
-    }
-
-    fn supports_with_fill(&self) -> bool {
-        true
-    }
-
-    fn supports_limit_by(&self) -> bool {
-        true
-    }
-
-    fn supports_interpolate(&self) -> bool {
-        true
-    }
-
-    fn supports_settings(&self) -> bool {
-        true
-    }
-
-    fn supports_select_format(&self) -> bool {
-        true
-    }
-
-    fn supports_comment_optimizer_hint(&self) -> bool {
-        true
-    }
-
-    fn supports_constraint_keyword_without_name(&self) -> bool {
-        true
-    }
-
-    fn supports_key_column_option(&self) -> bool {
-        true
-    }
-
-    fn supports_comma_separated_trim(&self) -> bool {
-        true
-    }
-
-    fn supports_cte_without_as(&self) -> bool {
-        true
-    }
-
-    fn supports_select_item_multi_column_alias(&self) -> bool {
-        true
-    }
-
-    fn supports_xml_expressions(&self) -> bool {
         true
     }
 }

@@ -1,0 +1,29 @@
+# Top-level uv workspace root. Sits next to the workspace Cargo.toml so the
+# repo has one Python entry-point (`uv run …`) the same way it has one Rust
+# one (`cargo …`). Doesn't ship code itself — it just aggregates Python
+# workspace members under benchmarks/. Run `uv sync` here to materialise the
+# shared `.venv` and `uv.lock` used by every member.
+[project]
+name = "onpair-workspace"
+version = "0"
+requires-python = ">=3.10"
+# Pull the bench in as a regular dep so `uv sync` (no flags) installs it +
+# its pyarrow runtime. Optional dataset fetchers live under bench extras and
+# are opted into with `uv sync --extra paper` / `--extra tpch` / `--extra full`.
+dependencies = ["onpair-bench"]
+
+[project.optional-dependencies]
+paper = ["onpair-bench[paper]"]
+tpch  = ["onpair-bench[tpch]"]
+full  = ["onpair-bench[full]"]
+
+[tool.uv]
+# Virtual root: no wheel ever built for this project, only used to anchor the
+# workspace + lock for the members below.
+package = false
+
+[tool.uv.sources]
+onpair-bench = { workspace = true }
+
+[tool.uv.workspace]
+members = ["benchmarks/onpair-bench"]

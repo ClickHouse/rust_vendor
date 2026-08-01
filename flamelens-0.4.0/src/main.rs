@@ -61,14 +61,14 @@ fn get_app_from_filename_or_stdin(args: &Args, echo: bool) -> App {
         println!("{}", content);
     }
     let tic = std::time::Instant::now();
-    let mut flamegraph = FlameGraph::from_string(content, args.sorted);
+    let flamegraph = FlameGraph::from_string(content, args.sorted);
+    let mut app = App::with_flamegraph(filename, flamegraph);
     if let Some(diff_file) = &args.diff {
         let before_content =
             std::fs::read_to_string(diff_file).expect("Could not read diff baseline file");
         let before = FlameGraph::from_string(before_content, args.sorted);
-        flamegraph.set_diff_against(&before);
+        app.set_diff_baseline(before);
     }
-    let mut app = App::with_flamegraph(filename, flamegraph);
     app.add_elapsed("flamegraph", tic.elapsed());
     app
 }
