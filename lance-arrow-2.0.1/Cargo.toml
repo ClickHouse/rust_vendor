@@ -40,10 +40,7 @@ repository = "https://github.com/lance-format/lance"
 
 [lib]
 name = "lance_arrow"
-crate-type = [
-    "cdylib",
-    "rlib",
-]
+crate-type = ["rlib"]
 path = "src/lib.rs"
 
 [dependencies.arrow-array]
