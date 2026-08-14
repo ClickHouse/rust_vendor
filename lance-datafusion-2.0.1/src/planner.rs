@@ -46,7 +46,7 @@ use datafusion::{
 };
 use datafusion_functions::core::getfield::GetFieldFunc;
 use lance_arrow::cast::cast_with_options;
-use lance_core::datatypes::Schema;
+use lance_core::datatypes::{format_field_path, Schema};
 use lance_core::error::LanceOptionExt;
 use snafu::location;
 
@@ -967,23 +967,10 @@ impl TreeNodeVisitor<'_> for ColumnCapturingVisitor {
     fn f_down(&mut self, node: &Self::Node) -> DFResult<TreeNodeRecursion> {
         match node {
             Expr::Column(Column { name, .. }) => {
-                // Build the field path from the column name and any nested fields
-                // The nested field names from get_field already come as literal strings,
-                // so we just need to concatenate them properly
-                let mut path = name.clone();
-                for part in self.current_path.drain(..) {
-                    path.push('.');
-                    // Check if the part needs quoting (contains dots)
-                    if part.contains('.') || part.contains('`') {
-                        // Quote the field name with backticks and escape any existing backticks
-                        let escaped = part.replace('`', "``");
-                        path.push('`');
-                        path.push_str(&escaped);
-                        path.push('`');
-                    } else {
-                        path.push_str(&part);
-                    }
-                }
+                let mut fields = Vec::with_capacity(self.current_path.len() + 1);
+                fields.push(name.as_str());
+                fields.extend(self.current_path.iter().map(String::as_str));
+                let path = format_field_path(&fields);
                 self.columns.insert(path);
                 self.current_path.clear();
             }
@@ -1724,6 +1711,26 @@ mod tests {
 
         let columns = Planner::column_names_in_expr(&expr);
         assert_eq!(columns, vec!["s0", "st.s1", "st.st.s2"]);
+    }
+
+    #[test]
+    fn test_columns_in_expr_escapes_field_paths() {
+        let expr = col("odd`name")
+            .eq(lit(1))
+            .and(col("space name").eq(lit(2)))
+            .and(col("hyphen-name").eq(lit(3)))
+            .and(col("st").field("field.with.dot").eq(lit(4)));
+
+        let columns = Planner::column_names_in_expr(&expr);
+        assert_eq!(
+            columns,
+            vec![
+                "`hyphen-name`",
+                "`odd``name`",
+                "`space name`",
+                "st.`field.with.dot`"
+            ]
+        );
     }
 
     #[test]
