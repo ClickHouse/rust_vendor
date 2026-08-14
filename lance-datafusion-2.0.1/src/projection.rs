@@ -457,6 +457,7 @@ impl ProjectionPlan {
 mod tests {
     use super::*;
 
+    use arrow_schema::Fields;
     use lance_arrow::json::{is_json_field, json_field};
 
     #[test]
@@ -476,5 +477,42 @@ mod tests {
         let output = plan.output_schema().unwrap();
         let output_field = output.field_with_name("meta").unwrap();
         assert!(is_json_field(output_field));
+    }
+
+    #[test]
+    fn test_projection_escapes_literal_field_names() {
+        let arrow_schema = ArrowSchema::new(vec![
+            ArrowField::new("odd`name", DataType::Int32, true),
+            ArrowField::new("space name", DataType::Int32, true),
+            ArrowField::new("hyphen-name", DataType::Int32, true),
+            ArrowField::new(
+                "st",
+                DataType::Struct(Fields::from(vec![ArrowField::new(
+                    "field.with.dot",
+                    DataType::Int32,
+                    true,
+                )])),
+                true,
+            ),
+        ]);
+        let base = Arc::new(Schema::try_from(&arrow_schema).unwrap());
+
+        let plan = ProjectionPlan::from_expressions(
+            base,
+            &[
+                ("backtick", "`odd``name`"),
+                ("space", "`space name`"),
+                ("hyphen", "`hyphen-name`"),
+                ("dot", "st.`field.with.dot`"),
+            ],
+            BlobVersion::default(),
+        )
+        .unwrap();
+
+        let physical = plan.physical_projection.to_arrow_schema();
+        assert!(physical.field_with_name("odd`name").is_ok());
+        assert!(physical.field_with_name("space name").is_ok());
+        assert!(physical.field_with_name("hyphen-name").is_ok());
+        assert!(physical.field_with_name("st").is_ok());
     }
 }
