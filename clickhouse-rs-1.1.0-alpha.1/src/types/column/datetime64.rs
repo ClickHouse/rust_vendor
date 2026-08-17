@@ -71,7 +71,7 @@ impl ColumnData for DateTime64ColumnData {
         self.data.push(stamp)
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let value = self.data.at(index);
         ValueRef::DateTime64(value, &self.params)
     }
@@ -156,7 +156,7 @@ pub(crate) fn to_native_datetime_opt(value: i64, precision: u32) -> Option<Naive
     let sec = nano / 1_000_000_000;
     let nsec = nano - sec * 1_000_000_000;
 
-    NaiveDateTime::from_timestamp_opt(sec, nsec as u32)
+    DateTime::from_timestamp(sec, nsec as u32).map(|dt| dt.naive_utc())
 }
 
 #[cfg(test)]

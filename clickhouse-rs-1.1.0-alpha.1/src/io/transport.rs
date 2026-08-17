@@ -21,7 +21,7 @@ use crate::{
     errors::{DriverError, Error, Result},
     io::{read_to_end::read_to_end, Stream as InnerStream},
     pool::{Inner, Pool},
-    types::{Block, Cmd, Packet},
+    types::{Block, Cmd, Packet, SendProgressCallback},
 };
 use futures_core::Stream;
 use futures_util::StreamExt;
@@ -55,6 +55,9 @@ pub(crate) struct ClickhouseTransport {
     info: TransportInfo,
     // Whether there are unread packets
     pub(crate) inconsistent: bool,
+    // Reports (bytes_sent, bytes_total) of the current wr buffer as it is
+    // written to the socket
+    pub(crate) send_progress: Option<SendProgressCallback>,
     status: Arc<TransportStatus>,
 }
 
@@ -91,6 +94,7 @@ impl ClickhouseTransport {
                 compress,
             },
             inconsistent: false,
+            send_progress: None,
             status: Arc::new(TransportStatus::new(pool)),
         }
     }
@@ -231,6 +235,9 @@ impl ClickhouseTransport {
             Poll::Ready(Ok(mut n)) => {
                 n += self.wr.position() as usize;
                 self.wr.set_position(n as u64);
+                if let Some(callback) = &self.send_progress {
+                    callback(n as u64, self.wr.get_ref().len() as u64);
+                }
                 Ok(true)
             }
             Poll::Ready(Err(e)) => {
@@ -245,7 +252,18 @@ impl ClickhouseTransport {
         loop {
             if self.wr_is_empty() {
                 match self.cmds.pop_front() {
-                    None => return Poll::Ready(Ok(())),
+                    None => {
+                        // TLS streams can report the plaintext as written while
+                        // ciphertext is still buffered in the session (rustls
+                        // buffers up to 64KiB); nothing polls the write side
+                        // after this point, so an unflushed tail would never
+                        // reach the server.
+                        return match Pin::new(&mut self.inner).poll_flush(cx) {
+                            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+                            Poll::Ready(Err(e)) => Poll::Ready(Err(e.into())),
+                            Poll::Pending => Poll::Pending,
+                        };
+                    }
                     Some(cmd) => {
                         let bytes = cmd.get_packed_command()?;
                         self.wr = Cursor::new(bytes)

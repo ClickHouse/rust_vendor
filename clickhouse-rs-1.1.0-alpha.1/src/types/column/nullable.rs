@@ -73,7 +73,7 @@ impl ColumnData for NullableColumnData {
         }
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         if self.nulls[index] == 1 {
             let sql_type = self.inner.sql_type();
             ValueRef::Nullable(Either::Left(sql_type.into()))

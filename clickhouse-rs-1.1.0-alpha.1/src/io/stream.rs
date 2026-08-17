@@ -125,4 +125,12 @@ impl Stream {
             StreamProj::Secure(stream) => stream.poll_write(cx, buf),
         }
     }
+
+    pub(crate) fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        match self.project() {
+            StreamProj::Plain(stream) => stream.poll_flush(cx),
+            #[cfg(feature = "_tls")]
+            StreamProj::Secure(stream) => stream.poll_flush(cx),
+        }
+    }
 }

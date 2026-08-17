@@ -56,7 +56,7 @@ impl ColumnData for ConcatColumnData {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let chunk_index = find_chunk(&self.index, index);
         let chunk = &self.data[chunk_index];
         chunk.at(index - self.index[chunk_index])

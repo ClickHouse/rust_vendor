@@ -17,7 +17,7 @@ use crate::{
     errors::{Error, FromSqlError, Result},
     types::{
         column::{self, ArcColumnWrapper, Column, ColumnFrom},
-        ColumnType, Complex, FromSql, Simple, SqlType,
+        ColumnType, Complex, FromSql, Simple,
     },
 };
 
@@ -40,36 +40,6 @@ const DEFAULT_CAPACITY: usize = 100;
 
 pub trait ColumnIdx {
     fn get_index<K: ColumnType>(&self, columns: &[Column<K>]) -> Result<usize>;
-}
-
-pub trait Sliceable {
-    fn slice_type() -> SqlType;
-}
-
-macro_rules! sliceable {
-    ( $($t:ty: $k:ident),* ) => {
-        $(
-            impl Sliceable for $t {
-                fn slice_type() -> SqlType {
-                    SqlType::$k
-                }
-            }
-        )*
-    };
-}
-
-sliceable! {
-    u8: UInt8,
-    u16: UInt16,
-    u32: UInt32,
-    u64: UInt64,
-    u128: UInt128,
-
-    i8: Int8,
-    i16: Int16,
-    i32: Int32,
-    i64: Int64,
-    i128: Int128
 }
 
 /// Represents Clickhouse Block
@@ -250,7 +220,7 @@ impl<K: ColumnType> Block<K> {
     }
 
     /// This method returns a iterator of rows.
-    pub fn rows(&self) -> Rows<K> {
+    pub fn rows(&'_ self) -> Rows<'_, K> {
         Rows {
             row: 0,
             block_ref: BlockRef::Borrowed(self),

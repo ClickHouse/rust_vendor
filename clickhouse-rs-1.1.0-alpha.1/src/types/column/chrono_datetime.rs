@@ -100,7 +100,7 @@ impl ColumnData for ChronoDateTimeColumnData {
         self.data.push(time);
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let v = &self.data[index];
         ValueRef::DateTime(v.timestamp() as u32, v.timezone())
     }
@@ -202,7 +202,7 @@ impl ColumnData for ChronoDateTimeAdapter {
         unimplemented!()
     }
 
-    fn at(&self, _index: usize) -> ValueRef {
+    fn at(&'_ self, _index: usize) -> ValueRef<'_> {
         unimplemented!()
     }
 

@@ -71,7 +71,7 @@ impl ColumnData for Enum16ColumnData {
         }
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let enum_value = i16::from(self.inner.at(index));
         ValueRef::Enum16(self.enum_values.clone(), Enum16(enum_value))
     }
@@ -123,7 +123,7 @@ impl<K: ColumnType> ColumnData for Enum16Adapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         if let ValueRef::Enum16(enum_values, value) = self.column.at(index) {
             ValueRef::Enum16(enum_values, value)
         } else {
@@ -173,7 +173,7 @@ impl<K: ColumnType> ColumnData for NullableEnum16Adapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let value: Option<Enum16> = Option::from_sql(self.column.at(index)).unwrap();
         match value {
             None => ValueRef::Nullable(Either::Left(self.sql_type().into())),
@@ -313,7 +313,7 @@ impl ColumnData for Enum8ColumnData {
         }
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let enum_value = i8::from(self.inner.at(index));
         ValueRef::Enum8(self.enum_values.clone(), Enum8(enum_value))
     }
@@ -365,7 +365,7 @@ impl<K: ColumnType> ColumnData for Enum8Adapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         if let ValueRef::Enum8(enum_values, value) = self.column.at(index) {
             ValueRef::Enum8(enum_values, value)
         } else {
@@ -416,7 +416,7 @@ impl<K: ColumnType> ColumnData for NullableEnum8Adapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let value: Option<Enum8> = Option::from_sql(self.column.at(index)).unwrap();
         match value {
             None => ValueRef::Nullable(Either::Left(self.sql_type().into())),

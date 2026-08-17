@@ -190,7 +190,7 @@ impl ColumnData for StringColumnData {
         b.write_all(s.as_ref()).unwrap();
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let s = self.pool.get(index);
         ValueRef::from(s)
     }
@@ -242,7 +242,7 @@ impl<K: ColumnType> ColumnData for StringAdapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         self.column.at(index)
     }
 

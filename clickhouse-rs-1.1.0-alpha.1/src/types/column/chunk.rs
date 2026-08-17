@@ -43,7 +43,7 @@ impl ColumnData for ChunkColumnData {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         if index >= self.range.len() {
             panic!("out of range");
         }

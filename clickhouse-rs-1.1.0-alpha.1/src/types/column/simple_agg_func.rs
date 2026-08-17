@@ -51,7 +51,7 @@ impl ColumnData for SimpleAggregateFunctionColumnData {
         inner_column.push(value);
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         self.inner.at(index)
     }
 
