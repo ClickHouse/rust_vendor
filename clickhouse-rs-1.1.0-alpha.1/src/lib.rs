@@ -128,7 +128,8 @@ use crate::{
     types::{
         block::{ChunkIterator, INSERT_BLOCK_SIZE},
         query_result::stream_blocks::BlockStream,
-        Cmd, Context, IntoOptions, OptionsSource, Packet, Query, QueryResult, SqlType,
+        Cmd, Context, IntoOptions, OptionsSource, Packet, Query, QueryResult, SendProgressCallback,
+        SqlType,
     },
 };
 pub use crate::{
@@ -380,7 +381,7 @@ impl ClientHandle {
     }
 
     /// Executes Clickhouse `query` on Conn.
-    pub fn query<Q>(&mut self, sql: Q) -> QueryResult
+    pub fn query<Q>(&'_ mut self, sql: Q) -> QueryResult<'_>
     where
         Query: From<Q>,
     {
@@ -449,6 +450,18 @@ impl ClientHandle {
             timeout,
         )
         .await
+    }
+
+    /// Sets a callback invoked as outgoing command buffers are written to the
+    /// socket, with (bytes_sent, bytes_total) of the current buffer. It fires
+    /// for every command on this connection; for an INSERT the dominant buffer
+    /// is the serialized data block, so this can drive an upload progress bar.
+    /// Bytes are counted when the socket accepts them, so the numbers lead
+    /// actual delivery by the kernel/TLS buffering.
+    pub fn set_send_progress(&mut self, callback: Option<SendProgressCallback>) {
+        if let Some(inner) = self.inner.as_mut() {
+            inner.send_progress = callback;
+        }
     }
 
     /// Convenience method to insert block of data.

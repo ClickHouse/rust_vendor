@@ -479,7 +479,9 @@ impl<'a> NativeDateTimeIterator<'a> {
         match &self.inner {
             DateTimeInnerIterator::DateTime32(ptr) => {
                 let current_value = *ptr.add(index_);
-                NaiveDateTime::from_timestamp_opt(i64::from(current_value), 0).unwrap()
+                DateTime::from_timestamp(i64::from(current_value), 0)
+                    .unwrap()
+                    .naive_utc()
             }
             DateTimeInnerIterator::DateTime64(ptr, precision) => {
                 let current_value = *ptr.add(index_);

@@ -22,9 +22,9 @@ use url::Url;
 mod futures;
 
 pub(crate) struct Inner {
-    new: crossbeam::queue::ArrayQueue<BoxFuture<'static, Result<ClientHandle>>>,
-    idle: crossbeam::queue::ArrayQueue<ClientHandle>,
-    tasks: crossbeam::queue::SegQueue<Waker>,
+    new: crossbeam_queue::ArrayQueue<BoxFuture<'static, Result<ClientHandle>>>,
+    idle: crossbeam_queue::ArrayQueue<ClientHandle>,
+    tasks: crossbeam_queue::SegQueue<Waker>,
     ongoing: atomic::AtomicUsize,
     hosts: Vec<Url>,
     connections_num: atomic::AtomicUsize,
@@ -159,9 +159,9 @@ impl Pool {
         }
 
         let inner = Arc::new(Inner {
-            new: crossbeam::queue::ArrayQueue::new(1),
-            idle: crossbeam::queue::ArrayQueue::new(max),
-            tasks: crossbeam::queue::SegQueue::new(),
+            new: crossbeam_queue::ArrayQueue::new(1),
+            idle: crossbeam_queue::ArrayQueue::new(max),
+            tasks: crossbeam_queue::SegQueue::new(),
             ongoing: atomic::AtomicUsize::new(0),
             connections_num: atomic::AtomicUsize::new(0),
             hosts,

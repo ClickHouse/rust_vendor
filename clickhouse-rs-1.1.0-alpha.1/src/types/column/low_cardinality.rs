@@ -328,7 +328,7 @@ impl ColumnData for LowCardinalityColumnData {
         }
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let ix = self.index.get_by_index(index);
         self.inner.at(ix)
     }

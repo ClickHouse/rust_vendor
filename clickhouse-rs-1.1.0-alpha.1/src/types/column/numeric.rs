@@ -203,7 +203,7 @@ where
         self.data.push(T::from(value));
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let v: Value = self.data.at(index).into();
         match v {
             Value::Bool(x) => ValueRef::Bool(x),

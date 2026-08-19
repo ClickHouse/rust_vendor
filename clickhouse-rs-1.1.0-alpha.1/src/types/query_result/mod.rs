@@ -90,9 +90,15 @@ impl<'a> QueryResult<'a> {
 
                 let context = c.context.clone();
 
+                let progress_callback = query.get_progress_callback().cloned();
                 let inner = c.get_inner()?.call(Cmd::SendQuery(query, context));
 
-                Ok(BlockStream::<'a>::new(c, inner, skip_first_block))
+                Ok(BlockStream::<'a>::new(
+                    c,
+                    inner,
+                    skip_first_block,
+                    progress_callback,
+                ))
             })
     }
 

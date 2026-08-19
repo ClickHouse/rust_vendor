@@ -82,7 +82,7 @@ impl ColumnData for ArrayColumnData {
         }
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let sql_type = self.inner.sql_type();
 
         let start = if index > 0 {

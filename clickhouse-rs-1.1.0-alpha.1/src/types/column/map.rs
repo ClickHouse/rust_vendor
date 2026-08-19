@@ -91,7 +91,7 @@ impl ColumnData for MapColumnData {
         }
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let key_type = self.keys.sql_type();
         let value_type = self.values.sql_type();
 

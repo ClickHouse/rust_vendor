@@ -128,7 +128,7 @@ impl StringPool {
         self.pointers.len()
     }
 
-    pub(crate) fn strings(&self) -> StringIter {
+    pub(crate) fn strings(&'_ self) -> StringIter<'_> {
         StringIter {
             pool: self,
             index: 0,

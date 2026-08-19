@@ -48,8 +48,11 @@ pub fn handle_command_generic(key_event: KeyEvent, app: &mut App) -> AppResult<b
                 app.quit();
             }
         }
-        KeyCode::Char('z') => {
+        KeyCode::Char('z') | KeyCode::Char('p') | KeyCode::Char('P') => {
             app.flamegraph_view.state.toggle_freeze();
+        }
+        KeyCode::Char('D') => {
+            app.toggle_live_diff();
         }
         KeyCode::Tab => {
             app.flamegraph_view.state.toggle_view_kind();

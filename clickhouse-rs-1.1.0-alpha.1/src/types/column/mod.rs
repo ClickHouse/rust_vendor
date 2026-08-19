@@ -201,7 +201,7 @@ impl<K: ColumnType> Column<K> {
     }
 
     #[inline(always)]
-    pub(crate) fn at(&self, index: usize) -> ValueRef {
+    pub(crate) fn at(&'_ self, index: usize) -> ValueRef<'_> {
         self.data.at(index)
     }
 
@@ -497,7 +497,7 @@ impl<K: ColumnType> Column<K> {
 
 pub(crate) fn new_column<K: ColumnType>(
     name: &str,
-    data: Arc<(dyn ColumnData + Sync + Send + 'static)>,
+    data: Arc<dyn ColumnData + Sync + Send + 'static>,
 ) -> Column<K> {
     Column {
         name: name.to_string(),

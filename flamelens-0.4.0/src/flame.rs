@@ -542,6 +542,14 @@ impl FlameGraph {
         self.diff_mode = true;
     }
 
+    pub fn clear_diff(&mut self) {
+        for stack in self.stacks.iter_mut() {
+            stack.diff = None;
+        }
+        self.max_abs_diff = 0;
+        self.diff_mode = false;
+    }
+
     pub fn set_hits(&mut self, p: &SearchPattern) {
         self.stacks.iter_mut().for_each(|stack| {
             stack.hit =

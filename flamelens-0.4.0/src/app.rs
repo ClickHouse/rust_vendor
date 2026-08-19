@@ -55,6 +55,11 @@ pub struct App {
     diff_baseline: Option<FlameGraph>,
     /// Next flamegraph to swap in
     next_flamegraph: Arc<Mutex<Option<ParsedFlameGraph>>>,
+    /// Externally-fed updates (see `enable_live`)
+    live: bool,
+    /// In live mode, color each swapped-in flamegraph as a diff against the
+    /// one it replaces (i.e. what changed since the previous update)
+    live_diff: bool,
     #[cfg(feature = "python")]
     sampler_state: Option<Arc<Mutex<SamplerState>>>,
 }
@@ -72,8 +77,35 @@ impl App {
             debug: false,
             diff_baseline: None,
             next_flamegraph: Arc::new(Mutex::new(None)),
+            live: false,
+            live_diff: false,
             #[cfg(feature = "python")]
             sampler_state: None,
+        }
+    }
+
+    /// Marks the app as externally live-updated and returns the slot to feed
+    /// new flamegraphs into (swapped in by `tick`, from any thread). With
+    /// `diff`, every update is colored as a diff against the flamegraph it
+    /// replaces.
+    pub fn enable_live(&mut self, diff: bool) -> Arc<Mutex<Option<ParsedFlameGraph>>> {
+        self.live = true;
+        self.live_diff = diff;
+        self.next_flamegraph.clone()
+    }
+
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    pub fn toggle_live_diff(&mut self) {
+        if !self.live {
+            return;
+        }
+        self.live_diff = !self.live_diff;
+        if !self.live_diff {
+            self.diff_baseline = None;
+            self.flamegraph_view.flamegraph.clear_diff();
         }
     }
 
@@ -174,7 +206,23 @@ impl App {
                 self.elapsed
                     .insert("flamegraph".to_string(), parsed.elapsed);
                 let tic = std::time::Instant::now();
+                // Baseline is kept unreversed, as in set_diff_baseline
+                let baseline = if self.live_diff {
+                    let old = &self.flamegraph_view.flamegraph;
+                    Some(if old.reversed { old.to_reversed() } else { old.clone() })
+                } else {
+                    None
+                };
                 self.flamegraph_view.replace_flamegraph(parsed.flamegraph);
+                if let Some(baseline) = baseline {
+                    let flamegraph = &mut self.flamegraph_view.flamegraph;
+                    if flamegraph.reversed {
+                        flamegraph.set_diff_against(&baseline.to_reversed());
+                    } else {
+                        flamegraph.set_diff_against(&baseline);
+                    }
+                    self.diff_baseline = Some(baseline);
+                }
                 self.elapsed
                     .insert("replacement".to_string(), tic.elapsed());
             }

@@ -1,0 +1,463 @@
+---
+source: prqlc/prqlc/tests/integration/queries.rs
+expression: "s\"SELECT album_id,title,artist_id FROM albums\"\ngroup {artist_id} (aggregate { album_title_count = count this.`title`})\nsort {this.artist_id, this.album_title_count}\nfilter (this.album_title_count) > 10\nderive {new_album_count = this.album_title_count}\nselect {this.artist_id, this.new_album_count}\njoin side:left ( s\"SELECT artist_id,name as artist_name FROM artists\" ) (this.artist_id == that.artist_id)\n"
+input_file: prqlc/prqlc/tests/integration/queries/group_sort_filter_derive_select_join.prql
+---
+frames:
+- - 1:66-117
+  - columns:
+    - !Single
+      name:
+      - _literal_135
+      - artist_id
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - album_title_count
+      target_id: 155
+      target_name: null
+    inputs:
+    - id: 135
+      name: _literal_135
+      table:
+      - default_db
+      - _literal_135
+- - 1:119-164
+  - columns:
+    - !Single
+      name:
+      - _literal_135
+      - artist_id
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - album_title_count
+      target_id: 155
+      target_name: null
+    inputs:
+    - id: 135
+      name: _literal_135
+      table:
+      - default_db
+      - _literal_135
+- - 1:165-201
+  - columns:
+    - !Single
+      name:
+      - _literal_135
+      - artist_id
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - album_title_count
+      target_id: 155
+      target_name: null
+    inputs:
+    - id: 135
+      name: _literal_135
+      table:
+      - default_db
+      - _literal_135
+- - 1:202-251
+  - columns:
+    - !Single
+      name:
+      - _literal_135
+      - artist_id
+      target_id: 136
+      target_name: null
+    - !Single
+      name:
+      - album_title_count
+      target_id: 155
+      target_name: null
+    - !Single
+      name:
+      - new_album_count
+      target_id: 170
+      target_name: null
+    inputs:
+    - id: 135
+      name: _literal_135
+      table:
+      - default_db
+      - _literal_135
+- - 1:252-297
+  - columns:
+    - !Single
+      name:
+      - _literal_135
+      - artist_id
+      target_id: 173
+      target_name: null
+    - !Single
+      name:
+      - new_album_count
+      target_id: 174
+      target_name: null
+    inputs:
+    - id: 135
+      name: _literal_135
+      table:
+      - default_db
+      - _literal_135
+- - 1:298-404
+  - columns:
+    - !Single
+      name:
+      - _literal_135
+      - artist_id
+      target_id: 173
+      target_name: null
+    - !Single
+      name:
+      - new_album_count
+      target_id: 174
+      target_name: null
+    - !All
+      input_id: 119
+      except: []
+    inputs:
+    - id: 135
+      name: _literal_135
+      table:
+      - default_db
+      - _literal_135
+    - id: 119
+      name: _literal_119
+      table:
+      - default_db
+      - _literal_119
+nodes:
+- id: 119
+  kind: SString
+  span: 1:315-367
+  parent: 181
+- id: 135
+  kind: SString
+  span: 1:0-46
+  parent: 158
+- id: 136
+  kind: Ident
+  span: 1:54-63
+  ident: !Ident
+  - this
+  - _literal_135
+  - artist_id
+  targets:
+  - 135
+  parent: 137
+- id: 137
+  kind: Tuple
+  span: 1:53-64
+  children:
+  - 136
+  parent: 158
+- id: 155
+  kind: RqOperator
+  span: 1:98-116
+  alias: album_title_count
+  targets:
+  - 156
+  parent: 157
+- id: 156
+  kind: Literal
+- id: 157
+  kind: Tuple
+  span: 1:76-117
+  children:
+  - 155
+  parent: 158
+- id: 158
+  kind: 'TransformCall: Aggregate'
+  span: 1:66-117
+  children:
+  - 135
+  - 157
+  - 137
+  parent: 164
+- id: 161
+  kind: Ident
+  span: 1:125-139
+  ident: !Ident
+  - this
+  - _literal_135
+  - artist_id
+  targets:
+  - 136
+  parent: 164
+- id: 162
+  kind: Ident
+  span: 1:141-163
+  ident: !Ident
+  - this
+  - album_title_count
+  targets:
+  - 155
+  parent: 164
+- id: 164
+  kind: 'TransformCall: Sort'
+  span: 1:119-164
+  children:
+  - 158
+  - 161
+  - 162
+  parent: 169
+- id: 165
+  kind: RqOperator
+  span: 1:172-201
+  targets:
+  - 167
+  - 168
+  parent: 169
+- id: 167
+  kind: Ident
+  span: 1:173-195
+  ident: !Ident
+  - this
+  - album_title_count
+  targets:
+  - 155
+- id: 168
+  kind: Literal
+  span: 1:199-201
+- id: 169
+  kind: 'TransformCall: Filter'
+  span: 1:165-201
+  children:
+  - 164
+  - 165
+  parent: 172
+- id: 170
+  kind: Ident
+  span: 1:228-250
+  alias: new_album_count
+  ident: !Ident
+  - this
+  - album_title_count
+  targets:
+  - 155
+  parent: 171
+- id: 171
+  kind: Tuple
+  span: 1:209-251
+  children:
+  - 170
+  parent: 172
+- id: 172
+  kind: 'TransformCall: Derive'
+  span: 1:202-251
+  children:
+  - 169
+  - 171
+  parent: 176
+- id: 173
+  kind: Ident
+  span: 1:260-274
+  ident: !Ident
+  - this
+  - _literal_135
+  - artist_id
+  targets:
+  - 136
+  parent: 175
+- id: 174
+  kind: Ident
+  span: 1:276-296
+  ident: !Ident
+  - this
+  - new_album_count
+  targets:
+  - 170
+  parent: 175
+- id: 175
+  kind: Tuple
+  span: 1:259-297
+  children:
+  - 173
+  - 174
+  parent: 176
+- id: 176
+  kind: 'TransformCall: Select'
+  span: 1:252-297
+  children:
+  - 172
+  - 175
+  parent: 181
+- id: 177
+  kind: RqOperator
+  span: 1:371-403
+  targets:
+  - 179
+  - 180
+  parent: 181
+- id: 179
+  kind: Ident
+  span: 1:371-385
+  ident: !Ident
+  - this
+  - _literal_135
+  - artist_id
+  targets:
+  - 173
+- id: 180
+  kind: Ident
+  span: 1:389-403
+  ident: !Ident
+  - that
+  - _literal_119
+  - artist_id
+  targets:
+  - 119
+- id: 181
+  kind: 'TransformCall: Join'
+  span: 1:298-404
+  children:
+  - 176
+  - 119
+  - 177
+ast:
+  name: Project
+  stmts:
+  - VarDef:
+      kind: Main
+      name: main
+      value:
+        Pipeline:
+          exprs:
+          - SString:
+            - !String SELECT album_id,title,artist_id FROM albums
+            span: 1:0-46
+          - FuncCall:
+              name:
+                Ident:
+                - group
+                span: 1:47-52
+              args:
+              - Tuple:
+                - Ident:
+                  - artist_id
+                  span: 1:54-63
+                span: 1:53-64
+              - FuncCall:
+                  name:
+                    Ident:
+                    - aggregate
+                    span: 1:66-75
+                  args:
+                  - Tuple:
+                    - FuncCall:
+                        name:
+                          Ident:
+                          - count
+                          span: 1:98-103
+                        args:
+                        - Ident:
+                          - this
+                          - title
+                          span: 1:104-116
+                      span: 1:98-116
+                      alias: album_title_count
+                    span: 1:76-117
+                span: 1:66-117
+            span: 1:47-118
+          - FuncCall:
+              name:
+                Ident:
+                - sort
+                span: 1:119-123
+              args:
+              - Tuple:
+                - Ident:
+                  - this
+                  - artist_id
+                  span: 1:125-139
+                - Ident:
+                  - this
+                  - album_title_count
+                  span: 1:141-163
+                span: 1:124-164
+            span: 1:119-164
+          - FuncCall:
+              name:
+                Ident:
+                - filter
+                span: 1:165-171
+              args:
+              - Binary:
+                  left:
+                    Ident:
+                    - this
+                    - album_title_count
+                    span: 1:173-195
+                  op: Gt
+                  right:
+                    Literal:
+                      Integer: 10
+                    span: 1:199-201
+                span: 1:172-201
+            span: 1:165-201
+          - FuncCall:
+              name:
+                Ident:
+                - derive
+                span: 1:202-208
+              args:
+              - Tuple:
+                - Ident:
+                  - this
+                  - album_title_count
+                  span: 1:228-250
+                  alias: new_album_count
+                span: 1:209-251
+            span: 1:202-251
+          - FuncCall:
+              name:
+                Ident:
+                - select
+                span: 1:252-258
+              args:
+              - Tuple:
+                - Ident:
+                  - this
+                  - artist_id
+                  span: 1:260-274
+                - Ident:
+                  - this
+                  - new_album_count
+                  span: 1:276-296
+                span: 1:259-297
+            span: 1:252-297
+          - FuncCall:
+              name:
+                Ident:
+                - join
+                span: 1:298-302
+              args:
+              - SString:
+                - !String SELECT artist_id,name as artist_name FROM artists
+                span: 1:315-367
+              - Binary:
+                  left:
+                    Ident:
+                    - this
+                    - artist_id
+                    span: 1:371-385
+                  op: Eq
+                  right:
+                    Ident:
+                    - that
+                    - artist_id
+                    span: 1:389-403
+                span: 1:371-403
+              named_args:
+                side:
+                  Ident:
+                  - left
+                  span: 1:308-312
+            span: 1:298-404
+        span: 1:0-404
+    span: 1:0-404

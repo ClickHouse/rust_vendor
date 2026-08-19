@@ -11,7 +11,7 @@ use futures_util::StreamExt;
 use crate::{
     errors::{DriverError, Error, Result},
     io::transport::PacketStream,
-    types::{Block, Packet},
+    types::{Block, Packet, Progress, ProgressCallback},
     ClientHandle,
 };
 
@@ -21,6 +21,9 @@ pub(crate) struct BlockStream<'a> {
     state: BlockStreamState,
     block_index: usize,
     skip_first_block: bool,
+    progress_callback: Option<ProgressCallback>,
+    // Accumulated over the query: Progress packets carry deltas.
+    progress: Progress,
 }
 
 #[derive(Clone, Copy)]
@@ -56,16 +59,19 @@ impl<'a> Drop for BlockStream<'a> {
 
 impl<'a> BlockStream<'a> {
     pub(crate) fn new(
-        client: &mut ClientHandle,
+        client: &'_ mut ClientHandle,
         inner: PacketStream,
         skip_first_block: bool,
-    ) -> BlockStream {
+        progress_callback: Option<ProgressCallback>,
+    ) -> BlockStream<'_> {
         BlockStream {
             client,
             inner,
             state: BlockStreamState::Reading,
             block_index: 0,
             skip_first_block,
+            progress_callback,
+            progress: Progress::default(),
         }
     }
 }
@@ -105,7 +111,13 @@ impl<'a> Stream for BlockStream<'a> {
                     }
                     self.state = BlockStreamState::Finished;
                 }
-                Packet::ProfileInfo(_) | Packet::Progress(_) => {}
+                Packet::ProfileInfo(_) => {}
+                Packet::Progress(progress) => {
+                    self.progress += progress;
+                    if let Some(callback) = &self.progress_callback {
+                        callback(&self.progress);
+                    }
+                }
                 Packet::Exception(exception) => {
                     self.state = BlockStreamState::Finished;
                     return Poll::Ready(Some(Err(Error::Server(exception))));

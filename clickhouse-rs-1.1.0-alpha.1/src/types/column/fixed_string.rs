@@ -82,7 +82,7 @@ impl ColumnData for FixedStringColumnData {
         self.buffer.resize(old_len + self.str_len, 0_u8);
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         let shift = index * self.str_len;
         let str_ref = &self.buffer[shift..shift + self.str_len];
         ValueRef::String(str_ref)
@@ -154,7 +154,7 @@ impl<K: ColumnType> ColumnData for FixedStringAdapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         self.column.at(index)
     }
 
@@ -195,7 +195,7 @@ impl<K: ColumnType> ColumnData for NullableFixedStringAdapter<K> {
         unimplemented!()
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         self.column.at(index)
     }
 

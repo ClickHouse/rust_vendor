@@ -8,11 +8,10 @@ use crate::{
 use ratatui::{
     buffer::Buffer,
     layout::{Alignment, Constraint, Direction, Layout, Offset, Rect},
-    style::{Color, Modifier, Style, Stylize},
+    style::{Color, Modifier, Style},
     text::{Line, Span, Text},
     widgets::{
-        block::Position, Block, Borders, Paragraph, Row, StatefulWidget, Table, TableState, Widget,
-        Wrap,
+        Block, Borders, Paragraph, Row, StatefulWidget, Table, TableState, Widget, Wrap,
     },
     Frame,
 };
@@ -104,8 +103,7 @@ impl<'a> FlamelensWidget<'a> {
                         Block::new()
                             .borders(Borders::TOP)
                             .title(format!("{} ", title))
-                            .title_style(Style::default().add_modifier(Modifier::BOLD).yellow())
-                            .title_position(Position::Top),
+                            .title_style(Style::default().add_modifier(Modifier::BOLD).yellow()),
                     )
             })
             .collect::<Vec<Paragraph>>();
@@ -203,6 +201,14 @@ impl<'a> FlamelensWidget<'a> {
                 } else {
                     help_tags.add("z", "freeze");
                 }
+            }
+            if self.app.is_live() {
+                if self.app.flamegraph_state().freeze {
+                    help_tags.add("P", "resume updates");
+                } else {
+                    help_tags.add("P", "pause updates");
+                }
+                help_tags.add("D", "toggle diff");
             }
         } else {
             help_tags.add("j/k", "move cursor");
@@ -566,7 +572,24 @@ impl<'a> FlamelensWidget<'a> {
 
     fn get_header_text(&self, _width: u16) -> Line<'_> {
         let mut header_text = match &self.app.flamegraph_input {
-            FlameGraphInput::File(path) => path.to_string(),
+            FlameGraphInput::File(path) => {
+                let mut out = path.to_string();
+                if self.app.is_live() {
+                    if self.app.flamegraph_state().freeze {
+                        out += " [paused; press 'P' to resume]";
+                    } else {
+                        out += format!(
+                            " [updated {}s ago]",
+                            self.app.flamegraph_view.updated_at.elapsed().as_secs()
+                        )
+                        .as_str();
+                    }
+                    if self.app.flamegraph().diff_mode {
+                        out += " [diff vs previous update]";
+                    }
+                }
+                out
+            }
             FlameGraphInput::Pid(pid, info) => {
                 let mut out = format!("Process: {}", pid);
                 if let Some(info) = info {
@@ -772,9 +795,15 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     // See the following resources:
     // - https://docs.rs/ratatui/latest/ratatui/widgets/index.html
     // - https://github.com/ratatui-org/ratatui/tree/master/examples
-    let flamelens_widget = FlamelensWidget::new(app);
+    render_in_area(app, frame.area(), frame.buffer_mut());
+}
+
+/// Renders into an explicit area of a buffer, for embedding flamelens as a
+/// widget inside another ratatui application. Returns the cursor position
+/// requested by the input buffer (if any).
+pub fn render_in_area(app: &mut App, area: Rect, buf: &mut Buffer) -> Option<(u16, u16)> {
     let mut flamelens_state = FlamelensWidgetState::default();
-    frame.render_stateful_widget(flamelens_widget, frame.area(), &mut flamelens_state);
+    FlamelensWidget::new(app).render_all(area, buf, &mut flamelens_state);
     app.flamegraph_view
         .set_frame_height(flamelens_state.frame_height);
     app.flamegraph_view
@@ -783,4 +812,5 @@ pub fn render(app: &mut App, frame: &mut Frame) {
     if let Some(input_buffer) = &mut app.input_buffer {
         input_buffer.cursor = flamelens_state.cursor_position;
     }
+    flamelens_state.cursor_position
 }

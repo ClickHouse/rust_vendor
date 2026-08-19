@@ -208,7 +208,7 @@ where
         self.data.push(T::get_stamp(value));
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         self.data.at(index).to_date(self.tz)
     }
 

@@ -20,7 +20,7 @@ pub(crate) trait IpVersion: Copy + Sync + Send + 'static {
     fn sql_type() -> SqlType;
     fn size() -> usize;
     fn push(inner: &mut Vec<u8>, value: Value);
-    fn get(inner: &[u8], index: usize) -> ValueRef;
+    fn get(inner: &'_ [u8], index: usize) -> ValueRef<'_>;
 }
 
 #[derive(Copy, Clone)]
@@ -53,7 +53,7 @@ impl IpVersion for Ipv4 {
     }
 
     #[inline(always)]
-    fn get(inner: &[u8], index: usize) -> ValueRef {
+    fn get(inner: &'_ [u8], index: usize) -> ValueRef<'_> {
         let mut v: [u8; 4] = Default::default();
         v.copy_from_slice(&inner[index * 4..(index + 1) * 4]);
         ValueRef::Ipv4(v)
@@ -81,7 +81,7 @@ impl IpVersion for Ipv6 {
     }
 
     #[inline(always)]
-    fn get(inner: &[u8], index: usize) -> ValueRef {
+    fn get(inner: &'_ [u8], index: usize) -> ValueRef<'_> {
         let mut v: [u8; 16] = Default::default();
         v.copy_from_slice(&inner[index * 16..(index + 1) * 16]);
         ValueRef::Ipv6(v)
@@ -109,7 +109,7 @@ impl IpVersion for Uuid {
     }
 
     #[inline(always)]
-    fn get(inner: &[u8], index: usize) -> ValueRef {
+    fn get(inner: &'_ [u8], index: usize) -> ValueRef<'_> {
         let mut v: [u8; 16] = Default::default();
         v.copy_from_slice(&inner[index * 16..(index + 1) * 16]);
         ValueRef::Uuid(v)
@@ -303,7 +303,7 @@ impl<V: IpVersion> ColumnData for IpColumnData<V> {
         V::push(&mut self.inner, value)
     }
 
-    fn at(&self, index: usize) -> ValueRef {
+    fn at(&'_ self, index: usize) -> ValueRef<'_> {
         V::get(&self.inner, index)
     }
 
