@@ -1,0 +1,37 @@
+[package]
+name = "wkb"
+version = "0.9.2"
+authors = ["Kyle Barron <kylebarron2@gmail.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/georust/wkb"
+description = "Fast, pure-Rust reader and writer for Well-Known Binary geometries"
+categories = ["science::geo"]
+# 1.82 is the minimum version for `impl GeometryTrait + use<'_>` in `read_wkb`
+# https://rust-lang.github.io/rfcs/3617-precise-capturing.html
+rust-version = "1.82"
+
+[dependencies]
+byteorder = "1"
+geo-traits = "0.3"
+num_enum = "0.7"
+thiserror = "1"
+
+[dev-dependencies]
+approx = "0.5.1"
+bytes = "1.5.0"
+criterion = { version = "0.5", features = ["html_reports"] }
+geo-types = "0.7.13"
+geos = { version = "10", features = ["geo"] }
+wkt = { version = "0.13", features = ["geo-types"] }
+
+[[bench]]
+name = "parse"
+harness = false
+
+[[bench]]
+name = "brect"
+harness = false
+
+[lib]
+doctest = true

@@ -1,0 +1,89 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+[package]
+name = "datafusion-common"
+description = "Common functionality for DataFusion query engine"
+keywords = ["arrow", "query", "sql"]
+readme = "README.md"
+version = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+repository = { workspace = true }
+license = { workspace = true }
+authors = { workspace = true }
+rust-version = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+
+# Note: add additional linter rules in lib.rs.
+# Rust does not support workspace + new linter rules in subcrates yet
+# https://github.com/rust-lang/cargo/issues/13157
+[lints]
+workspace = true
+
+[lib]
+name = "datafusion_common"
+
+[features]
+avro = ["apache-avro"]
+backtrace = []
+parquet_encryption = [
+    "parquet",
+    "parquet/encryption",
+    "dep:hex",
+]
+pyarrow = ["pyo3", "arrow/pyarrow", "parquet"]
+force_hash_collisions = []
+recursive_protection = ["dep:recursive"]
+parquet = ["dep:parquet"]
+sql = ["sqlparser"]
+
+[dependencies]
+ahash = { workspace = true }
+apache-avro = { version = "0.20", default-features = false, features = [
+    "bzip",
+    "snappy",
+    "xz",
+    "zstandard",
+], optional = true }
+arrow = { workspace = true }
+arrow-ipc = { workspace = true }
+chrono = { workspace = true }
+half = { workspace = true }
+hashbrown = { workspace = true }
+hex = { workspace = true, optional = true }
+indexmap = { workspace = true }
+libc = "0.2.177"
+log = { workspace = true }
+object_store = { workspace = true, optional = true }
+parquet = { workspace = true, optional = true, default-features = true }
+paste = "1.0.15"
+pyo3 = { version = "0.26", optional = true }
+recursive = { workspace = true, optional = true }
+sqlparser = { workspace = true, optional = true }
+tokio = { workspace = true }
+
+[target.'cfg(target_family = "wasm")'.dependencies]
+web-time = "1.1.0"
+
+[dev-dependencies]
+chrono = { workspace = true }
+insta = { workspace = true }
+rand = { workspace = true }
+sqlparser = { workspace = true }
