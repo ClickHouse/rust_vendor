@@ -1,0 +1,43 @@
+[package]
+name = "geographiclib-rs"
+version = "0.2.7"
+license = "MIT"
+edition = "2018"
+rust-version = "1.70.0"
+autobenches = false
+
+description = "A port of geographiclib in Rust."
+repository = "https://github.com/georust/geographiclib-rs"
+keywords = ["gis", "geo", "geography", "geospatial"]
+documentation = "https://docs.rs/geographiclib-rs"
+readme = "README.md"
+include = ["Cargo.toml", "README.md", "LICENSE", "CHANGES.md", "src/**/*.rs"]
+
+[features]
+# Run tests against Karney's GeodTest.dat test cases.
+# You must run script/download-test-data.sh before using this feature
+test_full = []
+
+# Run tests against Karney's abridged GeodTest-short.dat test cases.
+# You must run script/download-test-data.sh before using this feature
+test_short = []
+
+default = ["accurate"]
+
+[dependencies]
+accurate = { version = "0.3", optional = true, default-features = false }
+libm = { version = "0.2.8", default-features = false }
+
+[dev-dependencies]
+approx = "0.5.1"
+criterion = "0.4.0"
+geographiclib = "0.1.0"
+geojson = "0.24.2"
+
+[[bench]]
+name = "geodesic_benchmark"
+harness = false
+
+[[bench]]
+name = "baseline_c_benchmark"
+harness = false
