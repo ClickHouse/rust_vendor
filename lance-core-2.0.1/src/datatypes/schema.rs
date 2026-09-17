@@ -404,7 +404,10 @@ impl Schema {
                 });
             }
 
-            if let Some(self_field) = self.field(&field.name) {
+            // The projection carries literal top-level field names (an Arrow schema is not a field
+            // path), so match them by name instead of parsing them as a path: a name containing
+            // a backtick is a valid Arrow field name but an invalid unquoted path.
+            if let Some(self_field) = self.top_level_field(&field.name) {
                 new_fields.push(self_field.project_by_field(field, on_type_mismatch)?);
             } else if matches!(on_missing, OnMissing::Error) {
                 return Err(Error::Schema {
@@ -427,7 +430,7 @@ impl Schema {
         })?;
         let mut fields = vec![];
         for field in self.fields.iter() {
-            if let Some(other_field) = other.field(&field.name) {
+            if let Some(other_field) = other.top_level_field(&field.name) {
                 if field.data_type().is_nested() {
                     if let Some(f) = field.exclude(other_field) {
                         fields.push(f)
@@ -447,6 +450,11 @@ impl Schema {
     /// Field names containing dots must be quoted: parent."child.with.dot"
     pub fn field(&self, name: &str) -> Option<&Field> {
         self.resolve(name).and_then(|fields| fields.last().copied())
+    }
+
+    /// Get a top-level field by its literal name, without interpreting the name as a field path.
+    pub fn top_level_field(&self, name: &str) -> Option<&Field> {
+        self.fields.iter().find(|f| f.name == name)
     }
 
     /// Get a field by its path, with case-insensitive matching.
