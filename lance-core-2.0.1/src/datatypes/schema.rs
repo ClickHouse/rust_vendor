@@ -328,7 +328,7 @@ impl Schema {
     fn do_intersection(&self, other: &Self, ignore_types: bool) -> Result<Self> {
         let mut candidates: Vec<Field> = vec![];
         for field in other.fields.iter() {
-            if let Some(candidate_field) = self.field(&field.name) {
+            if let Some(candidate_field) = self.top_level_field(&field.name) {
                 candidates.push(candidate_field.do_intersection(field, ignore_types)?);
             }
         }
@@ -670,7 +670,7 @@ impl Schema {
 
         let mut merged_fields: Vec<Field> = vec![];
         for mut field in self.fields.iter().cloned() {
-            if let Some(other_field) = other.field(&field.name) {
+            if let Some(other_field) = other.top_level_field(&field.name) {
                 // if both are struct types, then merge the fields
                 field.merge(other_field)?;
             }
