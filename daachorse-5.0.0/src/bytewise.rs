@@ -1,0 +1,1588 @@
+//! A byte-wise version of the Double-Array Aho-Corasick.
+
+mod builder;
+pub mod iter;
+
+use core::fmt::Debug;
+use core::mem;
+use core::num::NonZeroU32;
+
+use alloc::vec::Vec;
+
+pub use crate::bytewise::builder::DoubleArrayAhoCorasickBuilder;
+use crate::bytewise::iter::{
+    FindIterator, FindOverlappingIterator, FindOverlappingNoSuffixIterator,
+    FindOverlappingNoSuffixSliceIterator, FindOverlappingSliceIterator, FindOverlappingStepper,
+    FindSliceIterator, FindStepper, LeftmostFindIterator,
+};
+use crate::errors::{DaachorseError, Result};
+use crate::intpack::{U24nU8, U24};
+use crate::prefilter::{Prefilter, PrefilterGate};
+use crate::serializer::{Serializable, SerializableVec};
+use crate::utils::FromU32;
+use crate::{Empty, MatchKind, Output, DEAD_STATE_IDX, ROOT_STATE_IDX};
+
+// The length of each double-array block.
+pub(crate) const BLOCK_LEN: u32 = 256;
+
+/// A fast multiple pattern match automaton implemented with the Aho-Corasick algorithm and compact
+/// double-array data structure.
+///
+/// [`DoubleArrayAhoCorasick`] implements a pattern match automaton based on the
+/// [Aho-Corasick algorithm](https://dl.acm.org/doi/10.1145/360825.360855), supporting linear-time
+/// pattern matching. The internal data structure employs the
+/// [compact double-array structure](https://doi.org/10.1016/j.ipm.2006.04.004), the fastest
+/// trie representation technique. It supports constant-time state-to-state traversal, allowing for
+/// very fast pattern matching. Moreover, each state uses only 12 bytes of memory.
+///
+/// # Build instructions
+///
+/// [`DoubleArrayAhoCorasick`] supports the following two types of input data:
+///
+/// - [`DoubleArrayAhoCorasick::new`] builds an automaton from a set of byte strings while
+///   assigning unique identifiers in the input order.
+///
+/// - [`DoubleArrayAhoCorasick::with_values`] builds an automaton from a set of pairs of a byte
+///   string and a user-defined value.
+///
+/// # Limitations
+///
+/// The maximum number of patterns is limited to 2^24-1. If a larger number of patterns is given,
+/// [`DaachorseError`] will be reported.
+#[derive(Clone, Eq, Hash, PartialEq)]
+pub struct DoubleArrayAhoCorasick<V> {
+    // for standard matching
+    states: Vec<State<u32>>,
+    // A dense transition table for the root state, which has 256 elements for standard matching
+    // and is empty for leftmost matching.
+    root_table: Vec<u32>,
+
+    // for leftmost matching
+    leftmost_states: Vec<State<Empty>>,
+    fails: Vec<u32>,
+
+    outputs: Vec<Output<V>>,
+    match_kind: MatchKind,
+    num_states: u32,
+    prefilter: Option<Prefilter>,
+}
+
+impl<V> DoubleArrayAhoCorasick<V> {
+    /// Creates a new [`DoubleArrayAhoCorasick`] from input patterns. The value `i` is
+    /// automatically associated with `patterns[i]`.
+    ///
+    /// # Arguments
+    ///
+    /// * `patterns` - List of patterns.
+    ///
+    /// # Errors
+    ///
+    /// [`DaachorseError`] is returned when
+    ///   - the conversion from the index `i` to the specified type `V` fails,
+    ///   - the scale of `patterns` exceeds the expected one, or
+    ///   - the scale of the resulting automaton exceeds the expected one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn new<I, P>(patterns: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<[u8]>,
+        V: Copy + TryFrom<usize>,
+    {
+        DoubleArrayAhoCorasickBuilder::new().build(patterns)
+    }
+
+    /// Creates a new [`DoubleArrayAhoCorasick`] from pattern-value pairs.
+    ///
+    /// # Arguments
+    ///
+    /// * `patvals` - List of pattern-value pairs.
+    ///
+    /// # Errors
+    ///
+    /// [`DaachorseError`] is returned when
+    ///   - the scale of `patvals` exceeds the expected one, or
+    ///   - the scale of the resulting automaton exceeds the expected one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patvals = vec![("bcd", 0), ("ab", 1), ("a", 2), ("e", 1)];
+    /// let pma = DoubleArrayAhoCorasick::with_values(patvals).unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcde");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((4, 5, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn with_values<I, P>(patvals: I) -> Result<Self>
+    where
+        I: IntoIterator<Item = (P, V)>,
+        P: AsRef<[u8]>,
+        V: Copy,
+    {
+        DoubleArrayAhoCorasickBuilder::new().build_with_values(patvals)
+    }
+
+    /// Returns an iterator of non-overlapping matches in the given haystack.
+    ///
+    /// The iterator searches from the beginning of the input string, yielding a value immediately
+    /// when a pattern is found. The next search resumes from the end of the previously found
+    /// pattern.
+    ///
+    /// If the set contains an empty string (length 0), all other patterns are ignored, and it will
+    /// only match at every byte boundary, including the start and end of the haystack.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - String to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the iterator is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn find_iter<P>(&self, haystack: P) -> FindSliceIterator<'_, P, V>
+    where
+        P: AsRef<[u8]>,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindSliceIterator {
+            pma: self,
+            haystack,
+            pos: 0,
+            first_call: true,
+            prefilter: self.prefilter.as_ref(),
+            gate: PrefilterGate::new(),
+        }
+    }
+
+    /// Returns an iterator of non-overlapping matches in the given haystack iterator.
+    ///
+    /// The algorithm used is the same as the [`DoubleArrayAhoCorasick::find_iter()`] function.
+    /// However, the match-candidate prefilter is not available in this function because it
+    /// requires random access to the haystack; the search is always performed on the Aho-Corasick
+    /// automaton alone, even if the automaton has a prefilter.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - [`u8`] iterator to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the iterator is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let haystack = "ab".as_bytes().iter().chain("cd".as_bytes()).copied();
+    ///
+    /// let mut it = pma.find_iter_from_iter(haystack);
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn find_iter_from_iter<P>(&self, haystack: P) -> FindIterator<'_, P, V>
+    where
+        P: Iterator<Item = u8>,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindIterator {
+            pma: self,
+            haystack: haystack.enumerate(),
+            first_call: true,
+        }
+    }
+
+    /// Returns an iterator of overlapping matches in the given haystack.
+    ///
+    /// The iterator follows the standard behavior of the Aho-Corasick algorithm. It searches from
+    /// the beginning of the input string, and upon reaching a given position, it yields the
+    /// patterns ending at that position in descending order of length.
+    ///
+    /// If the pattern set contains duplicate patterns, they are yielded in the order they were
+    /// registered.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - String to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the iterator is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut it = pma.find_overlapping_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn find_overlapping_iter<P>(&self, haystack: P) -> FindOverlappingSliceIterator<'_, P, V>
+    where
+        P: AsRef<[u8]>,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindOverlappingSliceIterator {
+            pma: self,
+            haystack,
+            state_id: ROOT_STATE_IDX,
+            output_pos: unsafe {
+                self.states
+                    .get_unchecked(usize::from_u32(ROOT_STATE_IDX))
+                    .output_pos()
+            },
+            pos: 0,
+            prefilter: self.prefilter.as_ref(),
+            gate: PrefilterGate::new(),
+        }
+    }
+
+    /// Returns an iterator of overlapping matches in the given haystack iterator.
+    ///
+    /// The algorithm used is the same as the [`DoubleArrayAhoCorasick::find_overlapping_iter()`]
+    /// function. However, the match-candidate prefilter is not available in this function because
+    /// it requires random access to the haystack; the search is always performed on the
+    /// Aho-Corasick automaton alone, even if the automaton has a prefilter.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - [`u8`] iterator to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the iterator is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let haystack = "ab".as_bytes().iter().chain("cd".as_bytes()).copied();
+    ///
+    /// let mut it = pma.find_overlapping_iter_from_iter(haystack);
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn find_overlapping_iter_from_iter<P>(
+        &self,
+        haystack: P,
+    ) -> FindOverlappingIterator<'_, P, V>
+    where
+        P: Iterator<Item = u8>,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindOverlappingIterator {
+            pma: self,
+            haystack: haystack.enumerate(),
+            state_id: ROOT_STATE_IDX,
+            pos: 0,
+            output_pos: unsafe {
+                self.states
+                    .get_unchecked(usize::from_u32(ROOT_STATE_IDX))
+                    .output_pos()
+            },
+        }
+    }
+
+    /// Returns an iterator of overlapping matches without suffixes in the given haystack.
+    ///
+    /// The behavior of the iterator returned by this function is similar to
+    /// [`DoubleArrayAhoCorasick::find_overlapping_iter()`], except that upon reaching a given
+    /// position, it yields only the single longest pattern ending at that position.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - String to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the iterator is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "cd", "abc"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut it = pma.find_overlapping_no_suffix_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 3, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn find_overlapping_no_suffix_iter<P>(
+        &self,
+        haystack: P,
+    ) -> FindOverlappingNoSuffixSliceIterator<'_, P, V>
+    where
+        P: AsRef<[u8]>,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindOverlappingNoSuffixSliceIterator {
+            pma: self,
+            haystack,
+            state_id: ROOT_STATE_IDX,
+            pos: 0,
+            first_call: true,
+            prefilter: self.prefilter.as_ref(),
+            gate: PrefilterGate::new(),
+        }
+    }
+
+    /// Returns an iterator of overlapping matches without suffixes in the given haystack iterator.
+    ///
+    /// The algorithm used is the same as the
+    /// [`DoubleArrayAhoCorasick::find_overlapping_no_suffix_iter()`] function. However, the
+    /// match-candidate prefilter is not available in this function because it requires random
+    /// access to the haystack; the search is always performed on the Aho-Corasick automaton
+    /// alone, even if the automaton has a prefilter.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - [`u8`] iterator to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the iterator is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "cd", "abc"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let haystack = "ab".as_bytes().iter().chain("cd".as_bytes()).copied();
+    ///
+    /// let mut it = pma.find_overlapping_no_suffix_iter_from_iter(haystack);
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 3, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn find_overlapping_no_suffix_iter_from_iter<P>(
+        &self,
+        haystack: P,
+    ) -> FindOverlappingNoSuffixIterator<'_, P, V>
+    where
+        P: Iterator<Item = u8>,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindOverlappingNoSuffixIterator {
+            pma: self,
+            haystack: haystack.enumerate(),
+            state_id: ROOT_STATE_IDX,
+            first_call: true,
+        }
+    }
+
+    /// Returns an iterator of leftmost matches in the given haystack.
+    ///
+    /// The iterator greedily searches from the beginning of the input string. The next search
+    /// resumes from the end of the previously found pattern.
+    ///
+    /// Depending on the [`MatchKind`] option specified during construction, the behavior differs
+    /// for multiple possible matches, as follows.
+    ///
+    ///  - If you set [`MatchKind::LeftmostLongest`], it reports the match corresponding to the
+    ///    longest pattern.
+    ///
+    ///  - If you set [`MatchKind::LeftmostFirst`], it reports the match corresponding to the
+    ///    pattern that was registered earlier in the automaton.
+    ///
+    /// If the pattern set contains an empty string (length 0), the empty string matches at all
+    /// positions between bytes that do not overlap with other patterns.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystack` - String to search in.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::LeftmostFirst`] or [`MatchKind::LeftmostLongest`] in the
+    /// construction, the iterator is not supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ## LeftmostLongest
+    ///
+    /// ```
+    /// use daachorse::{DoubleArrayAhoCorasickBuilder, MatchKind};
+    ///
+    /// let patterns = vec!["ab", "a", "abcd"];
+    /// let pma = DoubleArrayAhoCorasickBuilder::new()
+    ///     .match_kind(MatchKind::LeftmostLongest)
+    ///     .build(&patterns)
+    ///     .unwrap();
+    ///
+    /// let mut it = pma.leftmost_find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 4, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    ///
+    /// ## LeftmostFirst
+    ///
+    /// ```
+    /// use daachorse::{DoubleArrayAhoCorasickBuilder, MatchKind};
+    ///
+    /// let patterns = vec!["ab", "a", "abcd"];
+    /// let pma = DoubleArrayAhoCorasickBuilder::new()
+    ///     .match_kind(MatchKind::LeftmostFirst)
+    ///     .build(&patterns)
+    ///     .unwrap();
+    ///
+    /// let mut it = pma.leftmost_find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn leftmost_find_iter<P>(&self, haystack: P) -> LeftmostFindIterator<'_, P, V>
+    where
+        P: AsRef<[u8]>,
+    {
+        assert!(
+            self.match_kind.is_leftmost(),
+            "Error: match_kind must be leftmost."
+        );
+        LeftmostFindIterator {
+            pma: self,
+            haystack,
+            pos: 0,
+            init_output_pos: unsafe {
+                self.leftmost_states
+                    .get_unchecked(usize::from_u32(ROOT_STATE_IDX))
+                    .output_pos()
+            },
+            skip_empty: false,
+            gate: PrefilterGate::new(),
+        }
+    }
+
+    /// Returns a stepper of non-overlapping matches that consumes bytes one by one.
+    ///
+    /// The algorithm used is the same as the [`DoubleArrayAhoCorasick::find_iter()`] function.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the stepper is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ## Example 1
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut stepper = pma.find_stepper();
+    ///
+    /// let m = stepper.matches();
+    /// assert_eq!(None, m);
+    ///
+    /// stepper.consume(b'a');
+    /// let m = stepper.matches().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value())); // a
+    ///
+    /// stepper.consume(b'b');
+    /// let m = stepper.matches();
+    /// assert_eq!(None, m);
+    ///
+    /// stepper.consume(b'c');
+    /// let m = stepper.matches();
+    /// assert_eq!(None, m);
+    ///
+    /// stepper.consume(b'd');
+    /// let m = stepper.matches().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value())); // bcd
+    /// ```
+    ///
+    /// ## Example 2
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a", ""];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut stepper = pma.find_stepper();
+    ///
+    /// let m = stepper.matches().unwrap();
+    /// assert_eq!((0, 0, 3), (m.start(), m.end(), m.value())); // ""
+    ///
+    /// stepper.consume(b'a');
+    /// let m = stepper.matches().unwrap();
+    /// assert_eq!((1, 1, 3), (m.start(), m.end(), m.value())); // ""
+    /// ```
+    #[must_use]
+    pub fn find_stepper(&self) -> FindStepper<'_, V>
+    where
+        V: Copy,
+    {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindStepper {
+            pma: self,
+            state_id: ROOT_STATE_IDX,
+            pos: 0,
+            output_pos: unsafe {
+                self.states
+                    .get_unchecked(usize::from_u32(ROOT_STATE_IDX))
+                    .output_pos()
+            },
+        }
+    }
+
+    /// Returns a stepper of overlapping matches that consumes bytes one by one.
+    ///
+    /// The algorithm used is the same as the [`DoubleArrayAhoCorasick::find_overlapping_iter()`]
+    /// function.
+    ///
+    /// # Panics
+    ///
+    /// If you do not specify [`MatchKind::Standard`] during construction, the stepper is not
+    /// supported and the function will panic.
+    ///
+    /// # Examples
+    ///
+    /// ## Example 1
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut stepper = pma.find_overlapping_stepper();
+    ///
+    /// let mut it = stepper.matches();
+    /// assert_eq!(None, it.next());
+    ///
+    /// stepper.consume(b'a');
+    /// let mut it = stepper.matches();
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value())); // a
+    /// assert_eq!(None, it.next());
+    ///
+    /// stepper.consume(b'b');
+    /// let mut it = stepper.matches();
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 1), (m.start(), m.end(), m.value())); // ab
+    /// assert_eq!(None, it.next());
+    ///
+    /// stepper.consume(b'c');
+    /// let mut it = stepper.matches();
+    /// assert_eq!(None, it.next());
+    ///
+    /// stepper.consume(b'd');
+    /// let mut it = stepper.matches();
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value())); // bcd
+    /// assert_eq!(None, it.next());
+    /// ```
+    ///
+    /// ## Example 2
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a", ""];
+    /// let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+    ///
+    /// let mut stepper = pma.find_overlapping_stepper();
+    ///
+    /// let mut it = stepper.matches();
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 0, 3), (m.start(), m.end(), m.value())); // ""
+    /// assert_eq!(None, it.next());
+    ///
+    /// stepper.consume(b'a');
+    /// let mut it = stepper.matches();
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value())); // a
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 1, 3), (m.start(), m.end(), m.value())); // ""
+    /// assert_eq!(None, it.next());
+    /// ```
+    #[must_use]
+    pub fn find_overlapping_stepper(&self) -> FindOverlappingStepper<'_, V> {
+        assert!(
+            self.match_kind.is_standard(),
+            "Error: match_kind must be standard."
+        );
+        FindOverlappingStepper {
+            pma: self,
+            state_id: ROOT_STATE_IDX,
+            pos: 0,
+        }
+    }
+
+    /// Returns the match kind for this automaton.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::{DoubleArrayAhoCorasickBuilder, MatchKind};
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasickBuilder::new()
+    ///     .match_kind(MatchKind::LeftmostLongest)
+    ///     .build::<_, _, u32>(&patterns)
+    ///     .unwrap();
+    ///
+    /// assert_eq!(MatchKind::LeftmostLongest, pma.match_kind());
+    /// ```
+    #[must_use]
+    pub const fn match_kind(&self) -> MatchKind {
+        self.match_kind
+    }
+
+    /// Returns the total amount of heap used by this automaton in bytes.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+    ///
+    /// assert_eq!(4132, pma.heap_bytes());
+    /// ```
+    #[must_use]
+    pub fn heap_bytes(&self) -> usize {
+        self.states.len() * mem::size_of::<State<u32>>()
+            + self.root_table.len() * mem::size_of::<u32>()
+            + self.leftmost_states.len() * mem::size_of::<State<Empty>>()
+            + self.fails.len() * mem::size_of::<u32>()
+            + self.outputs.len() * mem::size_of::<Output<V>>()
+            + self.prefilter.as_ref().map_or(0, Prefilter::heap_bytes)
+    }
+
+    /// Returns the total number of states this automaton has.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::<usize>::new(patterns).unwrap();
+    ///
+    /// assert_eq!(pma.num_states(), 6);
+    /// ```
+    #[must_use]
+    pub fn num_states(&self) -> usize {
+        usize::from_u32(self.num_states)
+    }
+
+    /// Serializes the automaton into a [`Vec`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+    /// let bytes = pma.serialize();
+    /// ```
+    #[must_use]
+    pub fn serialize(&self) -> Vec<u8>
+    where
+        V: Serializable,
+    {
+        let mut result = Vec::with_capacity(
+            self.states.serialized_bytes()
+                + self.leftmost_states.serialized_bytes()
+                + self.fails.serialized_bytes()
+                + self.outputs.serialized_bytes()
+                + MatchKind::serialized_bytes()
+                + u32::serialized_bytes()
+                // A serialized None is a single flag byte; see the Serializable impl of Option.
+                + self
+                    .prefilter
+                    .as_ref()
+                    .map_or_else(u8::serialized_bytes, |_| {
+                        Option::<Prefilter>::serialized_bytes()
+                    }),
+        );
+        self.states.serialize_to_vec(&mut result);
+        self.leftmost_states.serialize_to_vec(&mut result);
+        self.fails.serialize_to_vec(&mut result);
+        self.outputs.serialize_to_vec(&mut result);
+        self.match_kind.serialize_to_vec(&mut result);
+        self.num_states.serialize_to_vec(&mut result);
+        self.prefilter.serialize_to_vec(&mut result);
+        result
+    }
+
+    /// Deserializes the automaton from the given slice.
+    ///
+    /// # Warning
+    ///
+    /// This function verifies that the input automaton data will not cause out-of-bounds memory
+    /// access within this crate; however, it does not verify that the data is a valid
+    /// Aho-Corasick automaton. Consequently, if malformed data is provided, it may lead to
+    /// infinite loops or cause [`Match`](crate::Match) to return inaccurate ranges. Use this
+    /// function only if you can tolerate such errors.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - A source slice.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of the automaton and the slice not used for the deserialization.
+    ///
+    /// # Errors
+    ///
+    /// [`DaachorseError`] is returned when the given data is an invalid automaton.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+    /// let bytes = pma.serialize();
+    ///
+    /// let (pma, _) = DoubleArrayAhoCorasick::<u32>::deserialize(&bytes).unwrap();
+    ///
+    /// let mut it = pma.find_overlapping_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn deserialize(source: &[u8]) -> Result<(Self, &[u8])>
+    where
+        V: Serializable,
+    {
+        let (states, source) = Vec::<State<u32>>::deserialize_from_slice(source)?;
+        let (leftmost_states, source) = Vec::<State<Empty>>::deserialize_from_slice(source)?;
+        let (fails, source) = Vec::<u32>::deserialize_from_slice(source)?;
+        let (outputs, source) = Vec::<Output<V>>::deserialize_from_slice(source)?;
+        let (match_kind, source) = MatchKind::deserialize_from_slice(source)?;
+        let (num_states, source) = u32::deserialize_from_slice(source)?;
+        let (prefilter, source) = Option::<Prefilter>::deserialize_from_slice(source)?;
+        let root_table = if match_kind.is_leftmost() {
+            vec![]
+        } else {
+            Self::build_root_table(&states)
+        };
+        let pma = Self {
+            states,
+            leftmost_states,
+            fails,
+            outputs,
+            match_kind,
+            num_states,
+            root_table,
+            prefilter,
+        };
+        let block_len = usize::from_u32(BLOCK_LEN);
+        let outputs_len = pma.outputs.len();
+        if pma.match_kind.is_leftmost() {
+            if !pma.states.is_empty() {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            if pma.leftmost_states.is_empty() {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            if pma.leftmost_states.len() % block_len != 0 {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            if pma.fails.len() != pma.leftmost_states.len() {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            let states_len = pma.leftmost_states.len();
+            for state in &pma.leftmost_states {
+                if let Some(base) = state.base() {
+                    if usize::from_u32(base.get()) >= states_len {
+                        return Err(DaachorseError::invalid_automaton());
+                    }
+                };
+                if let Some(output_pos) = state.output_pos() {
+                    if usize::from_u32(output_pos.get() - 1) >= outputs_len {
+                        return Err(DaachorseError::invalid_automaton());
+                    }
+                };
+            }
+            for fail in &pma.fails {
+                if usize::from_u32(*fail) >= states_len {
+                    return Err(DaachorseError::invalid_automaton());
+                }
+            }
+        } else {
+            if !pma.leftmost_states.is_empty() || !pma.fails.is_empty() {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            if pma.states.is_empty() {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            if pma.states.len() % block_len != 0 {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            // `next_state_id_unchecked()` relies on this invariant.
+            if pma.root_table.len() != block_len {
+                return Err(DaachorseError::invalid_automaton());
+            }
+            let states_len = pma.states.len();
+            for state in &pma.states {
+                if let Some(base) = state.base() {
+                    if usize::from_u32(base.get()) >= states_len {
+                        return Err(DaachorseError::invalid_automaton());
+                    }
+                };
+                if usize::from_u32(state.fail()) >= states_len {
+                    return Err(DaachorseError::invalid_automaton());
+                }
+                if let Some(output_pos) = state.output_pos() {
+                    if usize::from_u32(output_pos.get() - 1) >= outputs_len {
+                        return Err(DaachorseError::invalid_automaton());
+                    }
+                };
+            }
+        }
+        for (i, output) in pma.outputs.iter().enumerate() {
+            if let Some(parent) = output.parent {
+                if usize::from_u32(parent.get() - 1) >= i {
+                    return Err(DaachorseError::invalid_automaton());
+                }
+            };
+        }
+        Ok((pma, source))
+    }
+
+    /// Deserializes the automaton from the given slice without performing any validation.
+    ///
+    /// Prefer [`DoubleArrayAhoCorasick::deserialize()`] unless maximum performance is critical,
+    /// as this function skips all validation.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - A source slice.
+    ///
+    /// # Returns
+    ///
+    /// A tuple of the automaton and the slice not used for the deserialization.
+    ///
+    /// # Safety
+    ///
+    /// The given data must be a valid automaton exported by
+    /// [`DoubleArrayAhoCorasick::serialize()`] function.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasick;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+    /// let bytes = pma.serialize();
+    ///
+    /// let (pma, _) = unsafe { DoubleArrayAhoCorasick::<u32>::deserialize_unchecked(&bytes) };
+    ///
+    /// let mut it = pma.find_overlapping_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    #[must_use]
+    pub unsafe fn deserialize_unchecked(source: &[u8]) -> (Self, &[u8])
+    where
+        V: Serializable,
+    {
+        let (states, source) = Vec::<State<u32>>::deserialize_from_slice(source).unwrap_unchecked();
+        let (leftmost_states, source) =
+            Vec::<State<Empty>>::deserialize_from_slice(source).unwrap_unchecked();
+        let (fails, source) = Vec::<u32>::deserialize_from_slice(source).unwrap_unchecked();
+        let (outputs, source) = Vec::<Output<V>>::deserialize_from_slice(source).unwrap_unchecked();
+        let (match_kind, source) = MatchKind::deserialize_from_slice(source).unwrap_unchecked();
+        let (num_states, source) = u32::deserialize_from_slice(source).unwrap_unchecked();
+        let (prefilter, source) =
+            Option::<Prefilter>::deserialize_from_slice(source).unwrap_unchecked();
+        let root_table = if match_kind.is_leftmost() {
+            vec![]
+        } else {
+            Self::build_root_table(&states)
+        };
+        (
+            Self {
+                states,
+                leftmost_states,
+                fails,
+                outputs,
+                match_kind,
+                num_states,
+                root_table,
+                prefilter,
+            },
+            source,
+        )
+    }
+
+    /// Builds a dense transition table for the root state.
+    fn build_root_table(states: &[State<u32>]) -> Vec<u32> {
+        let mut table = vec![ROOT_STATE_IDX; 256];
+        if let Some(base) = states
+            .get(usize::from_u32(ROOT_STATE_IDX))
+            .and_then(State::base)
+        {
+            for c in 0..=255u8 {
+                let child_idx = base.get() ^ u32::from(c);
+                if let Some(child) = states.get(usize::from_u32(child_idx)) {
+                    if child.check() == c {
+                        table[usize::from(c)] = child_idx;
+                    }
+                }
+            }
+        }
+        table
+    }
+
+    /// Returns the position of the output entries of the given state.
+    ///
+    /// # Safety
+    ///
+    /// `state_id` must be smaller than the length of `states`.
+    #[inline(always)]
+    unsafe fn output_pos_unchecked(&self, state_id: u32) -> Option<NonZeroU32> {
+        self.states
+            .get_unchecked(usize::from_u32(state_id))
+            .output_pos()
+    }
+
+    /// Returns the position of the output entries of the given state for leftmost matching.
+    ///
+    /// # Safety
+    ///
+    /// `state_id` must be smaller than the length of `leftmost_states`.
+    #[inline(always)]
+    unsafe fn leftmost_output_pos_unchecked(&self, state_id: u32) -> Option<NonZeroU32> {
+        self.leftmost_states
+            .get_unchecked(usize::from_u32(state_id))
+            .output_pos()
+    }
+
+    /// Returns the output entry at the given position.
+    ///
+    /// # Safety
+    ///
+    /// `output_pos` must be obtained from [`State::output_pos()`] or [`Output::parent()`] of
+    /// this automaton, which guarantees `output_pos.get() - 1` to be a valid index of `outputs`.
+    #[inline(always)]
+    unsafe fn output_at(&self, output_pos: NonZeroU32) -> &Output<V> {
+        self.outputs
+            .get_unchecked(usize::from_u32(output_pos.get() - 1))
+    }
+
+    /// Returns the value to report when the pattern set contains the empty string, which is
+    /// registered as an output of the root state.
+    ///
+    /// # Safety
+    ///
+    /// The automaton must be built for standard matching; for leftmost matching, `states` is
+    /// empty and the root state access would be out of bounds.
+    #[inline(always)]
+    unsafe fn root_output_value(&self) -> Option<V>
+    where
+        V: Copy,
+    {
+        self.output_pos_unchecked(ROOT_STATE_IDX)
+            .map(|output_pos| self.output_at(output_pos).value())
+    }
+
+    /// # Safety
+    ///
+    /// `state_id` must be smaller than the length of states, and `root_table` must have 256
+    /// elements. These are guaranteed for standard matching automata.
+    #[inline(always)]
+    unsafe fn next_state_id_unchecked(&self, mut state_id: u32, c: u8) -> u32 {
+        loop {
+            // The root state is by far the most frequent one, so its transitions are precomputed in
+            // a dense table.
+            if state_id == ROOT_STATE_IDX {
+                return *self.root_table.get_unchecked(usize::from(c));
+            }
+
+            // Get the current state.
+            let state = self.states.get_unchecked(usize::from_u32(state_id));
+
+            // If the state has transitions (indicated by a non-None base value):
+            if let Some(base) = state.base() {
+                // Calculate the child index in the double-array using base ^ c.
+                let child_idx = base.get() ^ u32::from(c);
+                let child = self.states.get_unchecked(usize::from_u32(child_idx));
+                // Verify if the transition exists by checking if the child's check value matches c.
+                if child.check() == c {
+                    return child_idx;
+                }
+            }
+
+            // Follow the failure transition to the next candidate state.
+            state_id = state.fail();
+        }
+    }
+
+    /// # Safety
+    ///
+    /// `state_id` must be smaller than the length of states.
+    #[inline(always)]
+    unsafe fn next_state_id_leftmost_unchecked(&self, mut state_id: u32, c: u8) -> u32 {
+        loop {
+            // Get the current state.
+            let state = self
+                .leftmost_states
+                .get_unchecked(usize::from_u32(state_id));
+
+            // If the state has transitions (indicated by a non-None base value):
+            if let Some(base) = state.base() {
+                // Calculate the child index in the double-array using base ^ c.
+                let child_idx = base.get() ^ u32::from(c);
+                let child = self
+                    .leftmost_states
+                    .get_unchecked(usize::from_u32(child_idx));
+                // Verify if the transition exists by checking if the child's check value matches c.
+                if child.check() == c {
+                    return child_idx;
+                }
+            }
+
+            // If no transition is found and we are already at the root state, stay/reset at the root state.
+            if state_id == ROOT_STATE_IDX {
+                return ROOT_STATE_IDX;
+            }
+
+            // In leftmost matching, we stop searching if the failure path hits the dead state.
+            let fail_id = *self.fails.get_unchecked(usize::from_u32(state_id));
+            if fail_id == DEAD_STATE_IDX {
+                return ROOT_STATE_IDX;
+            }
+
+            // Follow the failure transition to the next candidate state.
+            state_id = fail_id;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default, Eq, Hash, PartialEq)]
+struct State<F> {
+    base: Option<NonZeroU32>,
+    fail: F,
+    // 3 bytes for output_pos and 1 byte for check.
+    opos_ch: U24nU8,
+}
+
+impl<F> State<F>
+where
+    F: Copy,
+{
+    #[inline(always)]
+    pub const fn base(&self) -> Option<NonZeroU32> {
+        self.base
+    }
+
+    #[inline(always)]
+    pub fn check(&self) -> u8 {
+        self.opos_ch.b()
+    }
+
+    #[inline(always)]
+    pub const fn fail(&self) -> F {
+        self.fail
+    }
+
+    #[inline(always)]
+    pub const fn output_pos(&self) -> Option<NonZeroU32> {
+        NonZeroU32::new(self.opos_ch.a().get())
+    }
+
+    #[inline(always)]
+    pub fn set_base(&mut self, x: NonZeroU32) {
+        self.base = Some(x);
+    }
+
+    #[inline(always)]
+    pub fn set_check(&mut self, x: u8) {
+        self.opos_ch.set_b(x);
+    }
+
+    #[inline(always)]
+    pub fn set_fail(&mut self, x: F) {
+        self.fail = x;
+    }
+
+    #[inline(always)]
+    pub fn set_output_pos(&mut self, x: Option<NonZeroU32>) -> Result<()> {
+        let x = x.map_or(0, NonZeroU32::get);
+        if let Ok(x) = U24::try_from(x) {
+            self.opos_ch.set_a(x);
+            Ok(())
+        } else {
+            Err(DaachorseError::automaton_scale("output_pos", U24::MAX))
+        }
+    }
+}
+
+impl<F> Serializable for State<F>
+where
+    F: Serializable,
+{
+    #[inline(always)]
+    fn serialize_to_vec(&self, dst: &mut Vec<u8>) {
+        self.base.serialize_to_vec(dst);
+        self.fail.serialize_to_vec(dst);
+        self.opos_ch.serialize_to_vec(dst);
+    }
+
+    #[inline(always)]
+    fn deserialize_from_slice(src: &[u8]) -> Result<(Self, &[u8])> {
+        let (base, src) = Option::<NonZeroU32>::deserialize_from_slice(src)?;
+        let (fail, src) = F::deserialize_from_slice(src)?;
+        let (opos_ch, src) = U24nU8::deserialize_from_slice(src)?;
+        Ok((
+            Self {
+                base,
+                fail,
+                opos_ch,
+            },
+            src,
+        ))
+    }
+
+    #[inline(always)]
+    fn serialized_bytes() -> usize {
+        Option::<NonZeroU32>::serialized_bytes()
+            + F::serialized_bytes()
+            + U24nU8::serialized_bytes()
+    }
+}
+
+impl<F> core::fmt::Debug for State<F>
+where
+    F: Copy + Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("State")
+            .field("base", &self.base())
+            .field("check", &self.check())
+            .field("fail", &self.fail())
+            .field("output_pos", &self.output_pos())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_double_array() {
+        /*
+         *          a--> 4
+         *         /
+         *   a--> 1 --c--> 5
+         *  /
+         * 0 --b--> 2 --c--> 6
+         *  \
+         *   c--> 3
+         *
+         *   a = 0
+         *   b = 1
+         *   c = 2
+         */
+        let patterns = vec![vec![0, 0], vec![0, 2], vec![1, 2], vec![2]];
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+
+        let base_expected = vec![
+            NonZeroU32::new(4), // 0  (state=0)
+            None,               // 1  (reserved)
+            None,               // 2
+            None,               // 3  (state=6)
+            NonZeroU32::new(8), // 4  (state=1)
+            NonZeroU32::new(1), // 5  (state=2)
+            None,               // 6  (state=3)
+            None,               // 7
+            None,               // 8  (state=4)
+            None,               // 9
+            None,               // 10 (state=5)
+        ];
+        let check_expected = vec![
+            0, // 0  (state=0)
+            1, // 1
+            2, // 2
+            2, // 3  (state=6)
+            0, // 4  (state=1)
+            1, // 5  (state=2)
+            2, // 6  (state=3)
+            7, // 7
+            0, // 8  (state=4)
+            9, // 9
+            2, // 10 (state=5)
+        ];
+        let fail_expected = vec![
+            ROOT_STATE_IDX, // 0  (state=0)
+            ROOT_STATE_IDX, // 1  (reserved)
+            ROOT_STATE_IDX, // 2
+            6,              // 3  (state=6)
+            ROOT_STATE_IDX, // 4  (state=1)
+            ROOT_STATE_IDX, // 5  (state=2)
+            ROOT_STATE_IDX, // 6  (state=3)
+            ROOT_STATE_IDX, // 7
+            4,              // 8  (state=4)
+            ROOT_STATE_IDX, // 9
+            6,              // 10 (state=5)
+        ];
+
+        let pma_base: Vec<_> = pma.states[0..11].iter().map(|state| state.base()).collect();
+        let pma_check: Vec<_> = pma.states[0..11]
+            .iter()
+            .map(|state| state.check())
+            .collect();
+        let pma_fail: Vec<_> = pma.states[0..11].iter().map(|state| state.fail()).collect();
+
+        assert_eq!(base_expected, pma_base);
+        assert_eq!(check_expected, pma_check);
+        assert_eq!(fail_expected, pma_fail);
+    }
+
+    #[test]
+    fn test_num_states() {
+        /*
+         *   b-*-a-*-a-*-b-*-a-*
+         *  /
+         * *-a-*-b-*-b-*-a-*
+         *          \
+         *           a-*-b-*-a-*
+         */
+        let patterns = vec!["abba", "baaba", "ababa"];
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+
+        assert_eq!(13, pma.num_states());
+    }
+
+    #[test]
+    fn test_input_order() {
+        let patvals_sorted = vec![("ababa", 0), ("abba", 1), ("baaba", 2)];
+        let patvals_unsorted = vec![("abba", 1), ("baaba", 2), ("ababa", 0)];
+
+        let pma_sorted = DoubleArrayAhoCorasick::with_values(patvals_sorted).unwrap();
+        let pma_unsorted = DoubleArrayAhoCorasick::with_values(patvals_unsorted).unwrap();
+
+        assert_eq!(pma_sorted.states, pma_unsorted.states);
+        assert_eq!(pma_sorted.outputs, pma_unsorted.outputs);
+    }
+
+    #[test]
+    fn test_n_blocks_1_1() {
+        let mut patterns = vec![];
+        // state 0: reserved for the root state
+        // state 1: reserved for the dead state
+        // base = 0xfe; fills 0x02..=0xff
+        for i in 0x00..=0xfd {
+            let pattern = vec![i];
+            patterns.push(pattern);
+        }
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        assert_eq!(255, pma.num_states());
+        assert_eq!(256, pma.states.len());
+        assert_eq!(0xfe, pma.states[0].base().unwrap().get());
+    }
+
+    #[test]
+    fn test_n_blocks_1_2() {
+        let mut patterns = vec![];
+        // state 0: reserved for the root state
+        // state 1: reserved for the dead state
+        // base = 0x100; fills 0x100, 0x102, 0x104..=0x1ff
+        patterns.push(vec![0x00]);
+        patterns.push(vec![0x02]);
+        for i in 0x04..=0xff {
+            patterns.push(vec![i]);
+        }
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        assert_eq!(255, pma.num_states());
+        assert_eq!(512, pma.states.len());
+        assert_eq!(0x100, pma.states[0].base().unwrap().get());
+    }
+
+    #[test]
+    fn test_n_blocks_2_1() {
+        let mut patterns = vec![];
+        // state 0: reserved for the root state
+        // state 1: reserved for the dead state
+        // base = 0x80; fills 0x80..=0xff
+        for i in 0x00..=0x7f {
+            let pattern = vec![i];
+            patterns.push(pattern);
+        }
+        // base = 0x7e; fills 0x02..=0x7f
+        for i in 0x00..=0x7d {
+            let pattern = vec![0x00, i];
+            patterns.push(pattern);
+        }
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        assert_eq!(255, pma.num_states());
+        assert_eq!(256, pma.states.len());
+        assert_eq!(0x80, pma.states[0].base().unwrap().get());
+        assert_eq!(0x7e, pma.states[0x80].base().unwrap().get());
+    }
+
+    #[test]
+    fn test_n_blocks_2_2() {
+        let mut patterns = vec![];
+        // state 0: reserved for the root state
+        // state 1: reserved for the dead state
+        // base = 0x80; fills 0x80..=0xff
+        for i in 0..=0x7f {
+            let pattern = vec![i];
+            patterns.push(pattern);
+        }
+        // base = 0x100; fills 0x100, 0x102, 0x104..=0x17f
+        patterns.push(vec![0, 0x00]);
+        patterns.push(vec![0, 0x02]);
+        for i in 0x04..=0x7f {
+            let pattern = vec![0x00, i];
+            patterns.push(pattern);
+        }
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        assert_eq!(255, pma.num_states());
+        assert_eq!(512, pma.states.len());
+        assert_eq!(0x80, pma.states[0].base().unwrap().get());
+        assert_eq!(0x100, pma.states[0x80].base().unwrap().get());
+    }
+
+    #[test]
+    #[cfg_attr(miri, ignore)] // too slow on miri
+    fn test_empty_pattern_set() {
+        let patterns: [&str; 0] = [];
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        for a in 0..=255u8 {
+            let mut it = pma.find_overlapping_iter([a]);
+            assert_eq!(None, it.next());
+            for b in 0..=255u8 {
+                let mut it = pma.find_overlapping_iter([a, b]);
+                assert_eq!(None, it.next());
+            }
+        }
+    }
+
+    #[test]
+    fn test_serialize_state() {
+        let mut opos_ch = U24nU8::default();
+        opos_ch.set_a(U24::try_from(57).unwrap());
+        opos_ch.set_b(77);
+        let x = State {
+            base: NonZeroU32::new(42),
+            fail: 13,
+            opos_ch,
+        };
+        let mut data = vec![];
+        x.serialize_to_vec(&mut data);
+        assert_eq!(data.len(), State::<u32>::serialized_bytes());
+        let (y, rest) = State::deserialize_from_slice(&data).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(x, y);
+    }
+
+    #[test]
+    fn test_serialize_pma() {
+        let patterns = vec!["abba", "baaba", "ababa"];
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        let bytes = pma.serialize();
+        let (other, rest) = DoubleArrayAhoCorasick::deserialize(&bytes).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(pma.states, other.states);
+        assert_eq!(pma.outputs, other.outputs);
+        assert_eq!(pma.match_kind, other.match_kind);
+        assert_eq!(pma.num_states, other.num_states);
+    }
+
+    #[test]
+    fn test_serialize_leftmost_pma() {
+        let patterns = vec!["abba", "baaba", "ababa"];
+        let pma: DoubleArrayAhoCorasick<u32> = DoubleArrayAhoCorasickBuilder::new()
+            .match_kind(MatchKind::LeftmostLongest)
+            .build(patterns)
+            .unwrap();
+        let bytes = pma.serialize();
+        let (other, rest) = DoubleArrayAhoCorasick::deserialize(&bytes).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(pma.states, other.states);
+        assert_eq!(pma.leftmost_states, other.leftmost_states);
+        assert_eq!(pma.fails, other.fails);
+        assert_eq!(pma.outputs, other.outputs);
+        assert_eq!(pma.match_kind, other.match_kind);
+        assert_eq!(pma.num_states, other.num_states);
+    }
+
+    #[test]
+    fn test_serialize_empty_pma() {
+        let patterns: [&str; 0] = [];
+        let pma = DoubleArrayAhoCorasick::<u32>::new(patterns).unwrap();
+        let bytes = pma.serialize();
+        let (other, rest) = DoubleArrayAhoCorasick::deserialize(&bytes).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(pma.states, other.states);
+        assert_eq!(pma.outputs, other.outputs);
+        assert_eq!(pma.match_kind, other.match_kind);
+        assert_eq!(pma.num_states, other.num_states);
+    }
+
+    #[test]
+    fn test_deserialize_invalid_pma() {
+        let bytes = [
+            0, 0, 0, 0, // states
+            0, 0, 0, 0, // leftmost_states
+            0, 0, 0, 0, // fails
+            0, 0, 0, 0, // outputs
+            0, // match_kind
+            0, 0, 0, 0, // num_states
+        ];
+        let pma = DoubleArrayAhoCorasick::<u32>::deserialize(&bytes);
+        assert!(pma.is_err());
+    }
+}
