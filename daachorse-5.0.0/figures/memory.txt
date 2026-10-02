@@ -1,0 +1,5 @@
+Library,Word100,o200k_base,UniDic
+aho-corasick (NFA),0.228,18.867,38.494
+aho-corasick (DFA),0.228,427.719,1775.274
+daachorse-bytewise,0.077,7.881,30.731
+daachorse-charwise,0.078,0,24.004

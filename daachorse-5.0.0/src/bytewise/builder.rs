@@ -1,0 +1,417 @@
+use alloc::vec::Vec;
+
+use crate::build_helper::{BuildHelper, Profile};
+use crate::bytewise::{DoubleArrayAhoCorasick, MatchKind, State, BLOCK_LEN};
+use crate::errors::{DaachorseError, Result};
+use crate::intpack::U24;
+use crate::nfa_builder::{NfaBuilder, DEAD_STATE_ID};
+use crate::prefilter::{Prefilter, PrefilterBuilder};
+use crate::utils::FromU32;
+use crate::{Empty, DEAD_STATE_IDX, ROOT_STATE_IDX};
+
+// Specialized [`NfaBuilder`] handling labels of `u8`.
+type BytewiseNfaBuilder<V> = NfaBuilder<u8, V>;
+
+/// Builder of [`DoubleArrayAhoCorasick`].
+pub struct DoubleArrayAhoCorasickBuilder {
+    states: Vec<State<u32>>,
+    match_kind: MatchKind,
+    corpus: Vec<Vec<u8>>,
+    use_prefilter: bool,
+}
+
+impl Default for DoubleArrayAhoCorasickBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DoubleArrayAhoCorasickBuilder {
+    /// Creates a new [`DoubleArrayAhoCorasickBuilder`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasickBuilder;
+    ///
+    /// let builder = DoubleArrayAhoCorasickBuilder::new();
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = builder.build(patterns).unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            states: vec![],
+            match_kind: MatchKind::Standard,
+            corpus: vec![],
+            use_prefilter: true,
+        }
+    }
+
+    /// Specifies [`MatchKind`] to build.
+    ///
+    /// # Arguments
+    ///
+    /// * `kind` - Match kind.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::{DoubleArrayAhoCorasickBuilder, MatchKind};
+    ///
+    /// let patterns = vec!["ab", "abcd"];
+    /// let pma = DoubleArrayAhoCorasickBuilder::new()
+    ///     .match_kind(MatchKind::LeftmostLongest)
+    ///     .build(&patterns)
+    ///     .unwrap();
+    ///
+    /// let mut it = pma.leftmost_find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 4, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    #[must_use]
+    pub const fn match_kind(mut self, kind: MatchKind) -> Self {
+        self.match_kind = kind;
+        self
+    }
+
+    /// Specifies whether to build the match-candidate prefilter, which is enabled by default.
+    ///
+    /// The prefilter accelerates the slice-based search methods on pattern sets where it is
+    /// likely to pay off, in exchange for 64KiB of additional heap memory and serialized size.
+    /// Disable it when the memory matters more than the search speed.
+    ///
+    /// # Arguments
+    ///
+    /// * `yes` - Whether to build the prefilter.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasickBuilder;
+    ///
+    /// let patterns = vec!["bcd", "ab"];
+    /// let pma = DoubleArrayAhoCorasickBuilder::new()
+    ///     .use_prefilter(false)
+    ///     .build(patterns)
+    ///     .unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 2, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    #[must_use]
+    pub const fn use_prefilter(mut self, yes: bool) -> Self {
+        self.use_prefilter = yes;
+        self
+    }
+
+    /// Specifies a corpus of sample documents for the profile-guided layout optimization.
+    ///
+    /// States frequently accessed in scanning the corpus are packed densely at small indices
+    /// so that matching on documents similar to the corpus becomes more cache-efficient.
+    /// The corpus never changes match results, only the memory layout of the automaton.
+    ///
+    /// Since the states accessed in scanning the corpus are placed by scanning all the blocks
+    /// of the double array, the construction time can increase, especially when the corpus
+    /// covers most states of a large pattern set.
+    ///
+    /// # Arguments
+    ///
+    /// * `haystacks` - Sample documents to be scanned.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasickBuilder;
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = DoubleArrayAhoCorasickBuilder::new()
+    ///     .corpus(["abcd"])
+    ///     .build(patterns)
+    ///     .unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    #[must_use]
+    pub fn corpus<I, P>(mut self, haystacks: I) -> Self
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<[u8]>,
+    {
+        self.corpus = haystacks.into_iter().map(|h| h.as_ref().to_vec()).collect();
+        self
+    }
+
+    /// Builds and returns a new [`DoubleArrayAhoCorasick`] from input patterns. The value `i` is
+    /// automatically associated with `patterns[i]`.
+    ///
+    /// # Arguments
+    ///
+    /// * `patterns` - List of patterns.
+    ///
+    /// # Errors
+    ///
+    /// [`DaachorseError`] is returned when
+    ///   - the conversion from the index `i` to the specified type `V` fails,
+    ///   - the scale of `patterns` exceeds the expected one, or
+    ///   - the scale of the resulting automaton exceeds the expected one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasickBuilder;
+    ///
+    /// let builder = DoubleArrayAhoCorasickBuilder::new();
+    ///
+    /// let patterns = vec!["bcd", "ab", "a"];
+    /// let pma = builder.build(patterns).unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcd");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn build<I, P, V>(self, patterns: I) -> Result<DoubleArrayAhoCorasick<V>>
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<[u8]>,
+        V: Copy + TryFrom<usize>,
+    {
+        // The following code implicitly replaces large indices with 0,
+        // but build_with_values() returns an error variant for such iterators.
+        let patvals: Vec<_> = patterns
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| V::try_from(i).map(|i| (p, i)))
+            .collect::<Result<_, _>>()
+            .map_err(|_| DaachorseError::invalid_conversion("index", "V"))?;
+        self.build_with_values(patvals)
+    }
+
+    /// Builds and returns a new [`DoubleArrayAhoCorasick`] from input pattern-value pairs.
+    ///
+    /// # Arguments
+    ///
+    /// * `patvals` - List of pattern-value pairs.
+    ///
+    /// # Errors
+    ///
+    /// [`DaachorseError`] is returned when
+    ///   - the scale of `patvals` exceeds the expected one, or
+    ///   - the scale of the resulting automaton exceeds the expected one.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use daachorse::DoubleArrayAhoCorasickBuilder;
+    ///
+    /// let builder = DoubleArrayAhoCorasickBuilder::new();
+    ///
+    /// let patvals = vec![("bcd", 0), ("ab", 1), ("a", 2), ("e", 1)];
+    /// let pma = builder.build_with_values(patvals).unwrap();
+    ///
+    /// let mut it = pma.find_iter("abcde");
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+    ///
+    /// let m = it.next().unwrap();
+    /// assert_eq!((4, 5, 1), (m.start(), m.end(), m.value()));
+    ///
+    /// assert_eq!(None, it.next());
+    /// ```
+    pub fn build_with_values<I, P, V>(mut self, patvals: I) -> Result<DoubleArrayAhoCorasick<V>>
+    where
+        I: IntoIterator<Item = (P, V)>,
+        P: AsRef<[u8]>,
+        V: Copy,
+    {
+        let (nfa, prefilter) = self.build_sparse_nfa(patvals)?;
+        let profile = if self.corpus.is_empty() {
+            Profile::default()
+        } else {
+            self.profile_corpus(&nfa)
+        };
+        self.build_double_array(&nfa, &profile)?;
+
+        // -1 is for dead state
+        let num_states = u32::try_from(nfa.states.len() - 1)
+            .map_err(|_| DaachorseError::automaton_scale("num_states", u32::MAX))?;
+
+        let mut leftmost_states = vec![];
+        let mut fails = vec![];
+        let root_table = if self.match_kind.is_leftmost() {
+            leftmost_states.reserve_exact(self.states.len());
+            fails.reserve_exact(self.states.len());
+            for s in &self.states {
+                leftmost_states.push(State {
+                    base: s.base(),
+                    fail: Empty,
+                    opos_ch: s.opos_ch,
+                });
+                fails.push(s.fail);
+            }
+            self.states = vec![];
+            vec![]
+        } else {
+            DoubleArrayAhoCorasick::<V>::build_root_table(&self.states)
+        };
+        Ok(DoubleArrayAhoCorasick {
+            states: self.states,
+            leftmost_states,
+            fails,
+            outputs: nfa.outputs,
+            match_kind: self.match_kind,
+            num_states,
+            root_table,
+            prefilter,
+        })
+    }
+
+    fn build_sparse_nfa<I, P, V>(
+        &self,
+        patvals: I,
+    ) -> Result<(BytewiseNfaBuilder<V>, Option<Prefilter>)>
+    where
+        I: IntoIterator<Item = (P, V)>,
+        P: AsRef<[u8]>,
+        V: Copy,
+    {
+        let mut nfa = BytewiseNfaBuilder::new(self.match_kind);
+        let mut prefilter_builder = self.use_prefilter.then(PrefilterBuilder::new);
+        for (pattern, value) in patvals {
+            let pattern = pattern.as_ref();
+            if let Some(builder) = &mut prefilter_builder {
+                builder.add(pattern);
+            }
+            nfa.add(pattern, value)?;
+        }
+        if nfa.len > usize::from_u32(U24::MAX) {
+            return Err(DaachorseError::automaton_scale("patvals.len()", U24::MAX));
+        }
+        let q = match self.match_kind {
+            MatchKind::Standard => nfa.build_fails(),
+            MatchKind::LeftmostLongest | MatchKind::LeftmostFirst => nfa.build_fails_leftmost(),
+        };
+        nfa.build_outputs(&q);
+        Ok((nfa, prefilter_builder.and_then(PrefilterBuilder::build)))
+    }
+
+    fn profile_corpus<V>(&self, nfa: &BytewiseNfaBuilder<V>) -> Profile
+    where
+        V: Copy,
+    {
+        let mut profile = Profile::default();
+        profile.resize(nfa.states.len());
+        // The standard matching handles the root transitions with a dense table.
+        let dense_root = !self.match_kind.is_leftmost();
+        for haystack in &self.corpus {
+            nfa.profile_haystack(haystack, &mut profile, dense_root, |_| true);
+        }
+        profile
+    }
+
+    fn build_double_array<V>(
+        &mut self,
+        nfa: &BytewiseNfaBuilder<V>,
+        profile: &Profile,
+    ) -> Result<()>
+    where
+        V: Copy,
+    {
+        let groups = nfa.sibling_groups(profile, u32::from);
+        let helper = BuildHelper::new(&groups, nfa.states.len(), BLOCK_LEN, true)?;
+
+        self.states
+            .resize(usize::from_u32(helper.num_elements()), State::default());
+        for group in &groups {
+            for &(c, child_id) in &group.children {
+                let child_idx = helper.idx_map[usize::from_u32(child_id)];
+                self.states[usize::from_u32(child_idx)].set_check(u8::try_from(c).unwrap());
+            }
+            // BuildHelper::new() assigns a BASE value to every group.
+            self.states[usize::from_u32(helper.idx_map[usize::from_u32(group.parent)])]
+                .set_base(helper.bases[usize::from_u32(group.parent)].unwrap());
+        }
+
+        self.set_fails_and_outputs(nfa, &helper.idx_map)?;
+        self.remove_invalid_checks(&helper);
+
+        Ok(())
+    }
+
+    fn set_fails_and_outputs<V>(
+        &mut self,
+        nfa: &BytewiseNfaBuilder<V>,
+        state_id_map: &[u32],
+    ) -> Result<()> {
+        for (i, s) in nfa.states.iter().enumerate() {
+            if i == usize::from_u32(DEAD_STATE_ID) {
+                continue;
+            }
+
+            let idx = usize::from_u32(state_id_map[i]);
+            debug_assert_ne!(idx, usize::from_u32(DEAD_STATE_IDX));
+
+            self.states[idx].set_output_pos(s.output_pos.get())?;
+
+            let fail_id = s.fail.get();
+            if fail_id == DEAD_STATE_ID {
+                self.states[idx].set_fail(DEAD_STATE_IDX);
+            } else {
+                let fail_idx = state_id_map[usize::from_u32(fail_id)];
+                debug_assert_ne!(fail_idx, DEAD_STATE_IDX);
+                self.states[idx].set_fail(fail_idx);
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_invalid_checks(&mut self, helper: &BuildHelper) {
+        for block_idx in 0..helper.num_elements() / BLOCK_LEN {
+            if let Some(unused_base) = helper.unused_base_in_block(block_idx) {
+                for c in u8::MIN..=u8::MAX {
+                    let idx = unused_base ^ u32::from(c);
+                    if idx == ROOT_STATE_IDX || idx == DEAD_STATE_IDX || !helper.is_used_index(idx)
+                    {
+                        self.states[usize::from_u32(idx)].set_check(c);
+                    }
+                }
+            }
+        }
+    }
+}
