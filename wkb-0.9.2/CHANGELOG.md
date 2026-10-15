@@ -1,0 +1,37 @@
+# Changes
+
+## Unreleased
+
+## 0.9.2 - 2025-11-21
+
+- Set up trusted publishing for crates.io (#89)
+- Expose APIs for accessing the underlying WKB buffer. (#85, #88)
+- Making structs for individual geometry types public. (#85)
+
+## 0.9.1 - 2025-09-24
+
+- Don't panic when parsing invalid WKB (#74).
+- Fix CI by removing georust container & fix clippy lint (#78)
+- Remove trait wrappers to work around Rust 1.90 compiler regression (#77)
+- Add lint warning for missing docs #80
+- Remove unnecessary `unwrap`s #79
+- Expose `Dimension` publicly #82
+
+## 0.9.0 - 2025-05-14
+
+- **BREAKING**: Standardize capitalization of `Wkb` in the codebase.
+  - `WKBResult` is now `WkbResult`.
+  - `WKBError` is now `WkbError`.
+- **BREAKING**: Bump to geo-traits 0.3.
+- **BREAKING**: Change the signature of writer functions to accept a `WriterOptions` object instead of `Endianness`. This allows a future update to write an SRID value without requiring a breaking change in the future.
+- Expose `GeometryType` and `Dimension` from parsed `Wkb` object (#65).
+- Expose `wkb::reader::Wkb` type through public API.
+- Ensure correct dimension when writing `Rect` to WKB. (#67)
+- Make lifetime annotations of `Wkb` more permissive. (#59)
+- Define associated types as references for geo-traits implementations of MultiLineString, Polygon and MultiPolygon to avoid creating unnecessary copies. (#61)
+- Make lifetime annotations of specialized `GeometryTrait` implementations more permissive. (#63)
+
+## 0.8.0 - 2024-12-03
+
+- As of this version the `wkb` crate is an entirely new implementation of reading/writing WKB. Previous versions of the `wkb` crate were published from https://github.com/amandasaurus/rust-wkb.
+

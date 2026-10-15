@@ -1,0 +1,31 @@
+name: Run tests
+on:
+  # Only run when merging to master, or open/synchronize/reopen a PR.
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  geohash:
+    name: geohash
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    strategy:
+      matrix:
+        build: [stable, nightly]
+        include:
+          - build: stable
+            rust: stable
+          - build: nightly
+            rust: nightly
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          components: clippy,rustfmt
+      - run: cargo fmt -- --check
+      - run: cargo test
+      - run: cargo test --no-default-features
+      - run: cargo clippy

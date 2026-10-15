@@ -1,0 +1,30 @@
+[package]
+name = "async_cell"
+version = "0.2.3"
+authors = ["Sam Sartor <me@samsartor.com>"]
+edition = "2018"
+description = "A Cell<Option<T>> that you can await on."
+documentation = "https://docs.rs/async_cell/"
+repository = "https://gitlab.com/samsartor/async_cell"
+readme = "README.md"
+keywords = ["futures", "resolve", "callback", "watch", "mvar"]
+categories = ["asynchronous"]
+license = "MIT"
+rust-version = "1.63"
+
+[badges]
+gitlab = { repository = "samsartor/async_cell", branch = "master" }
+
+[dependencies]
+weakref = { version = "0.2", optional = true }
+parking_lot = { version = "0.12", optional = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(loom)'] }
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.7"
+
+[features]
+deadlock_detection = ["parking_lot", "parking_lot/deadlock_detection"]
+no_std = []

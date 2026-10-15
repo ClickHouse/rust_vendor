@@ -1,0 +1,25 @@
+[package]
+name = "geohash"
+version = "0.13.2"
+authors = [ "Ning Sun <sunng@about.me>" ]
+description = "Geohash implementation for Rust."
+license = "MIT/Apache-2.0"
+keywords = ["geohash", "gis", "geography"]
+categories = [ "science::geo" ]
+repository = "https://github.com/georust/geohash.rs"
+readme = "README.md"
+documentation = "https://docs.rs/geohash/"
+edition = "2018"
+
+[features]
+default = ["std"]
+std = ["geo-types/std"]
+
+[dependencies]
+geo-types = {version = ">=0.6.0, <0.8.0", default-features = false}
+libm = "0.2.6"
+
+[dev-dependencies]
+csv = "1.2"
+num-traits = {version = "0.2", default-features = false, features = ["libm"]}
+serde = {version = "1", features = ["derive"]}

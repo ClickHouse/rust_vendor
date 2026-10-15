@@ -1,0 +1,610 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright The Lance Authors
+
+use arrow_schema::Schema as ArrowSchema;
+use datafusion::{execution::SessionState, logical_expr::Expr};
+use datafusion_substrait::substrait::proto::{
+    expression::{
+        field_reference::{ReferenceType, RootType},
+        reference_segment, RexType,
+    },
+    expression_reference::ExprType,
+    function_argument::ArgType,
+    r#type::{Kind, Struct},
+    Expression, ExpressionReference, ExtendedExpression, NamedStruct, Type,
+};
+use lance_core::{Error, Result};
+use prost::Message;
+use snafu::location;
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// Convert a DF Expr into a Substrait ExtendedExpressions message
+///
+/// The schema needs to contain all of the fields that are referenced in the expression.
+/// It is ok if the schema has more fields than are required.  However, we cannot currently
+/// convert all field types (e.g. extension types, FSL) and if these fields are present then
+/// the conversion will fail.
+///
+/// As a result, it may be a good idea for now to remove those types from the schema before
+/// calling this function.
+pub fn encode_substrait(
+    expr: Expr,
+    schema: Arc<ArrowSchema>,
+    state: &SessionState,
+) -> Result<Vec<u8>> {
+    use arrow_schema::Field;
+    use datafusion::logical_expr::ExprSchemable;
+    use datafusion_common::DFSchema;
+
+    let df_schema = Arc::new(DFSchema::try_from(schema)?);
+    let output_type = expr.get_type(&df_schema)?;
+    // Nullability doesn't matter
+    let output_field = Field::new("output", output_type, /*nullable=*/ true);
+    let extended_expr = datafusion_substrait::logical_plan::producer::to_substrait_extended_expr(
+        &[(&expr, &output_field)],
+        &df_schema,
+        state,
+    )?;
+
+    Ok(extended_expr.encode_to_vec())
+}
+
+fn count_fields(dtype: &Type) -> usize {
+    match dtype.kind.as_ref().unwrap() {
+        Kind::Struct(struct_type) => struct_type.types.iter().map(count_fields).sum::<usize>() + 1,
+        Kind::List(list_type) => {
+            // Recursively count fields in the list's child type
+            // This is critical for schemas with List<Struct> patterns
+            count_fields(list_type.r#type.as_ref().unwrap())
+        }
+        _ => 1,
+    }
+}
+
+fn remove_extension_types(
+    substrait_schema: &NamedStruct,
+    arrow_schema: Arc<ArrowSchema>,
+) -> Result<(NamedStruct, Arc<ArrowSchema>, HashMap<usize, usize>)> {
+    let fields = substrait_schema.r#struct.as_ref().unwrap();
+    if fields.types.len() != arrow_schema.fields.len() {
+        return Err(Error::InvalidInput {
+            source: "the number of fields in the provided substrait schema did not match the number of fields in the input schema.".into(),
+            location: location!(),
+        });
+    }
+    let mut kept_substrait_fields = Vec::with_capacity(fields.types.len());
+    let mut kept_arrow_fields = Vec::with_capacity(arrow_schema.fields.len());
+    let mut index_mapping = HashMap::with_capacity(arrow_schema.fields.len());
+    let mut field_counter = 0;
+    let mut field_index = 0;
+    // TODO: this logic doesn't catch user defined fields inside of struct fields
+    for (substrait_field, arrow_field) in fields.types.iter().zip(arrow_schema.fields.iter()) {
+        let num_fields = count_fields(substrait_field);
+
+        let kind = substrait_field.kind.as_ref().unwrap();
+        let is_user_defined = match kind {
+            Kind::UserDefined(_) => true,
+            // Keep compatibility with older Substrait plans.
+            #[allow(deprecated)]
+            Kind::UserDefinedTypeReference(_) => true,
+            _ => false,
+        };
+
+        if !substrait_schema.names[field_index].starts_with("__unlikely_name_placeholder")
+            && !is_user_defined
+        {
+            kept_substrait_fields.push(substrait_field.clone());
+            kept_arrow_fields.push(arrow_field.clone());
+            for i in 0..num_fields {
+                index_mapping.insert(field_index + i, field_counter + i);
+            }
+            field_counter += num_fields;
+        }
+        field_index += num_fields;
+    }
+    let mut names = vec![String::new(); index_mapping.len()];
+    for (old_idx, old_name) in substrait_schema.names.iter().enumerate() {
+        if let Some(new_idx) = index_mapping.get(&old_idx) {
+            names[*new_idx] = old_name.clone();
+        }
+    }
+    let new_arrow_schema = Arc::new(ArrowSchema::new(kept_arrow_fields));
+    let new_substrait_schema = NamedStruct {
+        names,
+        r#struct: Some(Struct {
+            nullability: fields.nullability,
+            type_variation_reference: fields.type_variation_reference,
+            types: kept_substrait_fields,
+        }),
+    };
+    Ok((new_substrait_schema, new_arrow_schema, index_mapping))
+}
+
+fn remap_expr_references(expr: &mut Expression, mapping: &HashMap<usize, usize>) -> Result<()> {
+    match expr.rex_type.as_mut().unwrap() {
+        // Simple, no field references possible
+        RexType::Literal(_) | RexType::Nested(_) | RexType::DynamicParameter(_) => Ok(()),
+        // Enum literals are deprecated in Substrait and should only appear in older plans.
+        #[allow(deprecated)]
+        RexType::Enum(_) => Ok(()),
+        // Complex operators not supported in filters
+        RexType::WindowFunction(_) | RexType::Subquery(_) => Err(Error::invalid_input(
+            "Window functions or subqueries not allowed in filter expression",
+            location!(),
+        )),
+        // Pass through operators, nested children may have field references
+        RexType::ScalarFunction(ref mut func) => {
+            #[allow(deprecated)]
+            for arg in &mut func.args {
+                remap_expr_references(arg, mapping)?;
+            }
+            for arg in &mut func.arguments {
+                match arg.arg_type.as_mut().unwrap() {
+                    ArgType::Value(expr) => remap_expr_references(expr, mapping)?,
+                    ArgType::Enum(_) | ArgType::Type(_) => {}
+                }
+            }
+            Ok(())
+        }
+        RexType::IfThen(ref mut ifthen) => {
+            for clause in ifthen.ifs.iter_mut() {
+                remap_expr_references(clause.r#if.as_mut().unwrap(), mapping)?;
+                remap_expr_references(clause.then.as_mut().unwrap(), mapping)?;
+            }
+            remap_expr_references(ifthen.r#else.as_mut().unwrap(), mapping)?;
+            Ok(())
+        }
+        RexType::SwitchExpression(ref mut switch) => {
+            for clause in switch.ifs.iter_mut() {
+                remap_expr_references(clause.then.as_mut().unwrap(), mapping)?;
+            }
+            remap_expr_references(switch.r#else.as_mut().unwrap(), mapping)?;
+            Ok(())
+        }
+        RexType::SingularOrList(ref mut orlist) => {
+            for opt in orlist.options.iter_mut() {
+                remap_expr_references(opt, mapping)?;
+            }
+            remap_expr_references(orlist.value.as_mut().unwrap(), mapping)?;
+            Ok(())
+        }
+        RexType::MultiOrList(ref mut orlist) => {
+            for opt in orlist.options.iter_mut() {
+                for field in opt.fields.iter_mut() {
+                    remap_expr_references(field, mapping)?;
+                }
+            }
+            for val in orlist.value.iter_mut() {
+                remap_expr_references(val, mapping)?;
+            }
+            Ok(())
+        }
+        RexType::Cast(ref mut cast) => {
+            remap_expr_references(cast.input.as_mut().unwrap(), mapping)?;
+            Ok(())
+        }
+        RexType::Selection(ref mut sel) => {
+            // Finally, the selection, which might actually have field references
+            let root_type = sel.root_type.as_mut().unwrap();
+            // These types of references do not reference input fields so no remap needed
+            if matches!(
+                root_type,
+                RootType::Expression(_) | RootType::OuterReference(_)
+            ) {
+                return Ok(());
+            }
+            match sel.reference_type.as_mut().unwrap() {
+                ReferenceType::DirectReference(direct) => {
+                    match direct.reference_type.as_mut().unwrap() {
+                        reference_segment::ReferenceType::ListElement(_)
+                        | reference_segment::ReferenceType::MapKey(_) => Err(Error::invalid_input(
+                            "map/list nested references not supported in pushdown filters",
+                            location!(),
+                        )),
+                        reference_segment::ReferenceType::StructField(field) => {
+                            if field.child.is_some() {
+                                Err(Error::invalid_input(
+                                    "nested references in pushdown filters not yet supported",
+                                    location!(),
+                                ))
+                            } else {
+                                if let Some(new_index) = mapping.get(&(field.field as usize)) {
+                                    field.field = *new_index as i32;
+                                } else {
+                                    return Err(Error::invalid_input("pushdown filter referenced a field that is not yet supported by Substrait conversion", location!()));
+                                }
+                                Ok(())
+                            }
+                        }
+                    }
+                }
+                ReferenceType::MaskedReference(_) => Err(Error::invalid_input(
+                    "masked references not yet supported in filter expressions",
+                    location!(),
+                )),
+            }
+        }
+    }
+}
+
+/// Convert a Substrait ExtendedExpressions message into a DF Expr
+///
+/// The ExtendedExpressions message must contain a single scalar expression
+pub async fn parse_substrait(
+    expr: &[u8],
+    input_schema: Arc<ArrowSchema>,
+    state: &SessionState,
+) -> Result<Expr> {
+    let envelope = ExtendedExpression::decode(expr)?;
+    if envelope.referred_expr.is_empty() {
+        return Err(Error::InvalidInput {
+            source: "the provided substrait expression is empty (contains no expressions)".into(),
+            location: location!(),
+        });
+    }
+    if envelope.referred_expr.len() > 1 {
+        return Err(Error::InvalidInput {
+            source: format!(
+                "the provided substrait expression had {} expressions when only 1 was expected",
+                envelope.referred_expr.len()
+            )
+            .into(),
+            location: location!(),
+        });
+    }
+    let mut expr = match &envelope.referred_expr[0].expr_type {
+        None => Err(Error::InvalidInput {
+            source: "the provided substrait had an expression but was missing an expr_type".into(),
+            location: location!(),
+        }),
+        Some(ExprType::Expression(expr)) => Ok(expr.clone()),
+        _ => Err(Error::InvalidInput {
+            source: "the provided substrait was not a scalar expression".into(),
+            location: location!(),
+        }),
+    }?;
+
+    // The Substrait may have come from a producer that uses extension types that DF doesn't support (e.g.
+    // from pyarrow) so we need to remove them and remap expr references (since they are indexes into the
+    // schema and we may have removed some fields)
+    let substrait_schema = if envelope.base_schema.as_ref().unwrap().r#struct.is_some() {
+        let (substrait_schema, _, index_mapping) =
+            remove_extension_types(envelope.base_schema.as_ref().unwrap(), input_schema.clone())?;
+
+        if substrait_schema.r#struct.as_ref().unwrap().types.len()
+            != envelope
+                .base_schema
+                .as_ref()
+                .unwrap()
+                .r#struct
+                .as_ref()
+                .unwrap()
+                .types
+                .len()
+        {
+            remap_expr_references(&mut expr, &index_mapping)?;
+        }
+
+        substrait_schema
+    } else {
+        envelope.base_schema.as_ref().unwrap().clone()
+    };
+
+    let extended_expr = ExtendedExpression {
+        base_schema: Some(substrait_schema),
+        referred_expr: vec![ExpressionReference {
+            output_names: envelope.referred_expr[0].output_names.clone(),
+            expr_type: Some(ExprType::Expression(expr)),
+        }],
+        ..envelope
+    };
+
+    let mut expr_container =
+        datafusion_substrait::logical_plan::consumer::from_substrait_extended_expr(
+            state,
+            &extended_expr,
+        )
+        .await?;
+
+    if expr_container.exprs.is_empty() {
+        return Err(Error::invalid_input(
+            "Substrait expression did not contain any expressions",
+            location!(),
+        ));
+    }
+
+    if expr_container.exprs.len() > 1 {
+        return Err(Error::invalid_input(
+            "Substrait expression contained multiple expressions",
+            location!(),
+        ));
+    }
+
+    Ok(expr_container.exprs.pop().unwrap().0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_schema::{DataType, Field, Schema};
+    use datafusion::{
+        execution::SessionState,
+        logical_expr::{BinaryExpr, Operator},
+        prelude::{Expr, SessionContext},
+    };
+    use datafusion_common::{Column, ScalarValue};
+    use datafusion_substrait::substrait::proto::{
+        expression::{
+            field_reference::{ReferenceType, RootReference, RootType},
+            literal::LiteralType,
+            reference_segment::{self, StructField},
+            FieldReference, Literal, ReferenceSegment, RexType, ScalarFunction,
+        },
+        expression_reference::ExprType,
+        extensions::{
+            simple_extension_declaration::{ExtensionFunction, MappingType},
+            SimpleExtensionDeclaration, SimpleExtensionUri, SimpleExtensionUrn,
+        },
+        function_argument::ArgType,
+        r#type::{Boolean, Kind, Nullability, Struct, I32},
+        Expression, ExpressionReference, ExtendedExpression, FunctionArgument, NamedStruct, Type,
+        Version,
+    };
+    use prost::Message;
+
+    use crate::substrait::{encode_substrait, parse_substrait};
+
+    fn session_state() -> SessionState {
+        let ctx = SessionContext::new();
+        ctx.state()
+    }
+
+    #[tokio::test]
+    async fn test_substrait_conversion() {
+        let expr = ExtendedExpression {
+            version: Some(Version {
+                major_number: 0,
+                minor_number: 63,
+                patch_number: 1,
+                git_hash: "".to_string(),
+                producer: "unit-test".to_string(),
+            }),
+            #[expect(deprecated)]
+            extension_uris: vec![
+                SimpleExtensionUri {
+                    extension_uri_anchor: 1,
+                    uri: "https://github.com/substrait-io/substrait/blob/main/extensions/functions_comparison.yaml".to_string(),
+                }
+            ],
+            extension_urns: vec![
+                SimpleExtensionUrn {
+                    extension_urn_anchor: 1,
+                    urn: "https://github.com/substrait-io/substrait/blob/main/extensions/functions_comparison.yaml".to_string(),
+                }
+            ],
+            extensions: vec![
+                SimpleExtensionDeclaration {
+                    mapping_type: Some(MappingType::ExtensionFunction(ExtensionFunction {
+                        #[expect(deprecated)]
+                        extension_uri_reference: 1,
+                        extension_urn_reference: 1,
+                        function_anchor: 1,
+                        name: "lt".to_string(),
+                    })),
+                }
+            ],
+            referred_expr: vec![ExpressionReference {
+                output_names: vec!["filter_mask".to_string()],
+                expr_type: Some(ExprType::Expression(Expression {
+                    rex_type: Some(RexType::ScalarFunction(ScalarFunction {
+                        function_reference: 1,
+                        arguments: vec![
+                            FunctionArgument {
+                                arg_type: Some(ArgType::Value(Expression {
+                                    rex_type: Some(RexType::Selection(Box::new(FieldReference {
+                                        reference_type: Some(ReferenceType::DirectReference(ReferenceSegment {
+                                            reference_type: Some(reference_segment::ReferenceType::StructField(Box::new(StructField { field: 0, child: None })))
+                                        })),
+                                        root_type: Some(RootType::RootReference(RootReference {}))
+                                    })))
+                                }))
+                            },
+                            FunctionArgument {
+                                arg_type: Some(ArgType::Value(Expression {
+                                    rex_type: Some(RexType::Literal(Literal {
+                                        nullable: false,
+                                        type_variation_reference: 0,
+                                        literal_type: Some(LiteralType::I32(0))
+                                    }))
+                                }))
+                            }
+                        ],
+                        options: vec![],
+                        output_type: Some(Type {
+                            kind: Some(Kind::Bool(Boolean {
+                                type_variation_reference: 0,
+                                nullability: Nullability::Required as i32,
+                            })),
+                        }),
+                        #[allow(deprecated)]
+                        args: vec![],
+                    }))
+                })),
+            }],
+            base_schema: Some(NamedStruct {
+                names: vec!["x".to_string()],
+                r#struct: Some(Struct {
+                    types: vec![Type {
+                        kind: Some(Kind::I32(I32 {
+                            type_variation_reference: 0,
+                            nullability: Nullability::Nullable as i32,
+                        })),
+                    }],
+                    type_variation_reference: 0,
+                    nullability: Nullability::Required as i32,
+                }),
+            }),
+            advanced_extensions: None,
+            expected_type_urls: vec![],
+        };
+        let expr_bytes = expr.encode_to_vec();
+
+        let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Int32, true)]));
+
+        let df_expr = parse_substrait(expr_bytes.as_slice(), schema, &session_state())
+            .await
+            .unwrap();
+
+        let expected = Expr::BinaryExpr(BinaryExpr {
+            left: Box::new(Expr::Column(Column::new_unqualified("x"))),
+            op: Operator::Lt,
+            right: Box::new(Expr::Literal(ScalarValue::Int32(Some(0)), None)),
+        });
+        assert_eq!(df_expr, expected);
+    }
+
+    #[tokio::test]
+    async fn test_expr_substrait_roundtrip() {
+        let schema = arrow_schema::Schema::new(vec![Field::new("x", DataType::Int32, true)]);
+        let expr = Expr::BinaryExpr(BinaryExpr {
+            left: Box::new(Expr::Column(Column::new_unqualified("x"))),
+            op: Operator::Lt,
+            right: Box::new(Expr::Literal(ScalarValue::Int32(Some(0)), None)),
+        });
+
+        let bytes =
+            encode_substrait(expr.clone(), Arc::new(schema.clone()), &session_state()).unwrap();
+
+        let decoded = parse_substrait(bytes.as_slice(), Arc::new(schema.clone()), &session_state())
+            .await
+            .unwrap();
+        assert_eq!(decoded, expr);
+    }
+
+    /// Helper to create a simple equality filter on the "id" field
+    fn id_filter(value: &str) -> Expr {
+        Expr::BinaryExpr(BinaryExpr {
+            left: Box::new(Expr::Column(Column::new_unqualified("id"))),
+            op: Operator::Eq,
+            right: Box::new(Expr::Literal(
+                ScalarValue::Utf8(Some(value.to_string())),
+                None,
+            )),
+        })
+    }
+
+    /// Helper to test substrait roundtrip encode/decode
+    async fn assert_substrait_roundtrip(schema: Schema, expr: Expr) {
+        let schema = Arc::new(schema);
+        let bytes = encode_substrait(expr.clone(), schema.clone(), &session_state()).unwrap();
+        let decoded = parse_substrait(bytes.as_slice(), schema, &session_state())
+            .await
+            .unwrap();
+        assert_eq!(decoded, expr);
+    }
+
+    /// Helper to create List<Struct> field
+    fn list_of_struct(name: &str, fields: Vec<Field>) -> Field {
+        Field::new(
+            name,
+            DataType::List(Arc::new(Field::new(
+                "item",
+                DataType::Struct(fields.into()),
+                true,
+            ))),
+            true,
+        )
+    }
+
+    #[tokio::test]
+    async fn test_substrait_roundtrip_with_list_of_struct() {
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            list_of_struct(
+                "top_previous_companies",
+                vec![
+                    Field::new("company_id", DataType::Int64, true),
+                    Field::new("company_name", DataType::Utf8, true),
+                ],
+            ),
+            Field::new("name", DataType::Utf8, true),
+        ]);
+
+        assert_substrait_roundtrip(schema, id_filter("test-id")).await;
+    }
+
+    #[tokio::test]
+    async fn test_substrait_roundtrip_with_list_struct_struct() {
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            list_of_struct(
+                "employees_count_breakdown_by_month",
+                vec![
+                    Field::new("date", DataType::Utf8, true),
+                    Field::new(
+                        "breakdown",
+                        DataType::Struct(
+                            vec![
+                                Field::new("employees_count_owner", DataType::Int64, true),
+                                Field::new("employees_count_founder", DataType::Int64, true),
+                                Field::new("employees_count_clevel", DataType::Int64, true),
+                            ]
+                            .into(),
+                        ),
+                        true,
+                    ),
+                ],
+            ),
+            Field::new("name", DataType::Utf8, true),
+        ]);
+
+        assert_substrait_roundtrip(schema, id_filter("test-id")).await;
+    }
+
+    #[tokio::test]
+    async fn test_substrait_roundtrip_with_many_nested_columns() {
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Utf8, false),
+            Field::new(
+                "location",
+                DataType::Struct(
+                    vec![
+                        Field::new("city", DataType::Utf8, true),
+                        Field::new("country", DataType::Utf8, true),
+                    ]
+                    .into(),
+                ),
+                true,
+            ),
+            list_of_struct(
+                "top_previous_companies",
+                vec![
+                    Field::new("company_id", DataType::Int64, true),
+                    Field::new("company_name", DataType::Utf8, true),
+                ],
+            ),
+            list_of_struct(
+                "employees_by_month",
+                vec![
+                    Field::new("date", DataType::Utf8, true),
+                    Field::new(
+                        "breakdown",
+                        DataType::Struct(
+                            vec![
+                                Field::new("count_owner", DataType::Int64, true),
+                                Field::new("count_founder", DataType::Int64, true),
+                            ]
+                            .into(),
+                        ),
+                        true,
+                    ),
+                ],
+            ),
+            Field::new("name", DataType::Utf8, true),
+        ]);
+
+        assert_substrait_roundtrip(schema, id_filter("test-id")).await;
+    }
+}
