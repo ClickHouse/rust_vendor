@@ -1,0 +1,19 @@
+---
+source: prqlc/prqlc/src/semantic/resolver/mod.rs
+expression: "resolve_derive(r#\"\n            from a\n            derive one = (foo | sum)\n            \"#).unwrap()"
+---
+- RqOperator:
+    name: std.sum
+    args:
+      - Ident:
+          - this
+          - a
+          - foo
+        span: "1:46-49"
+        ty:
+          kind:
+            Array: ~
+          span: "0:1699-1701"
+          name: array
+  span: "1:52-55"
+  alias: one
