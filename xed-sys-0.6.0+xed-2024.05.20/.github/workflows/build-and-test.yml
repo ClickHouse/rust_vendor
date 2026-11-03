@@ -1,0 +1,33 @@
+
+on:
+  # Dependabot branches are already built by the pull-request flow since
+  # dependabot will always open a corresponding PR.
+  push:
+    branches-ignore:
+      - dependabot/**
+  pull_request:
+
+name: ci
+
+jobs:
+  build_and_test:
+    name: xed-rs
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.toolchain == 'nightly' }}
+    strategy:
+      matrix:
+        toolchain: [stable, beta, nightly]
+        os:
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test
+      - run: cargo test --all-features

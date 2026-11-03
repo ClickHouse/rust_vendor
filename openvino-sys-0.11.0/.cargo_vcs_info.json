@@ -1,0 +1,6 @@
+{
+  "git": {
+    "sha1": "e788316bae7baef13854d4abf5dd0e537a962062"
+  },
+  "path_in_vcs": "crates/openvino-sys"
+}

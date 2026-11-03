@@ -1,0 +1,26 @@
+[package]
+name = "xed-sys"
+version = "0.6.0+xed-2024.05.20"
+authors = ["Phantomical", "Agustin Godnic"]
+license = "Apache-2.0"
+description = "Rust FFI bindings for Intel XED."
+edition = "2018"
+repository = "https://github.com/rust-xed/xed-sys"
+readme = "README.md"
+keywords = ["xed", "intel", "x86", "x86_64"]
+categories = ["encoding", "external-ffi-bindings", "hardware-support", "parsing"]
+rust-version = "1.64"
+
+[features]
+# Generate bindings with bindgen at build-time instead of using the
+# pregenerated bindings.
+#
+# This will be slower but is required for certain feature combinations.
+bindgen = ["dep:bindgen"]
+
+[dependencies]
+
+[build-dependencies]
+bindgen = { version = "0.69", optional = true, features = ["experimental"] }
+cc = "1.0"
+target-lexicon = "0.12"
