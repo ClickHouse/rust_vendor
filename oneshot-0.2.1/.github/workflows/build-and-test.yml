@@ -1,0 +1,92 @@
+---
+name: Cargo build and test
+on:
+  pull_request:
+    paths:
+      - .github/workflows/*.yml
+      - "**/*.rs"
+      - Cargo.toml
+      - Cargo.lock
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "--deny warnings "
+
+permissions: {}
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        rust: [stable, beta]
+        include:
+          - os: ubuntu-latest
+            rust: nightly
+          - os: ubuntu-latest
+            rust: 1.85.0
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Build
+        shell: bash
+        run: cargo hack --feature-powerset --exclude-all-features build --locked
+
+      # Run through all tests with all combinations of features
+      - name: Test
+        shell: bash
+        run: cargo hack --feature-powerset --exclude-all-features test --locked
+
+      # Run `cargo test` but with artificial delay injected into some code paths. This helps
+      # running through some hard-to-time code paths. loom testing is not included since it is not
+      # compatible nor make any sense together with sleeping.
+      - name: Test with artificial delay
+        shell: bash
+        run: RUSTFLAGS+="--cfg oneshot_test_delay" cargo hack --feature-powerset --exclude-all-features test
+
+      # Compile the library against loom to do correctness testing.
+      # `--features loom` must be given so that only feature powerset combinations including loom are tested.
+      - name: Test with loom
+        shell: bash
+        run: |
+          RUSTFLAGS+="--cfg oneshot_loom" LOOM_MAX_BRANCHES=100000 \
+            cargo hack --feature-powerset --exclude-all-features --features loom test
+
+      # Check that the benchmarks builds and has no warnings (but don't run them)
+      - name: Build benchmarks
+        if: matrix.rust == 'stable' && matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: RUSTFLAGS+="--cfg criterion" cargo bench --no-run --all-features
+
+      # Check that the documentation builds and has no warnings
+      - name: Build documentation
+        shell: bash
+        run: RUSTDOCFLAGS="--deny warnings" cargo hack --feature-powerset --exclude-all-features doc
+
+  miri:
+    name: "Miri"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+
+      - name: Setup Miri
+        run: cargo miri setup
+
+      - name: Test with Miri
+        run: |
+          MIRIFLAGS="-Zmiri-many-seeds=0..512 -Zmiri-backtrace=full" \
+            cargo miri test --test miri

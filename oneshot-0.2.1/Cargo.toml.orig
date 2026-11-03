@@ -1,0 +1,78 @@
+[package]
+name = "oneshot"
+version = "0.2.1"
+authors = ["Linus Färnstrand <faern@faern.net>"]
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+
+description = """
+Oneshot spsc channel with (potentially) lock-free non-blocking send, and a receiver supporting
+both thread blocking receive operations as well as Future based async polling.
+"""
+
+repository = "https://github.com/faern/oneshot"
+keywords = ["oneshot", "spsc", "async", "sync", "channel"]
+categories = ["asynchronous", "concurrency"]
+edition = "2024"
+rust-version = "1.85.0"
+
+[features]
+# None of the features are on by default, by design. Default features is an anti-pattern.
+# Since most people pull in dependencies without carefully inspecting the dependency or
+# feature list, they accidentally pull in unnecessary complexity and sometimes even
+# dependencies. By making everything opt-in, we avoid this problem. Opting in to a feature
+# is so simple in Cargo anyway, and makes it more explicit what functionality it uses.
+
+# Enables usage of libstd. Adds support for thread blocking receive methods.
+std = []
+# Enables async receiving via the AsyncReceiver receiver
+async = []
+
+# Only used for internal correctness testing.
+# Downstream users of oneshot should never enable this feature. Enabling it does nothing.
+# To compile oneshot built against loom one must *also* set RUSTFLAGS="--cfg oneshot_loom"
+[target.'cfg(oneshot_loom)'.dependencies]
+loom = { version = "0.7.2", features = ["futures"], optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
+async-std = { version = "1", features = ["attributes"] }
+
+# Benchmarking only dependency. This is hidden behind a `cfg(criterion)` to avoid it being
+# pulled in during `cargo test` runs. Mostly because criterion has a much higher MSRV than
+# this library, so it becomes impossible to run `cargo test` on the MSRV compiler without
+# this hack.
+# To run benchmarks, run with `RUSTFLAGS="--cfg criterion" cargo bench --all-features`
+[target.'cfg(criterion)'.dev-dependencies]
+criterion = "0.8.1"
+
+[lints.clippy]
+allow_attributes = "warn"
+as_ptr_cast_mut = "warn"
+as_underscore = "warn"
+borrow_as_ptr = "warn"
+implicit_clone = "warn"
+undocumented_unsafe_blocks = "warn"
+unicode_not_nfc = "warn"
+unused_async = "deny"
+wildcard_dependencies = "deny"
+wildcard_imports = "warn"
+
+[lints.rust]
+unexpected_cfgs = { level = "deny", check-cfg = ['cfg(oneshot_loom)', 'cfg(oneshot_test_delay)', 'cfg(criterion)'] }
+absolute_paths_not_starting_with_crate = "deny"
+explicit_outlives_requirements = "warn"
+macro_use_extern_crate = "deny"
+missing_abi = "deny"
+non_ascii_idents = "forbid"
+single_use_lifetimes = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+
+[[bench]]
+name = "benches"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
