@@ -1,0 +1,494 @@
+//! # 🐎 daachorse: Double-Array Aho-Corasick
+//!
+//! A fast implementation of the Aho-Corasick algorithm
+//! using the compact double-array data structure.
+//!
+//! ## Overview
+//!
+//! Daachorse (pronounced "dark horse") is a crate for fast multiple pattern matching using the
+//! [Aho-Corasick algorithm](https://dl.acm.org/doi/10.1145/360825.360855), running in linear time
+//! over the length of the input text. This crate uses the
+//! [compact double-array data structure](https://doi.org/10.1016/j.ipm.2006.04.004) for
+//! implementing the pattern match automaton for time and memory efficiency. The data structure not
+//! only supports constant-time state-to-state traversal but also represents each state using only
+//! 12 bytes of memory.
+//!
+//! In addition, a match-candidate prefilter based on 2-grams is enabled by default. It lets the
+//! slice-based search methods quickly skip sections of the haystack that contain no occurrence of
+//! any pattern, accelerating matching on pattern sets where it is likely to pay off, in exchange
+//! for 64KiB of additional heap memory and serialized size. The prefilter never changes match
+//! results. You can disable it with [`DoubleArrayAhoCorasickBuilder::use_prefilter()`] or
+//! [`CharwiseDoubleArrayAhoCorasickBuilder::use_prefilter()`].
+//!
+//! The main technical ideas behind this library appear in the following paper:
+//!
+//! > Shunsuke Kanda, Koichi Akabe, and Yusuke Oda.
+//! > [Engineering faster double-array Aho-Corasick automata](https://doi.org/10.1002/spe.3190).
+//! > *Software: Practice and Experience (SPE)*,
+//! > 53(6): 1332–1361, 2023
+//! > ([arXiv](https://arxiv.org/abs/2207.13870))
+//!
+//! ## Example: Finding overlapping occurrences
+//!
+//! To search for all occurrences of registered patterns that allow for positional overlap in the
+//! input text, use [`DoubleArrayAhoCorasick::find_overlapping_iter()`].
+//!
+//! When you use [`DoubleArrayAhoCorasick::new()`] for construction, the library assigns a unique
+//! identifier to each pattern in the input order. The match result has the byte positions of the
+//! occurrence and its identifier.
+//!
+//! ```
+//! use daachorse::DoubleArrayAhoCorasick;
+//!
+//! let patterns = vec!["bcd", "ab", "a"];
+//! let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+//!
+//! let mut it = pma.find_overlapping_iter("abcd");
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 2, 1), (m.start(), m.end(), m.value()));
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+//!
+//! assert_eq!(None, it.next());
+//! ```
+//!
+//! ## Example: Finding non-overlapping occurrences with standard matching
+//!
+//! To disallow positional overlap, use [`DoubleArrayAhoCorasick::find_iter()`] instead.
+//!
+//! This function performs the search on the Aho-Corasick automaton and reports the first matching
+//! pattern at each search position.
+//!
+//! ```
+//! use daachorse::DoubleArrayAhoCorasick;
+//!
+//! let patterns = vec!["bcd", "ab", "a"];
+//! let pma = DoubleArrayAhoCorasick::new(patterns).unwrap();
+//!
+//! let mut it = pma.find_iter("abcd");
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 1, 2), (m.start(), m.end(), m.value()));
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+//!
+//! assert_eq!(None, it.next());
+//! ```
+//!
+//! ## Example: Finding non-overlapping occurrences with longest matching
+//!
+//! To search for the longest pattern without positional overlap in each iteration, specify
+//! [`MatchKind::LeftmostLongest`] during construction and use
+//! [`DoubleArrayAhoCorasick::leftmost_find_iter()`].
+//!
+//! ```
+//! use daachorse::{DoubleArrayAhoCorasickBuilder, MatchKind};
+//!
+//! let patterns = vec!["ab", "a", "abcd"];
+//! let pma = DoubleArrayAhoCorasickBuilder::new()
+//!     .match_kind(MatchKind::LeftmostLongest)
+//!     .build(&patterns)
+//!     .unwrap();
+//!
+//! let mut it = pma.leftmost_find_iter("abcd");
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 4, 2), (m.start(), m.end(), m.value()));
+//!
+//! assert_eq!(None, it.next());
+//! ```
+//!
+//! ## Example: Finding non-overlapping occurrences with leftmost-first matching
+//!
+//! To search for the earliest registered pattern among those starting from the search position,
+//! specify [`MatchKind::LeftmostFirst`] during construction and use
+//! [`DoubleArrayAhoCorasick::leftmost_find_iter()`].
+//!
+//! This semantics is the so-called *leftmost first match*, a tricky search option supported in the
+//! [aho-corasick](https://github.com/BurntSushi/aho-corasick) crate. For example, in the
+//! following code, `ab` is reported because it is the earliest registered one.
+//!
+//! ```
+//! use daachorse::{DoubleArrayAhoCorasickBuilder, MatchKind};
+//!
+//! let patterns = vec!["ab", "a", "abcd"];
+//! let pma = DoubleArrayAhoCorasickBuilder::new()
+//!     .match_kind(MatchKind::LeftmostFirst)
+//!     .build(&patterns)
+//!     .unwrap();
+//!
+//! let mut it = pma.leftmost_find_iter("abcd");
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 2, 0), (m.start(), m.end(), m.value()));
+//!
+//! assert_eq!(None, it.next());
+//! ```
+//!
+//! ## Example: Associating arbitrary values with patterns
+//!
+//! To build the automaton from pattern-value pairs, instead of assigning identifiers automatically,
+//! use [`DoubleArrayAhoCorasick::with_values()`].
+//!
+//! ```
+//! use daachorse::DoubleArrayAhoCorasick;
+//!
+//! let patvals = vec![("bcd", 0), ("ab", 10), ("a", 20)];
+//! let pma = DoubleArrayAhoCorasick::with_values(patvals).unwrap();
+//!
+//! let mut it = pma.find_overlapping_iter("abcd");
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 1, 20), (m.start(), m.end(), m.value()));
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 2, 10), (m.start(), m.end(), m.value()));
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((1, 4, 0), (m.start(), m.end(), m.value()));
+//!
+//! assert_eq!(None, it.next());
+//! ```
+//!
+//! ## Example: Building faster automaton on multibyte characters
+//!
+//! To build a faster automaton on multibyte characters, use [`CharwiseDoubleArrayAhoCorasick`]
+//! instead.
+//!
+//! The standard version [`DoubleArrayAhoCorasick`] handles strings as UTF-8 sequences and defines
+//! transition labels using byte values. In contrast, [`CharwiseDoubleArrayAhoCorasick`] uses
+//! Unicode code point values, reducing the number of transitions and enabling faster matching on
+//! multibyte characters.
+//!
+//! ```
+//! use daachorse::CharwiseDoubleArrayAhoCorasick;
+//!
+//! let patterns = vec!["全世界", "世界", "に"];
+//! let pma = CharwiseDoubleArrayAhoCorasick::new(patterns).unwrap();
+//!
+//! let mut it = pma.find_iter("全世界中に");
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((0, 9, 0), (m.start(), m.end(), m.value()));
+//!
+//! let m = it.next().unwrap();
+//! assert_eq!((12, 15, 2), (m.start(), m.end(), m.value()));
+//!
+//! assert_eq!(None, it.next());
+//! ```
+//!
+//! ## Profile-Guided Optimization (PGO)
+//!
+//! The double array constructed by daachorse is designed to improve CPU cache efficiency. However,
+//! it is not always the optimal layout for every document being scanned.
+//!
+//! daachorse addresses this issue by supporting Profile-Guided Optimization (PGO). By providing a
+//! corpus when constructing the automaton, the memory layout is optimized, which may improve
+//! performance on documents similar to the given corpus.
+//!
+//! ```
+//! use daachorse::{DoubleArrayAhoCorasick, DoubleArrayAhoCorasickBuilder};
+//!
+//! let patterns = vec!["bcd", "ab", "a"];
+//! let pma: DoubleArrayAhoCorasick<u32> = DoubleArrayAhoCorasickBuilder::new()
+//!     .corpus(["abcd"])
+//!     .build(patterns)
+//!     .unwrap();
+//! ```
+
+#![deny(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![no_std]
+
+#[cfg(not(feature = "alloc"))]
+compile_error!("`alloc` feature is currently required to build this crate");
+
+#[cfg(not(any(target_pointer_width = "32", target_pointer_width = "64")))]
+compile_error!("`target_pointer_width` must be 32 or 64");
+
+#[macro_use]
+extern crate alloc;
+
+mod build_helper;
+pub mod bytewise;
+pub mod charwise;
+mod edge_map;
+pub mod errors;
+mod intpack;
+mod nfa_builder;
+mod prefilter;
+mod serializer;
+mod utils;
+
+use core::num::NonZeroU32;
+
+use alloc::vec::Vec;
+
+pub use crate::bytewise::{DoubleArrayAhoCorasick, DoubleArrayAhoCorasickBuilder};
+pub use crate::charwise::{CharwiseDoubleArrayAhoCorasick, CharwiseDoubleArrayAhoCorasickBuilder};
+use crate::errors::DaachorseError;
+pub use crate::errors::Result;
+pub use crate::serializer::Serializable;
+use crate::utils::FromU32;
+
+// The root index position.
+pub(crate) const ROOT_STATE_IDX: u32 = 0;
+// The dead index position.
+pub(crate) const DEAD_STATE_IDX: u32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, Hash, PartialEq)]
+struct Output<V> {
+    value: V,
+    length: u32,
+    parent: Option<NonZeroU32>,
+}
+
+impl<V> Output<V>
+where
+    V: Copy,
+{
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline(always)]
+    pub fn new(value: V, length: u32, parent: Option<NonZeroU32>) -> Self {
+        Self {
+            value,
+            length,
+            parent,
+        }
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline(always)]
+    pub fn value(self) -> V {
+        self.value
+    }
+
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline(always)]
+    pub fn parent(self) -> Option<NonZeroU32> {
+        self.parent
+    }
+
+    /// Creates a match of this output ending at the position `end`.
+    #[inline(always)]
+    pub(crate) fn to_match(self, end: usize) -> Match<V> {
+        Match {
+            length: usize::from_u32(self.length),
+            end,
+            value: self.value,
+        }
+    }
+}
+
+impl<V> Serializable for Output<V>
+where
+    V: Serializable,
+{
+    #[inline(always)]
+    fn serialize_to_vec(&self, dst: &mut Vec<u8>) {
+        self.value.serialize_to_vec(dst);
+        self.length.serialize_to_vec(dst);
+        self.parent.serialize_to_vec(dst);
+    }
+
+    #[inline(always)]
+    fn deserialize_from_slice(src: &[u8]) -> Result<(Self, &[u8])> {
+        let (value, src) = V::deserialize_from_slice(src)?;
+        let (length, src) = u32::deserialize_from_slice(src)?;
+        let (parent, src) = Option::<NonZeroU32>::deserialize_from_slice(src)?;
+        Ok((
+            Self {
+                value,
+                length,
+                parent,
+            },
+            src,
+        ))
+    }
+
+    #[inline(always)]
+    fn serialized_bytes() -> usize {
+        V::serialized_bytes() + u32::serialized_bytes() + Option::<NonZeroU32>::serialized_bytes()
+    }
+}
+
+/// Match result.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct Match<V> {
+    length: usize,
+    end: usize,
+    value: V,
+}
+
+impl<V> Match<V>
+where
+    V: Copy,
+{
+    /// Starting position of the match.
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline(always)]
+    #[must_use]
+    pub fn start(&self) -> usize {
+        self.end - self.length
+    }
+
+    /// Ending position of the match.
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline(always)]
+    #[must_use]
+    pub fn end(&self) -> usize {
+        self.end
+    }
+
+    /// Value associated with the pattern.
+    #[allow(clippy::missing_const_for_fn)]
+    #[inline(always)]
+    #[must_use]
+    pub fn value(&self) -> V {
+        self.value
+    }
+}
+
+/// A search option of the Aho-Corasick automaton
+/// specified in [`DoubleArrayAhoCorasickBuilder::match_kind`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[repr(u8)]
+pub enum MatchKind {
+    /// The standard match semantics, which enables
+    /// [`find_iter()`](DoubleArrayAhoCorasick::find_iter()),
+    /// [`find_overlapping_iter()`](DoubleArrayAhoCorasick::find_overlapping_iter()), and
+    /// [`find_overlapping_no_suffix_iter()`](DoubleArrayAhoCorasick::find_overlapping_no_suffix_iter()).
+    /// Patterns are reported following the standard Aho-Corasick algorithm behavior.
+    Standard = 0,
+
+    /// The leftmost-longest match semantics, which enables
+    /// [`leftmost_find_iter()`](DoubleArrayAhoCorasick::leftmost_find_iter()).
+    /// When multiple patterns start at the same position, the longest pattern will be reported.
+    /// For example, when matching patterns `ab|a|abcd` over `abcd`, `abcd` will be reported.
+    LeftmostLongest = 1,
+
+    /// The leftmost-first match semantics, which enables
+    /// [`leftmost_find_iter()`](DoubleArrayAhoCorasick::leftmost_find_iter()).
+    /// When multiple patterns start at the same position, the pattern that is registered earlier
+    /// will be reported. For example, when matching patterns `ab|a|abcd` over `abcd`, `ab` will be
+    /// reported.
+    LeftmostFirst = 2,
+}
+
+impl MatchKind {
+    fn is_standard(self) -> bool {
+        self == Self::Standard
+    }
+
+    fn is_leftmost(self) -> bool {
+        self == Self::LeftmostFirst || self == Self::LeftmostLongest
+    }
+
+    pub(crate) fn is_leftmost_first(self) -> bool {
+        self == Self::LeftmostFirst
+    }
+}
+
+impl From<u8> for MatchKind {
+    fn from(src: u8) -> Self {
+        match src {
+            1 => Self::LeftmostLongest,
+            2 => Self::LeftmostFirst,
+            _ => Self::Standard,
+        }
+    }
+}
+
+impl From<MatchKind> for u8 {
+    fn from(src: MatchKind) -> Self {
+        match src {
+            MatchKind::Standard => 0,
+            MatchKind::LeftmostLongest => 1,
+            MatchKind::LeftmostFirst => 2,
+        }
+    }
+}
+
+impl Serializable for MatchKind {
+    #[inline(always)]
+    fn serialize_to_vec(&self, dst: &mut Vec<u8>) {
+        dst.push(u8::from(*self));
+    }
+
+    #[inline(always)]
+    fn deserialize_from_slice(src: &[u8]) -> Result<(Self, &[u8])> {
+        let (&kind, rest) = src
+            .split_first()
+            .ok_or(DaachorseError::invalid_automaton())?;
+        Ok((Self::from(kind), rest))
+    }
+
+    #[inline(always)]
+    fn serialized_bytes() -> usize {
+        1
+    }
+}
+
+/// Empty value type.
+///
+/// This is a unit struct with no fields. This type can be used to reduce memory consumption when
+/// the value corresponding to each pattern is not used.
+///
+/// # Example
+///
+/// ```
+/// use daachorse::{DoubleArrayAhoCorasick, Empty};
+///
+/// let patterns = vec!["bcd", "ab", "a"];
+/// let pma = DoubleArrayAhoCorasick::<Empty>::new(patterns).unwrap();
+///
+/// let mut it = pma.find_overlapping_iter("abcd");
+///
+/// let m = it.next().unwrap();
+/// assert_eq!((0, 1), (m.start(), m.end()));
+/// ```
+#[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
+pub struct Empty;
+
+impl From<usize> for Empty {
+    fn from(_value: usize) -> Self {
+        Self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_serialize_output() {
+        let x = Output {
+            value: 42u32,
+            length: 57,
+            parent: NonZeroU32::new(13),
+        };
+        let mut data = vec![];
+        x.serialize_to_vec(&mut data);
+        assert_eq!(data.len(), Output::<u32>::serialized_bytes());
+        let (y, rest) = Output::deserialize_from_slice(&data).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(x, y);
+    }
+
+    #[test]
+    fn test_serialize_match_kind() {
+        let x = MatchKind::LeftmostLongest;
+        let mut data = vec![];
+        x.serialize_to_vec(&mut data);
+        assert_eq!(data.len(), MatchKind::serialized_bytes());
+        let (y, rest) = MatchKind::deserialize_from_slice(&data).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(x, y);
+    }
+}

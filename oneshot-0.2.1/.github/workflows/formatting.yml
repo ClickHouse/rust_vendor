@@ -1,0 +1,25 @@
+---
+name: Rust formatting
+on:
+  pull_request:
+    paths:
+      - .github/workflows/*.yml
+      - "**/*.rs"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check-formatting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Check formatting
+        run: |
+          rustfmt --version
+          cargo fmt -- --check
