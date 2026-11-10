@@ -1,0 +1,581 @@
+#![cfg(all(feature = "derive", feature = "std"))]
+
+use std::unreachable;
+
+use mutatis::{error::ResultExt, mutators as m, DefaultMutate, Generate, Mutate, Session};
+
+// With a decision-tree approach like:
+//   if random() { A } else if random() { B } else if random() { C } else { D }
+// we'd get A=50%, B=25%, C=12.5%, D=12.5%.
+// Mutatis gathers all candidates first and picks uniformly.
+//
+// Tolerance of 5% is >10 standard deviations from the mean for any of these
+// sample sizes, so false failures are essentially impossible.
+const ITERS: usize = 10_000;
+
+fn assert_uniform(counts: &[usize], total: usize, label: &str) {
+    let n = counts.len();
+    let expected = total / n;
+    let tolerance = total / 20;
+    for (i, &count) in counts.iter().enumerate() {
+        assert!(
+            count.abs_diff(expected) <= tolerance,
+            "{label} {i} was chosen {count} times (expected ~{expected}, \
+             tolerance ±{tolerance}); mutation distribution is not uniform",
+        );
+    }
+}
+
+// ---- Flat enum with derive ----
+
+#[derive(Clone, Copy, Mutate)]
+enum FourVariants {
+    A,
+    B,
+    C,
+    D,
+}
+
+#[test]
+fn derive_enum_mutation_is_uniform() {
+    let mut session = Session::new();
+    let mut value = FourVariants::A;
+    let mut counts = [0usize; 4];
+
+    for _ in 0..ITERS {
+        session.mutate(&mut value).unwrap();
+        counts[match value {
+            FourVariants::A => 0,
+            FourVariants::B => 1,
+            FourVariants::C => 2,
+            FourVariants::D => 3,
+        }] += 1;
+    }
+
+    assert_uniform(&counts, ITERS, "variant");
+}
+
+// ---- Flat struct with derive ----
+
+#[derive(Mutate)]
+struct FourFields {
+    a: bool,
+    b: bool,
+    c: bool,
+    d: bool,
+}
+
+#[test]
+fn derive_struct_mutation_is_uniform() {
+    let mut session = Session::new();
+    let mut counts = [0usize; 4];
+
+    for _ in 0..ITERS {
+        let mut value = FourFields {
+            a: false,
+            b: false,
+            c: false,
+            d: false,
+        };
+        session.mutate(&mut value).unwrap();
+        if value.a {
+            counts[0] += 1;
+        }
+        if value.b {
+            counts[1] += 1;
+        }
+        if value.c {
+            counts[2] += 1;
+        }
+        if value.d {
+            counts[3] += 1;
+        }
+    }
+
+    assert_uniform(&counts, ITERS, "field");
+}
+
+// ---- Nested structs with derive ----
+
+#[derive(Mutate)]
+struct NestedAbcd {
+    a: bool,
+    bcd: NestedBcd,
+}
+
+#[derive(Mutate)]
+struct NestedBcd {
+    b: bool,
+    cd: NestedCd,
+}
+
+#[derive(Mutate)]
+struct NestedCd {
+    c: bool,
+    d: bool,
+}
+
+#[test]
+fn derive_nested_struct_mutation_is_uniform() {
+    let mut session = Session::new();
+    let mut counts = [0usize; 4];
+
+    for _ in 0..ITERS {
+        let mut value = NestedAbcd {
+            a: false,
+            bcd: NestedBcd {
+                b: false,
+                cd: NestedCd { c: false, d: false },
+            },
+        };
+        session.mutate(&mut value).unwrap();
+        if value.a {
+            counts[0] += 1;
+        }
+        if value.bcd.b {
+            counts[1] += 1;
+        }
+        if value.bcd.cd.c {
+            counts[2] += 1;
+        }
+        if value.bcd.cd.d {
+            counts[3] += 1;
+        }
+    }
+
+    assert_uniform(&counts, ITERS, "field");
+}
+
+// ---- Nested enums with derive ----
+//
+// The derive macro registers one variant-switch mutation per *non-current*
+// variant, then delegates to the current variant's field mutators. Starting
+// from Abcd::Bcd(Bcd::Cd(Cd::D)), the candidates are:
+//   - switch Abcd to A  (from AbcdMutator)
+//   - switch Bcd to B   (from BcdMutator, delegated through AbcdMutator)
+//   - switch Cd to C    (from CdMutator, delegated through Bcd and Abcd)
+// That's 3 candidates, each chosen uniformly at ~33%. A naive decision tree
+// would give A=50%, B=25%, C=25%.
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Mutate)]
+enum EnumAbcd {
+    A,
+    Bcd(EnumBcd),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Mutate)]
+enum EnumBcd {
+    B,
+    Cd(EnumCd),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Mutate)]
+enum EnumCd {
+    C,
+    D,
+}
+
+#[test]
+fn derive_nested_enum_mutation_is_uniform() {
+    let mut session = Session::new();
+    let mut counts = [0usize; 3];
+
+    for _ in 0..ITERS {
+        let mut value = EnumAbcd::Bcd(EnumBcd::Cd(EnumCd::D));
+        session.mutate(&mut value).unwrap();
+        counts[match value {
+            EnumAbcd::A => 0,
+            EnumAbcd::Bcd(EnumBcd::B) => 1,
+            EnumAbcd::Bcd(EnumBcd::Cd(EnumCd::C)) => 2,
+            EnumAbcd::Bcd(EnumBcd::Cd(EnumCd::D)) => {
+                panic!(
+                    "should not stay at D; the derive mutator switches away from current variant"
+                )
+            }
+        }] += 1;
+    }
+
+    assert_uniform(&counts, ITERS, "variant");
+}
+
+#[test]
+fn derive_on_struct_with_named_fields() -> anyhow::Result<()> {
+    #[derive(Debug, Default, Mutate)]
+    struct MyStruct {
+        x: u8,
+        y: bool,
+    }
+
+    let mut session = Session::new();
+    let mut value = MyStruct::default();
+    session.mutate(&mut value)?;
+    Ok(())
+}
+
+#[test]
+fn derive_on_struct_with_unnamed_fields() -> anyhow::Result<()> {
+    #[derive(Debug, Default, Mutate)]
+    struct MyStruct(u8, bool);
+
+    let mut session = Session::new();
+    let mut value = MyStruct::default();
+    session.mutate(&mut value)?;
+    Ok(())
+}
+
+#[test]
+fn derive_on_unit_struct() -> anyhow::Result<()> {
+    #[derive(Debug, Default, Mutate)]
+    struct MyUnitStruct;
+
+    let mut session = Session::new();
+    let mut value = MyUnitStruct::default();
+    session.mutate(&mut value).ignore_exhausted()?;
+    Ok(())
+}
+
+#[test]
+fn derive_on_enum() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    enum MyEnum {
+        Unit,
+        Unnamed(u8, bool),
+        Named { x: u8, y: bool },
+    }
+
+    let mut session = Session::new();
+
+    // Starting from Unit, we can mutate to another variant.
+    let mut value = MyEnum::Unit;
+    session.mutate(&mut value)?;
+
+    let mut value = MyEnum::Unnamed(0, false);
+    session.mutate(&mut value)?;
+
+    let mut value = MyEnum::Named { x: 0, y: false };
+    session.mutate(&mut value)?;
+
+    Ok(())
+}
+
+#[test]
+fn derive_on_enum_variant_switching() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    enum MyEnum {
+        A,
+        B,
+        C(u8),
+    }
+
+    let mut session = Session::new();
+
+    // Starting from variant A, repeatedly mutate until we see a different
+    // variant, proving that variant switching works.
+    let mut saw_non_a = false;
+    for _ in 0..100 {
+        let mut value = MyEnum::A;
+        session.mutate(&mut value)?;
+        if !matches!(value, MyEnum::A) {
+            saw_non_a = true;
+            break;
+        }
+    }
+    assert!(
+        saw_non_a,
+        "expected variant switching to produce a non-A variant"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn mutator_name() -> anyhow::Result<()> {
+    #[derive(Debug, Default, Mutate)]
+    #[mutatis(mutator_name = MyCoolMutator)]
+    struct MyStruct(u8);
+
+    let mut session = Session::new();
+    let mut mutator = MyCoolMutator::new(m::u8());
+    let mut value = MyStruct::default();
+    session.mutate_with(&mut mutator, &mut value)?;
+    Ok(())
+}
+
+#[test]
+fn mutator_doc() -> anyhow::Result<()> {
+    #[derive(Debug, Default, Mutate)]
+    #[mutatis(mutator_doc = "This is a cool mutator")]
+    struct MyStruct(u8);
+
+    let mut session = Session::new();
+    let mut value = MyStruct::default();
+    session.mutate(&mut value)?;
+    Ok(())
+}
+
+#[test]
+fn ignore_field() -> anyhow::Result<()> {
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Mutate)]
+    struct MyStruct {
+        x: u64,
+
+        #[mutatis(ignore)]
+        y: u64,
+    }
+
+    let mut session = Session::new();
+
+    let orig = MyStruct::default();
+    let mut value = orig.clone();
+
+    while value == orig {
+        session.mutate(&mut value)?;
+        assert_eq!(orig.y, value.y);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn default_mutate_field() -> anyhow::Result<()> {
+    #[derive(Debug, Default, Mutate)]
+    struct MyStruct {
+        x: u64,
+
+        #[mutatis(default_mutate)]
+        y: u64,
+    }
+
+    let mut session = Session::new();
+
+    // Only an `x` mutator parameter because `y` is always the default mutator.
+    let mut mutator = MyStructMutator::new(m::u64());
+
+    let mut value = MyStruct::default();
+    session.mutate_with(&mut mutator, &mut value)?;
+
+    Ok(())
+}
+
+#[test]
+fn derive_with_generic_parameters() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    #[mutatis(generate = false)]
+    struct MyGenericStruct<'a, 'b: 'a, const N: usize, T: Copy, U>
+    where
+        U: Default,
+    {
+        #[mutatis(ignore)]
+        #[allow(dead_code)]
+        x: &'a T,
+
+        #[mutatis(ignore)]
+        #[allow(dead_code)]
+        y: &'b T,
+
+        z: [T; N],
+        w: U,
+    }
+
+    let mut session = Session::new();
+
+    let x = 5;
+    let y = 10;
+    let z = [1, 2, 3];
+    let w = 100;
+    let mut value = MyGenericStruct { x: &x, y: &y, z, w };
+
+    session.mutate(&mut value)?;
+
+    Ok(())
+}
+
+#[test]
+fn no_default_mutator() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    #[mutatis(default_mutate = false)]
+    struct MyStruct {
+        x: u64,
+    }
+
+    // If the derive macro had emitted a `DefaultMutate` implementation, then
+    // this one would be a compile error.
+    impl DefaultMutate for MyStruct {
+        type DefaultMutate = MyStructMutator<m::U64>;
+    }
+
+    let mut session = Session::new();
+    let mut mutator = MyStructMutator::new(m::u64());
+    let mut value = MyStruct { x: 0 };
+    session.mutate_with(&mut mutator, &mut value)?;
+    Ok(())
+}
+
+#[test]
+fn derive_mutate_for_inst_and_vec_inst() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    #[mutatis(generate = false)]
+    enum Inst {
+        Const(i32),
+        Add,
+        Sub,
+        Mul,
+        Div,
+    }
+
+    impl<M> mutatis::Generate<Inst> for InstMutator<M>
+    where
+        M: mutatis::Generate<i32>,
+    {
+        fn generate(&mut self, cx: &mut mutatis::Context) -> mutatis::Result<Inst> {
+            Ok(match cx.rng().gen_index(5).unwrap() {
+                0 => Inst::Const(self.const0.generate(cx)?),
+                1 => Inst::Add,
+                2 => Inst::Sub,
+                3 => Inst::Mul,
+                4 => Inst::Div,
+                _ => unreachable!(),
+            })
+        }
+    }
+
+    #[derive(Debug, Mutate)]
+    struct Insts {
+        insts: Vec<Inst>,
+    }
+
+    let mut session = Session::new();
+    let mut value = Insts { insts: vec![] };
+
+    let mut seen_const = false;
+    let mut seen_add = false;
+    let mut seen_sub = false;
+    let mut seen_mul = false;
+    let mut seen_div = false;
+    for _ in 0..1000 {
+        session.mutate(&mut value)?;
+        for inst in &value.insts {
+            match inst {
+                Inst::Const(_) => seen_const = true,
+                Inst::Add => seen_add = true,
+                Inst::Sub => seen_sub = true,
+                Inst::Mul => seen_mul = true,
+                Inst::Div => seen_div = true,
+            }
+        }
+        if seen_const && seen_add && seen_sub && seen_mul && seen_div {
+            break;
+        }
+    }
+    assert!(seen_const);
+    assert!(seen_add);
+    assert!(seen_sub);
+    assert!(seen_mul);
+    assert!(seen_div);
+    Ok(())
+}
+
+#[test]
+fn generate_struct_with_named_fields() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    struct NamedStruct {
+        x: u8,
+        y: bool,
+        z: u32,
+    }
+
+    let mut session = Session::new();
+    let value: NamedStruct = session.generate()?;
+    let _ = (value.x, value.y, value.z);
+    Ok(())
+}
+
+#[test]
+fn generate_struct_with_tuple_fields() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    struct TupleStruct(u8, bool, u32);
+
+    let mut session = Session::new();
+    let value: TupleStruct = session.generate()?;
+    let _ = (value.0, value.1, value.2);
+    Ok(())
+}
+
+#[test]
+fn generate_unit_struct() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    struct UnitStruct;
+
+    let mut session = Session::new();
+    let _value: UnitStruct = session.generate()?;
+    Ok(())
+}
+
+#[test]
+fn generate_enum_no_variants() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    #[mutatis(default_mutate = false)]
+    enum EmptyEnum {}
+
+    // Cannot generate a value of an empty enum, so just verify the type compiles.
+    let _ = core::mem::size_of::<EmptyEnum>();
+    Ok(())
+}
+
+#[test]
+fn generate_enum_mixed_variants() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    enum MixedEnum {
+        Unit,
+        Tuple(u8, bool),
+        Named { x: u32, y: bool },
+    }
+
+    let mut session = Session::new();
+
+    let mut saw_unit = false;
+    let mut saw_tuple = false;
+    let mut saw_named = false;
+
+    for _ in 0..200 {
+        let value: MixedEnum = session.generate()?;
+        match value {
+            MixedEnum::Unit => saw_unit = true,
+            MixedEnum::Tuple(_, _) => saw_tuple = true,
+            MixedEnum::Named { .. } => saw_named = true,
+        }
+        if saw_unit && saw_tuple && saw_named {
+            break;
+        }
+    }
+
+    assert!(saw_unit, "expected to generate Unit variant");
+    assert!(saw_tuple, "expected to generate Tuple variant");
+    assert!(saw_named, "expected to generate Named variant");
+    Ok(())
+}
+
+#[test]
+fn generate_false_attribute() -> anyhow::Result<()> {
+    #[derive(Debug, Mutate)]
+    #[mutatis(generate = false)]
+    struct NoGenerate {
+        x: u8,
+    }
+
+    // Manually implement Generate to verify the derive didn't emit one.
+    impl<M> Generate<NoGenerate> for NoGenerateMutator<M>
+    where
+        M: Generate<u8>,
+    {
+        fn generate(&mut self, cx: &mut mutatis::Context) -> mutatis::Result<NoGenerate> {
+            Ok(NoGenerate {
+                x: self.x.generate(cx)?,
+            })
+        }
+    }
+
+    let mut session = Session::new();
+    let _value: NoGenerate = session.generate()?;
+    Ok(())
+}
