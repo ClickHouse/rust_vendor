@@ -1,0 +1,7 @@
+interface only-into {
+  record r {
+    a: u32,
+  }
+
+  foo: func() -> r;
+}
