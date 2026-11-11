@@ -1,0 +1,13 @@
+[package]
+name = "std_prelude"
+version = "0.2.12"
+authors = ["Garrett Berg <vitiral@gmail.com>"]
+
+description = "prelude that the rust stdlib should have always had"
+repository = "https://github.com/vitiral/std_prelude"
+readme = "README.md"
+keywords = ["std", "prelude"]
+license = "MIT"
+
+[dependencies]
+# no dependencies

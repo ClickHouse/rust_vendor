@@ -1,0 +1,32 @@
+stages:
+  - test
+
+variables:
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo"
+
+cache:
+    key: ${CI_JOB_NAME}
+    paths:
+      - target/
+      - .cargo/
+    policy: pull-push
+
+.tests_template: &tests_template
+  stage: test
+  script:
+    - RUST_BACKTRACE=1 RUSTFLAGS="--cfg loom" cargo test --jobs 1 --features deadlock_detection
+    - RUST_BACKTRACE=1 cargo test --examples --jobs 1 --features deadlock_detection
+    - cargo check
+    - cargo check --features no_std
+    - cargo check --features parking_lot
+    - cargo check --features weakref
+
+tests:stable:
+  image: rust
+  <<: *tests_template
+
+tests:nightly:
+  image: rustlang/rust:nightly
+  allow_failure: true
+  <<: *tests_template
+

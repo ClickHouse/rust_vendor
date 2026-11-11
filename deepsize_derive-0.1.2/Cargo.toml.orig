@@ -1,0 +1,20 @@
+[package]
+name = "deepsize_derive"
+version = "0.1.2"
+authors = ["Aeledfyr <aeledfyr@gmail.com>"]
+license = "MIT"
+description = "A crate for measuring the total size of object on the stack and heap"
+repository = "https://github.com/Aeledfyr/deepsize/"
+include = ["Cargo.toml", "src/**/*.rs", "../LICENSE", "../README.md"]
+readme = "../README.md"
+edition = "2018"
+keywords = ["size", "stack", "heap", "macro"]
+categories = ["development-tools::profiling", "memory-management"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "^1.0"
+syn = "^1.0"
+quote = "^1.0"
