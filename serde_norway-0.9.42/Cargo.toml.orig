@@ -1,0 +1,30 @@
+[package]
+name = "serde_norway"
+version = "0.9.42"
+authors = ["Christina Sørensen <christina@cafkafk.com>", "David Tolnay <dtolnay@gmail.com>"]
+categories = ["encoding", "parser-implementations"]
+description = "YAML data format for Serde"
+edition = "2021"
+keywords = ["yaml", "serde", "serialization"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/cafkafk/serde-yaml"
+rust-version = "1.71.1"
+
+[dependencies]
+indexmap = "2.2.1"
+itoa = "1.0"
+ryu = "1.0"
+serde = "1.0.203"
+unsafe-libyaml-norway = "0.2.13"
+
+[dev-dependencies]
+anyhow = "1.0.93"
+indoc = "2.0"
+serde_derive = "1.0.203"
+
+[lib]
+doc-scrape-examples = false
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+rustdoc-args = ["--generate-link-to-definition"]
