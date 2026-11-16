@@ -1,0 +1,351 @@
+use crate::ans::{AnsState, Symbol};
+use crate::bit_writer::BitWriter;
+use crate::compression_intermediates::{PageDissectedVar, TrainedBins};
+use crate::compression_table::CompressionTable;
+use crate::constants::{Bitlen, ANS_INTERLEAVING, MAX_BATCH_LATENT_VAR_SIZE};
+use crate::data_types::Latent;
+use crate::errors::PcoResult;
+use crate::macros::define_latent_enum;
+use crate::metadata::dyn_latents::DynLatents;
+use crate::metadata::{bins, Bin};
+use crate::read_write_uint::ReadWriteUint;
+use crate::scratch::ScratchArray;
+use crate::{ans, bit_reader, bit_writer, bits, read_write_uint, FULL_BATCH_N};
+use std::debug_assert;
+use std::io::Write;
+use std::mem::MaybeUninit;
+use std::ops::Range;
+
+#[derive(Clone, Debug)]
+pub struct ChunkLatentCompressorScratch<L: Latent> {
+  lowers: ScratchArray<L>,
+  symbols: ScratchArray<Symbol>,
+}
+
+// The not-yet-initialized buffers of a page that a batch writes into.
+struct PageDissectedSpare<'a, L: Latent> {
+  ans_vals: &'a mut [MaybeUninit<AnsState>],
+  ans_bits: &'a mut [MaybeUninit<Bitlen>],
+  offsets: &'a mut [MaybeUninit<L>],
+  offset_bits: &'a mut [MaybeUninit<Bitlen>],
+  ans_final_states: &'a mut [AnsState; ANS_INTERLEAVING],
+}
+
+// This would be very hard to combine with write_uints because it makes use of
+// an optimization that only works easily for single-u64 writes of 56 bits or
+// less: we keep the `target_u64` value we're updating in a register instead
+// of referring back to `dst` (recent values of which will be in L1 cache). If
+// a write exceeds 56 bits, we may need to shift target_u64 by 64 bits, which
+// would be an overflow panic.
+#[inline(never)]
+unsafe fn write_short_uints<U: ReadWriteUint>(
+  vals: &[U],
+  bitlens: &[Bitlen],
+  mut stale_byte_idx: usize,
+  mut bits_past_byte: Bitlen,
+  dst: &mut [u8],
+) -> (usize, Bitlen) {
+  stale_byte_idx += bits_past_byte as usize / 8;
+  bits_past_byte %= 8;
+  let mut target_u64 = bit_reader::u64_at(dst, stale_byte_idx);
+
+  for (&val, &bitlen) in vals.iter().zip(bitlens).take(FULL_BATCH_N) {
+    let bytes_added = bits_past_byte as usize / 8;
+    stale_byte_idx += bytes_added;
+    target_u64 >>= bytes_added * 8;
+    bits_past_byte %= 8;
+
+    target_u64 |= val.to_u64() << bits_past_byte;
+    bit_writer::write_u64_to(target_u64, stale_byte_idx, dst);
+
+    bits_past_byte += bitlen;
+  }
+  (stale_byte_idx, bits_past_byte)
+}
+
+#[inline(never)]
+unsafe fn write_uints<U: ReadWriteUint, const MAX_U64S: usize>(
+  vals: &[U],
+  bitlens: &[Bitlen],
+  mut stale_byte_idx: usize,
+  mut bits_past_byte: Bitlen,
+  dst: &mut [u8],
+) -> (usize, Bitlen) {
+  for (&val, &bitlen) in vals.iter().zip(bitlens).take(FULL_BATCH_N) {
+    stale_byte_idx += bits_past_byte as usize / 8;
+    bits_past_byte %= 8;
+    bit_writer::write_uint_to::<_, MAX_U64S>(val, stale_byte_idx, bits_past_byte, dst);
+    bits_past_byte += bitlen;
+  }
+  (stale_byte_idx, bits_past_byte)
+}
+
+#[derive(Clone, Debug)]
+pub struct ChunkLatentCompressor<L: Latent> {
+  table: CompressionTable<L>,
+  pub encoder: ans::Encoder,
+  pub avg_bits_per_latent: f64,
+  is_trivial: bool, // if the page body will always be empty
+  needs_ans: bool,
+  max_u64s_per_offset: usize,
+  latents: Vec<L>,
+  scratch: ChunkLatentCompressorScratch<L>,
+}
+
+#[inline(never)]
+fn encode_ans_in_reverse(
+  encoder: &ans::Encoder,
+  ans_vals: &mut [MaybeUninit<AnsState>],
+  ans_bits: &mut [MaybeUninit<Bitlen>],
+  ans_final_states: &mut [AnsState; ANS_INTERLEAVING],
+  dst: &mut [Symbol],
+) {
+  let final_base_i = (ans_vals.len() / ANS_INTERLEAVING) * ANS_INTERLEAVING;
+  let final_j = ans_vals.len() % ANS_INTERLEAVING;
+
+  // first get the jagged part out of the way
+  for j in (0..final_j).rev() {
+    let i = final_base_i + j;
+    let (new_state, bitlen) = encoder.encode(ans_final_states[j], dst[i]);
+    ans_vals[i].write(bits::lowest_bits_fast(
+      ans_final_states[j],
+      bitlen,
+    ));
+    ans_bits[i].write(bitlen);
+    ans_final_states[j] = new_state;
+  }
+
+  // then do the main loop
+  for base_i in (0..final_base_i).step_by(ANS_INTERLEAVING).rev() {
+    for j in (0..ANS_INTERLEAVING).rev() {
+      let i = base_i + j;
+      let (new_state, bitlen) = encoder.encode(ans_final_states[j], dst[i]);
+      ans_vals[i].write(bits::lowest_bits_fast(
+        ans_final_states[j],
+        bitlen,
+      ));
+      ans_bits[i].write(bitlen);
+      ans_final_states[j] = new_state;
+    }
+  }
+}
+
+impl<L: Latent> ChunkLatentCompressor<L> {
+  pub fn new(trained: TrainedBins<L>, bins: &[Bin<L>], latents: Vec<L>) -> PcoResult<Box<Self>> {
+    let needs_ans = bins.len() != 1;
+
+    let table = CompressionTable::from(trained.infos);
+    let weights = bins::weights(bins);
+    let ans_spec = ans::Spec::from_weights(trained.ans_size_log, weights)?;
+    let encoder = ans::Encoder::new(&ans_spec);
+
+    let max_bits_per_offset = bins::max_offset_bits(bins);
+    let max_u64s_per_offset = read_write_uint::calc_max_u64s_for_writing(max_bits_per_offset);
+    let default_lower = table.only_bin().map(|info| info.lower).unwrap_or(L::ZERO);
+
+    Ok(Box::new(ChunkLatentCompressor {
+      table,
+      encoder,
+      avg_bits_per_latent: bins::avg_bits_per_latent(bins, trained.ans_size_log),
+      is_trivial: bins::are_trivial(bins),
+      needs_ans,
+      max_u64s_per_offset,
+      latents,
+      scratch: ChunkLatentCompressorScratch {
+        lowers: ScratchArray([default_lower; FULL_BATCH_N]),
+        symbols: ScratchArray([0; FULL_BATCH_N]),
+      },
+    }))
+  }
+
+  #[inline(never)]
+  fn dissect_bins(&mut self, search_idxs: &[usize], dst_offset_bits: &mut [MaybeUninit<Bitlen>]) {
+    if self.table.is_trivial() {
+      // trivial case: there's at most one bin. We've prepopulated the scratch
+      // buffers with the correct values in this case.
+      let default_offset_bits = self
+        .table
+        .only_bin()
+        .map(|info| info.offset_bits)
+        .unwrap_or(0);
+      dst_offset_bits.fill(MaybeUninit::new(default_offset_bits));
+      return;
+    }
+
+    for (i, &search_idx) in search_idxs.iter().enumerate() {
+      let info = &self.table.infos[search_idx];
+      self.scratch.lowers[i] = info.lower;
+      self.scratch.symbols[i] = info.symbol;
+      dst_offset_bits[i].write(info.offset_bits);
+    }
+  }
+
+  #[inline(never)]
+  fn set_offsets(&self, latents: &[L], offsets: &mut [MaybeUninit<L>]) {
+    for (offset, (&latent, &lower)) in offsets
+      .iter_mut()
+      .zip(latents.iter().zip(self.scratch.lowers.iter()))
+    {
+      offset.write(latent - lower);
+    }
+  }
+
+  fn dissect_batch(
+    &mut self,
+    page_start: usize,
+    relative_batch_range: Range<usize>,
+    dst: &mut PageDissectedSpare<L>,
+  ) {
+    let PageDissectedSpare {
+      ans_vals,
+      ans_bits,
+      offsets,
+      offset_bits,
+      ans_final_states,
+    } = dst;
+
+    let absolute_batch_range =
+      page_start + relative_batch_range.start..page_start + relative_batch_range.end;
+    let batch_n = relative_batch_range.len();
+    let search_idxs = self
+      .table
+      .binary_search(&self.latents[absolute_batch_range.clone()]);
+
+    self.dissect_bins(
+      &search_idxs[..batch_n],
+      &mut offset_bits[relative_batch_range.clone()],
+    );
+
+    self.set_offsets(
+      &self.latents[absolute_batch_range],
+      &mut offsets[relative_batch_range.clone()],
+    );
+
+    if self.needs_ans {
+      encode_ans_in_reverse(
+        &self.encoder,
+        &mut ans_vals[relative_batch_range.clone()],
+        &mut ans_bits[relative_batch_range],
+        ans_final_states,
+        &mut self.scratch.symbols.0,
+      );
+    }
+  }
+
+  pub fn dissect_page(&mut self, page_range: Range<usize>) -> PageDissectedVar {
+    let mut ans_final_states = [self.encoder.default_state(); ANS_INTERLEAVING];
+
+    let offset_n = if self.is_trivial { 0 } else { page_range.len() };
+    let ans_n = if self.needs_ans { offset_n } else { 0 };
+    let mut ans_vals = Vec::with_capacity(ans_n);
+    let mut ans_bits = Vec::with_capacity(ans_n);
+    let mut offsets = Vec::<L>::with_capacity(offset_n);
+    let mut offset_bits = Vec::with_capacity(offset_n);
+
+    let mut spare = PageDissectedSpare {
+      ans_vals: &mut ans_vals.spare_capacity_mut()[..ans_n],
+      ans_bits: &mut ans_bits.spare_capacity_mut()[..ans_n],
+      offsets: &mut offsets.spare_capacity_mut()[..offset_n],
+      offset_bits: &mut offset_bits.spare_capacity_mut()[..offset_n],
+      ans_final_states: &mut ans_final_states,
+    };
+
+    // We go through in reverse for ANS!
+    // Here the page buffers are indexed from 0..page_n, whereas latents are
+    // indexed from 0..chunk_n, so we need both an absolute page start index and
+    // a relative range for the batch within the page.
+    let n_batches = offset_n.div_ceil(FULL_BATCH_N);
+    for batch_idx in (0..n_batches).rev() {
+      let relative_batch_range =
+        batch_idx * FULL_BATCH_N..((batch_idx + 1) * FULL_BATCH_N).min(offset_n);
+      self.dissect_batch(
+        page_range.start,
+        relative_batch_range,
+        &mut spare,
+      )
+    }
+
+    // Safety: the batches above together initialized all elements.
+    unsafe {
+      ans_vals.set_len(ans_n);
+      ans_bits.set_len(ans_n);
+      offsets.set_len(offset_n);
+      offset_bits.set_len(offset_n);
+    }
+
+    PageDissectedVar {
+      ans_vals,
+      ans_bits,
+      offsets: DynLatents::new(offsets),
+      offset_bits,
+      ans_final_states,
+    }
+  }
+
+  pub fn write_dissected_batch<W: Write>(
+    &self,
+    page_dissected_var: &PageDissectedVar,
+    batch_start: usize,
+    writer: &mut BitWriter<W>,
+  ) -> PcoResult<()> {
+    debug_assert!(writer.buf.len() >= MAX_BATCH_LATENT_VAR_SIZE);
+    writer.flush()?;
+
+    if batch_start >= page_dissected_var.offsets.len() {
+      return Ok(());
+    }
+
+    // write ANS
+    if self.needs_ans {
+      (writer.stale_byte_idx, writer.bits_past_byte) = unsafe {
+        write_short_uints(
+          &page_dissected_var.ans_vals[batch_start..],
+          &page_dissected_var.ans_bits[batch_start..],
+          writer.stale_byte_idx,
+          writer.bits_past_byte,
+          &mut writer.buf,
+        )
+      };
+    }
+
+    // write offsets
+    (writer.stale_byte_idx, writer.bits_past_byte) = unsafe {
+      let offsets = page_dissected_var.offsets.downcast_ref::<L>().unwrap();
+      match self.max_u64s_per_offset {
+        0 => (writer.stale_byte_idx, writer.bits_past_byte),
+        1 => write_short_uints::<L>(
+          &offsets[batch_start..],
+          &page_dissected_var.offset_bits[batch_start..],
+          writer.stale_byte_idx,
+          writer.bits_past_byte,
+          &mut writer.buf,
+        ),
+        2 => write_uints::<L, 2>(
+          &offsets[batch_start..],
+          &page_dissected_var.offset_bits[batch_start..],
+          writer.stale_byte_idx,
+          writer.bits_past_byte,
+          &mut writer.buf,
+        ),
+        3 => write_uints::<L, 3>(
+          &offsets[batch_start..],
+          &page_dissected_var.offset_bits[batch_start..],
+          writer.stale_byte_idx,
+          writer.bits_past_byte,
+          &mut writer.buf,
+        ),
+        _ => panic!("[ChunkCompressor] data type is too large"),
+      }
+    };
+
+    Ok(())
+  }
+}
+
+// we allocate these on the heap because they're enormous
+type Boxed<L> = Box<ChunkLatentCompressor<L>>;
+
+define_latent_enum!(
+  #[derive(Clone, Debug)]
+  pub DynChunkLatentCompressor(Boxed)
+);
