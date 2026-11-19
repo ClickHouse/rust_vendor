@@ -64,7 +64,20 @@ impl FlameGraphView {
 
     pub fn set_frame_height(&mut self, frame_height: u16) {
         self.state.frame_height = Some(frame_height);
-        self.keep_selected_stack_in_view_port();
+        // The viewport resized under the selection (e.g. the status bar
+        // wrapped to more lines): scroll to keep the selection visible
+        // instead of moving the selection, which would make navigating below
+        // the viewport impossible.
+        if let Some(stack) = self.flamegraph.get_stack(&self.state.selected) {
+            if !self.is_stack_in_view_port(stack) {
+                if stack.level < self.state.level_offset {
+                    self.state.level_offset = stack.level;
+                } else {
+                    self.state.level_offset =
+                        (stack.level + 1).saturating_sub(frame_height.max(1) as usize);
+                }
+            }
+        }
     }
 
     pub fn set_frame_width(&mut self, frame_width: u16) {

@@ -50,7 +50,6 @@ tls-native-tls = [
 tls-rustls = [
     "tokio-rustls",
     "rustls",
-    "rustls-pemfile",
     "webpki-roots",
     "_tls",
 ]
@@ -116,10 +115,6 @@ features = [
 ]
 optional = true
 default-features = false
-
-[dependencies.rustls-pemfile]
-version = "2"
-optional = true
 
 [dependencies.tokio]
 version = "^1.32"
