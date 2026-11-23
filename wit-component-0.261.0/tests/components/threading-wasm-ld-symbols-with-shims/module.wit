@@ -1,5 +1,0 @@
-package foo:foo;
-
-world module {
-  import bar: func() -> string;
-}

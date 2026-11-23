@@ -1,7 +1,0 @@
-package foo:foo;
-
-world module {
-    import old: interface {
-        thunk: func();
-    }
-}

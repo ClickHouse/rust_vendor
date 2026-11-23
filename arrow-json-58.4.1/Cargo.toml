@@ -18,6 +18,7 @@ authors = ["Apache Arrow <dev@arrow.apache.org>"]
 build = false
 include = [
     "benches/*.rs",
+    "build.rs",
     "src/**/*.rs",
     "Cargo.toml",
     "LICENSE.txt",
@@ -33,7 +34,6 @@ readme = "README.md"
 keywords = ["arrow"]
 license = "Apache-2.0"
 repository = "https://github.com/apache/arrow-rs"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -58,23 +58,34 @@ name = "serde"
 path = "benches/serde.rs"
 harness = false
 
+[dependencies]
+itoa = "1.0"
+memchr = "2.7.4"
+ryu = "1.0"
+
 [dependencies.arrow-array]
 version = "58.4.1"
+path = "../arrow-array"
 
 [dependencies.arrow-buffer]
 version = "58.4.1"
+path = "../arrow-buffer"
 
 [dependencies.arrow-cast]
 version = "58.4.1"
+path = "../arrow-cast"
 
 [dependencies.arrow-ord]
 version = "58.4.1"
+path = "../arrow-ord"
 
 [dependencies.arrow-schema]
 version = "58.4.1"
+path = "../arrow-schema"
 
 [dependencies.arrow-select]
 version = "58.4.1"
+path = "../arrow-select"
 
 [dependencies.chrono]
 version = "0.4.40"
@@ -90,23 +101,14 @@ version = "2.0"
 features = ["std"]
 default-features = false
 
-[dependencies.itoa]
-version = "1.0"
-
 [dependencies.lexical-core]
 version = "1.0"
 default-features = false
-
-[dependencies.memchr]
-version = "2.7.4"
 
 [dependencies.num-traits]
 version = "0.2.19"
 features = ["std"]
 default-features = false
-
-[dependencies.ryu]
-version = "1.0"
 
 [dependencies.serde_core]
 version = "1.0"
@@ -121,12 +123,13 @@ default-features = false
 version = "0.1.5"
 default-features = false
 
+[dev-dependencies]
+bytes = "1.4"
+futures = "0.3"
+
 [dev-dependencies.arbitrary]
 version = "1.4.2"
 features = ["derive"]
-
-[dev-dependencies.bytes]
-version = "1.4"
 
 [dev-dependencies.criterion]
 version = "0.8.0"
@@ -136,9 +139,6 @@ default-features = false
 version = "1"
 features = ["rust_backend"]
 default-features = false
-
-[dev-dependencies.futures]
-version = "0.3"
 
 [dev-dependencies.rand]
 version = "0.9"

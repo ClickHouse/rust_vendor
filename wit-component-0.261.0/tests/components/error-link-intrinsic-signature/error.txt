@@ -1,1 +1,0 @@
-failed to extract linking metadata from app.wasm: type mismatch for function `env.__wasm_get_stack_pointer`: required linker ABI `[] -> [I32]` but found `[I64] -> [I32]`
