@@ -34,7 +34,6 @@ readme = "README.md"
 keywords = ["arrow"]
 license = "Apache-2.0"
 repository = "https://github.com/apache/arrow-rs"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -380,49 +379,63 @@ required-features = ["test_utils"]
 
 [dependencies.arrow-arith]
 version = "58.4.1"
+path = "../arrow-arith"
 
 [dependencies.arrow-array]
 version = "58.4.1"
+path = "../arrow-array"
 
 [dependencies.arrow-buffer]
 version = "58.4.1"
+path = "../arrow-buffer"
 
 [dependencies.arrow-cast]
 version = "58.4.1"
+path = "../arrow-cast"
 
 [dependencies.arrow-csv]
 version = "58.4.1"
+path = "../arrow-csv"
 optional = true
 
 [dependencies.arrow-data]
 version = "58.4.1"
+path = "../arrow-data"
 
 [dependencies.arrow-ipc]
 version = "58.4.1"
+path = "../arrow-ipc"
 optional = true
 
 [dependencies.arrow-json]
 version = "58.4.1"
+path = "../arrow-json"
 optional = true
 
 [dependencies.arrow-ord]
 version = "58.4.1"
+path = "../arrow-ord"
 
 [dependencies.arrow-pyarrow]
 version = "58.4.1"
+path = "../arrow-pyarrow"
 optional = true
 
 [dependencies.arrow-row]
 version = "58.4.1"
+path = "../arrow-row"
 
 [dependencies.arrow-schema]
 version = "58.4.1"
+path = "../arrow-schema"
 
 [dependencies.arrow-select]
 version = "58.4.1"
+path = "../arrow-select"
 
 [dependencies.arrow-string]
 version = "58.4.1"
+path = "../arrow-string"
 
 [dependencies.half]
 version = "2.1"
@@ -440,8 +453,9 @@ features = [
 optional = true
 default-features = false
 
-[dev-dependencies.bytes]
-version = "1.9"
+[dev-dependencies]
+bytes = "1.9"
+memmap2 = "0.9.3"
 
 [dev-dependencies.chrono]
 version = "0.4.40"
@@ -456,9 +470,6 @@ default-features = false
 version = "2.1"
 features = ["rand_distr"]
 default-features = false
-
-[dev-dependencies.memmap2]
-version = "0.9.3"
 
 [dev-dependencies.rand]
 version = "0.9"

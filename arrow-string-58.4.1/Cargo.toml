@@ -18,6 +18,7 @@ authors = ["Apache Arrow <dev@arrow.apache.org>"]
 build = false
 include = [
     "benches/*.rs",
+    "build.rs",
     "src/**/*.rs",
     "Cargo.toml",
     "LICENSE.txt",
@@ -33,7 +34,6 @@ readme = false
 keywords = ["arrow"]
 license = "Apache-2.0"
 repository = "https://github.com/apache/arrow-rs"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -43,23 +43,28 @@ name = "arrow_string"
 path = "src/lib.rs"
 bench = false
 
+[dependencies]
+memchr = "2.7.4"
+
 [dependencies.arrow-array]
 version = "58.4.1"
+path = "../arrow-array"
 
 [dependencies.arrow-buffer]
 version = "58.4.1"
+path = "../arrow-buffer"
 
 [dependencies.arrow-data]
 version = "58.4.1"
+path = "../arrow-data"
 
 [dependencies.arrow-schema]
 version = "58.4.1"
+path = "../arrow-schema"
 
 [dependencies.arrow-select]
 version = "58.4.1"
-
-[dependencies.memchr]
-version = "2.7.4"
+path = "../arrow-select"
 
 [dependencies.num-traits]
 version = "0.2.19"

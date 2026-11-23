@@ -30,7 +30,6 @@ keywords = [
 ]
 license = "Apache-2.0"
 repository = "https://github.com/apache/arrow-rs"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true
@@ -319,30 +318,37 @@ required-features = ["arrow"]
 
 [dependencies.arrow-array]
 version = "58.4.1"
+path = "../arrow-array"
 optional = true
 
 [dependencies.arrow-buffer]
 version = "58.4.1"
+path = "../arrow-buffer"
 optional = true
 
 [dependencies.arrow-csv]
 version = "58.4.1"
+path = "../arrow-csv"
 optional = true
 
 [dependencies.arrow-data]
 version = "58.4.1"
+path = "../arrow-data"
 optional = true
 
 [dependencies.arrow-ipc]
 version = "58.4.1"
+path = "../arrow-ipc"
 optional = true
 
 [dependencies.arrow-schema]
 version = "58.4.1"
+path = "../arrow-schema"
 optional = true
 
 [dependencies.arrow-select]
 version = "58.4.1"
+path = "../arrow-select"
 optional = true
 
 [dependencies.base64]
@@ -436,18 +442,22 @@ default-features = false
 
 [dependencies.parquet-geospatial]
 version = "58.4.1"
+path = "../parquet-geospatial"
 optional = true
 
 [dependencies.parquet-variant]
 version = "58.4.1"
+path = "../parquet-variant"
 optional = true
 
 [dependencies.parquet-variant-compute]
 version = "58.4.1"
+path = "../parquet-variant-compute"
 optional = true
 
 [dependencies.parquet-variant-json]
 version = "58.4.1"
+path = "../parquet-variant-json"
 optional = true
 
 [dependencies.paste]
@@ -511,6 +521,7 @@ default-features = false
 
 [dev-dependencies.arrow]
 version = "58.4.1"
+path = "../arrow"
 features = [
     "ipc",
     "test_utils",
@@ -521,6 +532,7 @@ default-features = false
 
 [dev-dependencies.arrow-cast]
 version = "58.4.1"
+path = "../arrow-cast"
 
 [dev-dependencies.base64]
 version = "0.22"

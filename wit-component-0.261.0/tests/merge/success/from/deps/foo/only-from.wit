@@ -1,7 +1,0 @@
-interface only-from {
-  record r {
-    a: u32,
-  }
-
-  foo: func() -> r;
-}

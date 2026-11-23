@@ -1,5 +1,0 @@
-package root:component;
-
-world root {
-  export foo: async func(s: string);
-}

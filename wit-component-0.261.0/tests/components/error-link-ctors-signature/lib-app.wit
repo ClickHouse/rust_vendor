@@ -1,5 +1,0 @@
-package test:test;
-
-world lib-app {
-  export run: func();
-}

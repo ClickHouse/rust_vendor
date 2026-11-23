@@ -18,6 +18,7 @@ authors = ["Apache Arrow <dev@arrow.apache.org>"]
 build = false
 include = [
     "benches/*.rs",
+    "build.rs",
     "src/**/*.rs",
     "Cargo.toml",
     "LICENSE.txt",
@@ -33,7 +34,6 @@ readme = false
 keywords = ["arrow"]
 license = "Apache-2.0"
 repository = "https://github.com/apache/arrow-rs"
-resolver = "2"
 
 [package.metadata.docs.rs]
 all-features = true

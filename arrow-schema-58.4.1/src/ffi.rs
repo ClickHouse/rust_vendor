@@ -71,7 +71,9 @@ bitflags! {
 /// }
 /// ```
 ///
+// With `-Zsanitizer=cfi`, use the C struct name so callbacks match the C and C++ type ids.
 #[repr(C)]
+#[cfg_attr(arrow_cfi, cfi_encoding = "11ArrowSchema")]
 #[derive(Debug)]
 #[allow(non_camel_case_types)]
 pub struct FFI_ArrowSchema {
