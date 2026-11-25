@@ -1,7 +1,0 @@
-package foo:foo;
-
-world module {
-  import takes-string: func(s: string);
-
-  export run: func();
-}
